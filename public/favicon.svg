@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#7c3aed"/>
+  <circle cx="176" cy="176" r="56" fill="#fff"/>
+  <rect x="232" y="232" width="220" height="40" rx="20" fill="#fff" transform="rotate(45 342 252)"/>
+  <text x="50%" y="420" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="700" font-size="96" fill="#fff">SL</text>
+</svg>
