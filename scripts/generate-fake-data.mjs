@@ -1,41 +1,67 @@
 // Generates a SquashLevel import/export JSON file with fake matches between
-// Amit, Bharat, Rochit, Sanchit over the last 12 months, shaped to hit the
-// win-rate targets the user specified.
+// seven players (Amit, Bharat, Rochit, Sanchit, Veybhav, Satch, Puneet) from
+// 2021-01-01 through today, at roughly 50 matches per player per year.
 //
 // Run: node scripts/generate-fake-data.mjs [output-path]
 //   default output: fixtures/squashlevel-fake.json
 
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
-import { mkdirSync } from 'node:fs'
 
 const outPath = resolve(process.argv[2] ?? 'fixtures/squashlevel-fake.json')
 
-// Players (placeholder emails — replace in the app after import).
+const START = new Date('2021-01-01T12:00:00Z')
+const END = new Date()
+const DAYS_SPAN = Math.floor((END - START) / (1000 * 60 * 60 * 24))
+const YEARS = DAYS_SPAN / 365.25
+
+// Players (placeholder @example.com emails — swap in real emails in the app).
 const players = [
   { name: 'Amit',    startingLevel: 1100, email: 'amit@example.com' },
   { name: 'Bharat',  startingLevel: 1000, email: 'bharat@example.com' },
   { name: 'Rochit',  startingLevel: 1000, email: 'rochit@example.com' },
   { name: 'Sanchit', startingLevel: 900,  email: 'sanchit@example.com' },
+  { name: 'Veybhav', startingLevel: 700,  email: 'veybhav@example.com' },
+  { name: 'Satch',   startingLevel: 900,  email: 'satch@example.com' },
+  { name: 'Puneet',  startingLevel: 850,  email: 'puneet@example.com' },
 ].map((p) => ({
   id: randomUUID(),
   name: p.name,
   startingLevel: p.startingLevel,
   email: p.email,
-  createdAt: daysAgo(365).toISOString(),
+  createdAt: START.toISOString(),
 }))
 
 const id = (name) => players.find((p) => p.name === name).id
 
-// Probability that player A beats player B in a match.
+// Each matchup has `a`, `b`, pA (probability a beats b), and `perYear` match count.
+// Targeting ≈50 matches per player per year across their total pairings.
 const matchups = [
-  { a: 'Amit',   b: 'Sanchit', pA: 0.90, count: 10 },
-  { a: 'Amit',   b: 'Bharat',  pA: 0.70, count: 12 },
-  { a: 'Amit',   b: 'Rochit',  pA: 0.60, count: 10 },
-  { a: 'Bharat', b: 'Sanchit', pA: 0.55, count: 8  },
-  { a: 'Bharat', b: 'Rochit',  pA: 0.60, count: 10 }, // Rochit wins 40%
-  { a: 'Rochit', b: 'Sanchit', pA: 0.70, count: 10 },
+  // Core four — roughly 6 per pair per year (→ 44-59 per player from this group).
+  { a: 'Amit',   b: 'Bharat',  pA: 0.70, perYear: 6 },
+  { a: 'Amit',   b: 'Rochit',  pA: 0.60, perYear: 6 },
+  { a: 'Amit',   b: 'Sanchit', pA: 0.90, perYear: 6 },
+  { a: 'Bharat', b: 'Rochit',  pA: 0.60, perYear: 6 }, // Rochit wins 40%
+  { a: 'Bharat', b: 'Sanchit', pA: 0.55, perYear: 6 },
+  { a: 'Rochit', b: 'Sanchit', pA: 0.70, perYear: 6 },
+
+  // Veybhav — only plays Amit/Rochit/Sanchit, wins 10%.
+  { a: 'Amit',    b: 'Veybhav', pA: 0.90, perYear: 15 },
+  { a: 'Rochit',  b: 'Veybhav', pA: 0.90, perYear: 15 },
+  { a: 'Sanchit', b: 'Veybhav', pA: 0.90, perYear: 15 },
+
+  // Satch — 30% vs Amit/Rochit/Bharat, 50% vs Sanchit.
+  { a: 'Amit',    b: 'Satch',   pA: 0.70, perYear: 13 },
+  { a: 'Rochit',  b: 'Satch',   pA: 0.70, perYear: 13 },
+  { a: 'Bharat',  b: 'Satch',   pA: 0.70, perYear: 13 },
+  { a: 'Sanchit', b: 'Satch',   pA: 0.50, perYear: 13 },
+
+  // Puneet — 30% vs Amit/Rochit, 50% vs Sanchit, 40% vs Bharat.
+  { a: 'Amit',    b: 'Puneet',  pA: 0.70, perYear: 13 },
+  { a: 'Rochit',  b: 'Puneet',  pA: 0.70, perYear: 13 },
+  { a: 'Sanchit', b: 'Puneet',  pA: 0.50, perYear: 13 },
+  { a: 'Bharat',  b: 'Puneet',  pA: 0.60, perYear: 13 },
 ]
 
 const TYPES = [
@@ -48,15 +74,13 @@ const TYPES = [
 const matches = []
 
 for (const mu of matchups) {
-  // Spread `count` matches across ~365 days with some jitter so dates aren't uniform.
-  const days = evenlySpacedDaysAgo(mu.count, 365)
-  for (const d of days) {
+  const count = Math.max(1, Math.round(mu.perYear * YEARS))
+  const dates = evenlySpacedDates(count, START, END)
+  for (const d of dates) {
     const aWins = Math.random() < mu.pA
-    const winnerName = aWins ? mu.a : mu.b
-    const loserName  = aWins ? mu.b : mu.a
-    // Dominance shapes the 3-X distribution. Closer match rate -> more 3-2.
     const dominance = Math.abs(mu.pA - 0.5) * 2 // 0 = coin flip, 1 = guaranteed
-    const loserGames = pickLoserGames(dominance, aWins ? mu.pA : 1 - mu.pA)
+    const winnerProb = aWins ? mu.pA : 1 - mu.pA
+    const loserGames = pickLoserGames(dominance, winnerProb)
     const games = generateGames(loserGames, aWins ? 'A' : 'B')
     matches.push({
       id: randomUUID(),
@@ -67,11 +91,10 @@ for (const mu of matchups) {
       type: pickType(),
       notes: undefined,
     })
-    void winnerName; void loserName
   }
 }
 
-// Sort by date for readability.
+// Sort chronologically.
 matches.sort((x, y) => x.date.localeCompare(y.date))
 
 const settings = {
@@ -93,38 +116,44 @@ const exportData = {
 
 mkdirSync(dirname(outPath), { recursive: true })
 writeFileSync(outPath, JSON.stringify(exportData, null, 2))
-console.log(`Wrote ${matches.length} matches for ${players.length} players → ${outPath}`)
+
+// Print summary.
+const perPlayer = Object.fromEntries(players.map((p) => [p.name, 0]))
+for (const m of matches) {
+  perPlayer[nameFor(m.playerAId)]++
+  perPlayer[nameFor(m.playerBId)]++
+}
+console.log(`Wrote ${matches.length} matches (${players.length} players, ${YEARS.toFixed(2)} years) → ${outPath}`)
+console.log('Matches per player:')
+for (const [name, n] of Object.entries(perPlayer)) {
+  console.log(`  ${name.padEnd(8)} ${n}  (${(n / YEARS).toFixed(1)}/year)`)
+}
+
+function nameFor(pid) {
+  return players.find((p) => p.id === pid)?.name ?? '?'
+}
 
 // ---------- helpers ----------
 
-function daysAgo(n) {
-  const d = new Date()
-  d.setDate(d.getDate() - n)
-  d.setHours(12, 0, 0, 0)
-  return d
-}
-
-function evenlySpacedDaysAgo(count, totalDays) {
+function evenlySpacedDates(count, start, end) {
+  const totalMs = end - start
+  const step = totalMs / count
   const out = []
-  const step = totalDays / count
   for (let i = 0; i < count; i++) {
-    const base = totalDays - step * (i + 0.5)
+    const base = start.getTime() + step * (i + 0.5)
     const jitter = (Math.random() - 0.5) * step * 0.8
-    out.push(daysAgo(Math.max(0, Math.round(base + jitter))))
+    const d = new Date(base + jitter)
+    d.setUTCHours(12, 0, 0, 0)
+    if (d < start) d.setTime(start.getTime())
+    if (d > end) d.setTime(end.getTime())
+    out.push(d)
   }
   return out.sort((a, b) => a - b)
 }
 
 function pickLoserGames(dominance, winnerProb) {
-  // Dominance 0 (coin flip) → heavy 3-2 / 3-1 mix.
-  // Dominance 1 (very one-sided) → mostly 3-0 / 3-1.
-  // Map to [P(3-0), P(3-1), P(3-2)].
-  const p30 = 0.15 + dominance * 0.55   // 0.15 → 0.70
+  const p30 = 0.15 + dominance * 0.55
   const p31 = 0.35 + (1 - dominance) * 0.10
-  // remainder goes to 3-2
-  const total = p30 + p31
-  const p32 = Math.max(0, 1 - total)
-  // Underdog wins: reduce 3-0 likelihood (upset wins tend to be closer).
   if (winnerProb < 0.5) {
     const r = Math.random()
     if (r < 0.15) return 0
@@ -134,44 +163,30 @@ function pickLoserGames(dominance, winnerProb) {
   const r = Math.random()
   if (r < p30) return 0
   if (r < p30 + p31) return 1
-  void p32
   return 2
 }
 
 function generateGames(loserGames, winnerSide /* 'A' | 'B' */) {
-  // winner wins 3 games, loser wins `loserGames`.
   const pattern = interleave(3, loserGames)
   return pattern.map((winOfGame) => {
     const [high, low] = validGameScore()
     if (winOfGame === 'W') {
       return winnerSide === 'A' ? { a: high, b: low } : { a: low, b: high }
-    } else {
-      return winnerSide === 'A' ? { a: low, b: high } : { a: high, b: low }
     }
+    return winnerSide === 'A' ? { a: low, b: high } : { a: high, b: low }
   })
 }
 
 function interleave(winCount, loseCount) {
-  // Random valid sequence ending on winner's 3rd win.
   const seq = []
   let w = 0
   let l = 0
   while (w < winCount) {
-    if (l >= loseCount) {
-      seq.push('W'); w++
-      continue
-    }
-    // Bias slightly toward winner winning each game.
-    if (Math.random() < 0.55) {
-      seq.push('W'); w++
-    } else {
-      seq.push('L'); l++
-    }
+    if (l >= loseCount) { seq.push('W'); w++; continue }
+    if (Math.random() < 0.55) { seq.push('W'); w++ }
+    else { seq.push('L'); l++ }
   }
-  // Add any remaining loser games if we ended early (shouldn't happen with above).
   while (l < loseCount) { seq.push('L'); l++ }
-  // Move a trailing 'L' in front of the final 'W' if needed so the match ends on winner's 3rd W.
-  // In squash the match ends when one side reaches 3, so forcibly drop any post-final-W games.
   const trimmed = []
   let wins = 0
   for (const s of seq) {
@@ -183,10 +198,8 @@ function interleave(winCount, loseCount) {
 }
 
 function validGameScore() {
-  // Returns [winnerScore, loserScore] for a standard 11-point, win-by-2 game.
   const r = Math.random()
   if (r < 0.75) {
-    // 11-x where x ∈ 0..9
     const s = Math.random()
     if (s < 0.15) return [11, rand(0, 3)]
     if (s < 0.55) return [11, rand(4, 7)]
