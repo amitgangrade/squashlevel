@@ -23,6 +23,7 @@ export const PlayerSchema = z.object({
   startingLevel: z.number().positive(),
   createdAt: z.string(),
   notes: z.string().optional(),
+  email: z.string().email().optional(),
 })
 export type Player = z.infer<typeof PlayerSchema>
 

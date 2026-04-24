@@ -8,6 +8,7 @@ export function RosterPage() {
   const [name, setName] = useState('')
   const [startingLevel, setStartingLevel] = useState<string>('1000')
   const [notes, setNotes] = useState('')
+  const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
 
@@ -15,6 +16,7 @@ export function RosterPage() {
     setName('')
     setStartingLevel('1000')
     setNotes('')
+    setEmail('')
     setEditingId(null)
     setError('')
   }
@@ -24,11 +26,16 @@ export function RosterPage() {
     const lvl = Number(startingLevel)
     if (!name.trim()) return setError('Name is required')
     if (!Number.isFinite(lvl) || lvl <= 0) return setError('Starting level must be a positive number')
+    const trimmedEmail = email.trim()
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      return setError('Email looks invalid')
+    }
+    const emailVal = trimmedEmail || undefined
     if (editingId) {
       const existing = players.find((p) => p.id === editingId)!
-      await updatePlayer({ ...existing, name: name.trim(), startingLevel: lvl, notes: notes || undefined })
+      await updatePlayer({ ...existing, name: name.trim(), startingLevel: lvl, notes: notes || undefined, email: emailVal })
     } else {
-      await addPlayer({ name: name.trim(), startingLevel: lvl, notes: notes || undefined })
+      await addPlayer({ name: name.trim(), startingLevel: lvl, notes: notes || undefined, email: emailVal })
     }
     reset()
   }
@@ -38,6 +45,7 @@ export function RosterPage() {
     setName(p.name)
     setStartingLevel(String(p.startingLevel))
     setNotes(p.notes ?? '')
+    setEmail(p.email ?? '')
     setError('')
   }
 
@@ -74,6 +82,18 @@ export function RosterPage() {
             <p className="mt-1 text-xs text-slate-500">
               Use the player's current rating from SquashLevels.com (e.g. 1200). Scale: 50 beginner → 50,000+ top pro.
             </p>
+          </div>
+          <div>
+            <label className="label" htmlFor="email">Email (optional)</label>
+            <input
+              id="email"
+              type="email"
+              className="input w-full"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="player@example.com"
+            />
+            <p className="mt-1 text-xs text-slate-500">If set, this player gets an email when a match they played is logged.</p>
           </div>
           <div>
             <label className="label" htmlFor="notes">Notes (optional)</label>

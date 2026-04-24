@@ -1,0 +1,1468 @@
+{
+  "version": 1,
+  "exportedAt": "2026-04-24T09:24:31.925Z",
+  "players": [
+    {
+      "id": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "name": "Amit",
+      "startingLevel": 1100,
+      "email": "amit@example.com",
+      "createdAt": "2025-04-24T04:00:00.000Z"
+    },
+    {
+      "id": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "name": "Bharat",
+      "startingLevel": 1000,
+      "email": "bharat@example.com",
+      "createdAt": "2025-04-24T04:00:00.000Z"
+    },
+    {
+      "id": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "name": "Rochit",
+      "startingLevel": 1000,
+      "email": "rochit@example.com",
+      "createdAt": "2025-04-24T04:00:00.000Z"
+    },
+    {
+      "id": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "name": "Sanchit",
+      "startingLevel": 900,
+      "email": "sanchit@example.com",
+      "createdAt": "2025-04-24T04:00:00.000Z"
+    }
+  ],
+  "matches": [
+    {
+      "id": "b698d933-06bd-4240-b7ec-ddb5f1951b5a",
+      "date": "2025-05-02",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 12,
+          "b": 10
+        },
+        {
+          "a": 11,
+          "b": 1
+        },
+        {
+          "a": 11,
+          "b": 2
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "6667f093-bb24-40db-bb04-c7c7aba1c32b",
+      "date": "2025-05-04",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 4,
+          "b": 11
+        },
+        {
+          "a": 10,
+          "b": 12
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 10,
+          "b": 12
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "ac638bc0-2409-4296-aa0f-f2e91efa4110",
+      "date": "2025-05-06",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 5,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "16d716d9-b87e-43e8-b138-0fd0d35d3429",
+      "date": "2025-05-06",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 12,
+          "b": 10
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "2ffb3dd9-5c64-441e-b5f8-d29883a7e2c4",
+      "date": "2025-05-20",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 2
+        }
+      ],
+      "type": "tournament"
+    },
+    {
+      "id": "9d9d51ba-fc49-4a26-a7ca-5fc929107fda",
+      "date": "2025-05-23",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 6,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "fa9e402e-6700-4c93-973d-64fa3c0eee7e",
+      "date": "2025-06-13",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 13,
+          "b": 11
+        },
+        {
+          "a": 12,
+          "b": 10
+        },
+        {
+          "a": 11,
+          "b": 5
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "91fd3503-155e-45f6-b2d1-ccfb07838df7",
+      "date": "2025-06-15",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 13,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 10,
+          "b": 12
+        },
+        {
+          "a": 6,
+          "b": 11
+        },
+        {
+          "a": 10,
+          "b": 12
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "24c2439a-5ff2-4909-8dbb-87b4181dee81",
+      "date": "2025-06-17",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 0
+        },
+        {
+          "a": 10,
+          "b": 12
+        },
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 11,
+          "b": 1
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "a5194103-640e-4d65-9fa0-af003039e007",
+      "date": "2025-06-19",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 11,
+          "b": 7
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "c6a2d14a-6217-406b-9a4c-160ee393be56",
+      "date": "2025-06-24",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 14,
+          "b": 12
+        },
+        {
+          "a": 11,
+          "b": 2
+        }
+      ],
+      "type": "tournament"
+    },
+    {
+      "id": "d7caa3bc-cd28-46b8-b527-50175d8766d1",
+      "date": "2025-07-14",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 3,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 9
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "f5d163d2-c5e4-45e9-8758-a77cd9a7517e",
+      "date": "2025-07-14",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "1d2e399b-9681-4f12-a401-9d2715980586",
+      "date": "2025-07-16",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 4
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "bb1098ad-9bfd-4f50-9985-848848e7dcaa",
+      "date": "2025-07-19",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 7,
+          "b": 11
+        },
+        {
+          "a": 7,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "441ecd20-d2e9-487b-8496-64cfb77e28ef",
+      "date": "2025-07-19",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 13,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "6ea846db-48ab-4fbf-8802-cc50d1d092f3",
+      "date": "2025-07-20",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 0
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 6
+        }
+      ],
+      "type": "league"
+    },
+    {
+      "id": "947c762d-6495-400e-b7d6-28822167daee",
+      "date": "2025-08-05",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 13,
+          "b": 11
+        },
+        {
+          "a": 12,
+          "b": 10
+        },
+        {
+          "a": 11,
+          "b": 3
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "bbdbb6f8-042f-4851-aecb-ce44f3a7523c",
+      "date": "2025-08-14",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 9
+        }
+      ],
+      "type": "league"
+    },
+    {
+      "id": "4ee20c35-f12c-4900-8549-c34e528ad1a9",
+      "date": "2025-08-26",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "04d711ae-45b6-488a-a0b7-5293df852ce5",
+      "date": "2025-08-28",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 13
+        },
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 12,
+          "b": 14
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "0ece6b74-c153-4298-8bbe-e1806b741ecc",
+      "date": "2025-09-03",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 4,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 13,
+          "b": 11
+        },
+        {
+          "a": 12,
+          "b": 10
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "11cf1690-4bda-4ca4-9688-670e505eecb3",
+      "date": "2025-09-05",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 7,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 6,
+          "b": 11
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "ce45704f-76f5-47fa-b7a8-755f7ebfce74",
+      "date": "2025-09-18",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 6,
+          "b": 11
+        },
+        {
+          "a": 2,
+          "b": 11
+        },
+        {
+          "a": 3,
+          "b": 11
+        }
+      ],
+      "type": "league"
+    },
+    {
+      "id": "79e3803f-f512-4abc-9a61-af0f9695f55c",
+      "date": "2025-09-21",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 9
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "2d8d0266-dc15-4be4-b469-c5f896d45cdd",
+      "date": "2025-10-01",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 5,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "945d53cd-8dbb-4c89-be3c-d39717dd846d",
+      "date": "2025-10-06",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 11,
+          "b": 4
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "90088df4-fd23-4ecf-ac97-4d6f79324281",
+      "date": "2025-10-06",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 11,
+          "b": 0
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "372fee10-3281-4015-bc2f-d5b9f6d8c854",
+      "date": "2025-10-08",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 4,
+          "b": 11
+        },
+        {
+          "a": 13,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 2
+        }
+      ],
+      "type": "league"
+    },
+    {
+      "id": "37f1b0bb-49ab-4595-9b5e-edb2e9bafb92",
+      "date": "2025-10-14",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 14,
+          "b": 12
+        },
+        {
+          "a": 12,
+          "b": 10
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "167ff7dd-9744-4070-8d4f-063e2ead9030",
+      "date": "2025-11-02",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 7
+        },
+        {
+          "a": 10,
+          "b": 12
+        },
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 5,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "e914de72-95e4-4861-8f24-38d3f8bd08c7",
+      "date": "2025-11-03",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 7,
+          "b": 11
+        },
+        {
+          "a": 10,
+          "b": 12
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "a80ef3f9-4089-4564-b588-4665423c71a0",
+      "date": "2025-11-07",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 0
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "8c1081fd-18e5-4ab8-a03e-71b664dba302",
+      "date": "2025-11-14",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 7,
+          "b": 11
+        },
+        {
+          "a": 6,
+          "b": 11
+        },
+        {
+          "a": 5,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "e1a735d8-bd0d-4ada-9f55-a9ace68a0fd6",
+      "date": "2025-11-15",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 11,
+          "b": 3
+        },
+        {
+          "a": 10,
+          "b": 12
+        },
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 1,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "32d7f077-f2a0-4b32-a9fe-5b2d97e4a34e",
+      "date": "2025-11-16",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 4
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "1f0dd4f2-b2f8-46fa-81ed-c643f5cdf2ea",
+      "date": "2025-11-27",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 2,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 12,
+          "b": 10
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "9f60d8f5-59b9-4284-8be2-836927783fee",
+      "date": "2025-12-10",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 10,
+          "b": 12
+        },
+        {
+          "a": 8,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "754f83b8-d9ee-4b40-8470-5bab131f6b4a",
+      "date": "2025-12-22",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 7
+        },
+        {
+          "a": 11,
+          "b": 1
+        }
+      ],
+      "type": "league"
+    },
+    {
+      "id": "b15e02c7-da47-4bb9-ba77-092794e4709d",
+      "date": "2025-12-24",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 13,
+          "b": 11
+        },
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 4
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "939d5717-4ed2-4849-acd4-a892382daa5f",
+      "date": "2025-12-29",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 6,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 11,
+          "b": 9
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "0eae7256-9671-4429-88c5-b2c7eaf234f7",
+      "date": "2025-12-30",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 11,
+          "b": 2
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "tournament"
+    },
+    {
+      "id": "99c2f305-b7e7-4269-acae-1b7178aa8b9f",
+      "date": "2025-12-30",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 7,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 13
+        },
+        {
+          "a": 14,
+          "b": 12
+        },
+        {
+          "a": 10,
+          "b": 12
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "6d7aa93c-fcf5-4cb5-b116-5284763c719c",
+      "date": "2026-01-11",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 3
+        },
+        {
+          "a": 11,
+          "b": 7
+        },
+        {
+          "a": 14,
+          "b": 12
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "f2269b82-f005-4dff-8dd4-c3366a21fa63",
+      "date": "2026-01-13",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 10,
+          "b": 12
+        },
+        {
+          "a": 6,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 1,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "bdb64752-b5cd-491b-a368-e9d989264192",
+      "date": "2026-01-27",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 0,
+          "b": 11
+        },
+        {
+          "a": 6,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "85c2e4b8-0687-47d2-9cb8-8991a9007ef3",
+      "date": "2026-02-05",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 10,
+          "b": 12
+        },
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 12,
+          "b": 14
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "4274d4bc-2b3c-46d0-a60f-040ce7b3c4b4",
+      "date": "2026-02-07",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 9,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 3,
+          "b": 11
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "66148efa-3c64-427e-8606-ed52c8f841b0",
+      "date": "2026-02-18",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 7
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "league"
+    },
+    {
+      "id": "a058a765-74f0-473a-a3e4-055438f8044b",
+      "date": "2026-02-20",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 8,
+          "b": 11
+        },
+        {
+          "a": 9,
+          "b": 11
+        }
+      ],
+      "type": "tournament"
+    },
+    {
+      "id": "8caf9a19-799d-4ba3-a9b9-760f0e2609c1",
+      "date": "2026-03-01",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "league"
+    },
+    {
+      "id": "1d30458b-e233-4512-ac32-affd61436d0a",
+      "date": "2026-03-10",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 6,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 4
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "9a8ef338-3f96-428e-9438-df266b5e4b6c",
+      "date": "2026-03-14",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 11,
+          "b": 8
+        },
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "aeeadcf3-7fa6-4623-9f08-40a4c4a3a72a",
+      "date": "2026-03-16",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 0
+        },
+        {
+          "a": 11,
+          "b": 13
+        },
+        {
+          "a": 12,
+          "b": 10
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "51a44733-e611-4b3e-89fe-69acc90d366f",
+      "date": "2026-03-20",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 4
+        },
+        {
+          "a": 10,
+          "b": 12
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 4
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "8da8a93d-ff2b-4548-808c-3d77e7481a54",
+      "date": "2026-03-30",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 7
+        },
+        {
+          "a": 11,
+          "b": 9
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "187a7ee9-d74f-463d-92aa-1db0e939a344",
+      "date": "2026-04-08",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 11,
+          "b": 6
+        },
+        {
+          "a": 12,
+          "b": 10
+        },
+        {
+          "a": 4,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 13
+        },
+        {
+          "a": 7,
+          "b": 11
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "2bd308a4-4672-4ae7-b0bd-1ed1316f47cf",
+      "date": "2026-04-11",
+      "playerAId": "c20597f2-2bd0-43bc-bdbb-b59602fe36f5",
+      "playerBId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "games": [
+        {
+          "a": 3,
+          "b": 11
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 6
+        }
+      ],
+      "type": "box"
+    },
+    {
+      "id": "afd18f50-25e4-42c8-9d45-1f6fce8001ca",
+      "date": "2026-04-12",
+      "playerAId": "1a16258e-ccd0-4048-8508-38ba3cafa994",
+      "playerBId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "games": [
+        {
+          "a": 12,
+          "b": 10
+        },
+        {
+          "a": 11,
+          "b": 5
+        },
+        {
+          "a": 11,
+          "b": 8
+        }
+      ],
+      "type": "friendly"
+    },
+    {
+      "id": "18c4f1e0-5804-40ff-a30d-4e577651c1e9",
+      "date": "2026-04-18",
+      "playerAId": "a677fee0-e5de-46cc-bd24-dba67cda31b2",
+      "playerBId": "fdc1f04a-9dff-4492-9e20-ba8eae0f234c",
+      "games": [
+        {
+          "a": 12,
+          "b": 10
+        },
+        {
+          "a": 11,
+          "b": 9
+        },
+        {
+          "a": 11,
+          "b": 5
+        }
+      ],
+      "type": "friendly"
+    }
+  ],
+  "settings": {
+    "dampingK": 0.12,
+    "pointsWeight": 0.5,
+    "pointsExponent": 2,
+    "gamesExponent": 5,
+    "provisionalThreshold": 5,
+    "movingAverageWindow": 4
+  }
+}

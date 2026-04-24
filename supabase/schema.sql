@@ -6,9 +6,13 @@ create table if not exists public.players (
   name text not null,
   starting_level numeric not null,
   notes text,
+  email text,
   created_at timestamptz not null default now(),
   created_by uuid references auth.users(id) on delete set null
 );
+
+-- Add email column if upgrading an existing schema
+alter table public.players add column if not exists email text;
 
 create table if not exists public.matches (
   id uuid primary key,

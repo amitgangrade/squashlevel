@@ -113,6 +113,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const match: Match = { ...data, id: uuid() }
     await backend.putMatch(match)
     setMatches((prev) => [...prev, match])
+    if (supabaseEnabled) {
+      // Fire-and-forget: emails players who have an email set.
+      // Silently no-ops if the edge function isn't deployed or Resend isn't configured.
+      supabase!.functions
+        .invoke('send-match-email', { body: { matchId: match.id } })
+        .catch((err) => console.warn('send-match-email failed:', err))
+    }
     return match
   }
 

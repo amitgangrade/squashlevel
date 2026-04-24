@@ -5,6 +5,7 @@ export interface PlayerRow {
   name: string
   starting_level: number
   notes: string | null
+  email: string | null
   created_at: string
 }
 
@@ -29,6 +30,7 @@ export const fromPlayerRow = (r: PlayerRow): Player => ({
   name: r.name,
   startingLevel: Number(r.starting_level),
   notes: r.notes ?? undefined,
+  email: r.email ?? undefined,
   createdAt: r.created_at,
 })
 
@@ -37,6 +39,7 @@ export const toPlayerRow = (p: Player): PlayerRow => ({
   name: p.name,
   starting_level: p.startingLevel,
   notes: p.notes ?? null,
+  email: p.email ?? null,
   created_at: p.createdAt,
 })
 
