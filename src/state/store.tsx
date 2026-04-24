@@ -17,7 +17,7 @@ interface StoreCtx {
   loading: boolean
   session: Session | null
   canEdit: boolean
-  signInWithGoogle: () => Promise<void>
+  signInWithEmail: (email: string) => Promise<void>
   signOut: () => Promise<void>
   addPlayer: (data: Omit<Player, 'id' | 'createdAt'>) => Promise<Player>
   updatePlayer: (p: Player) => Promise<void>
@@ -73,12 +73,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!canEdit) throw new Error('Read-only: sign in as the owner to make changes.')
   }
 
-  const signInWithGoogle = async () => {
+  const signInWithEmail = async (email: string) => {
     if (!supabaseEnabled) return
     const redirectTo = window.location.origin + window.location.pathname
-    const { error } = await supabase!.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo },
+    const { error } = await supabase!.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: redirectTo },
     })
     if (error) throw error
   }
@@ -151,7 +151,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     loading,
     session,
     canEdit,
-    signInWithGoogle,
+    signInWithEmail,
     signOut,
     addPlayer,
     updatePlayer,

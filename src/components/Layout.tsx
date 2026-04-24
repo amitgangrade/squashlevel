@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import clsx from 'clsx'
 import { supabaseEnabled } from '../lib/supabase/client'
@@ -13,15 +14,8 @@ const nav = [
 ]
 
 export function Layout() {
-  const { mode, session, canEdit, signInWithGoogle, signOut } = useStore()
-
-  const onSignIn = async () => {
-    try {
-      await signInWithGoogle()
-    } catch (e) {
-      alert('Sign-in failed: ' + (e as Error).message)
-    }
-  }
+  const { mode, session, canEdit, signInWithEmail, signOut } = useStore()
+  const [showSignIn, setShowSignIn] = useState(false)
 
   return (
     <div className="min-h-full flex flex-col">
@@ -61,7 +55,7 @@ export function Layout() {
                 Sign out
               </button>
             ) : (
-              <button onClick={onSignIn} className="text-xs rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap">
+              <button onClick={() => setShowSignIn(true)} className="text-xs rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap">
                 Sign in
               </button>
             )
@@ -74,6 +68,71 @@ export function Layout() {
       <footer className="border-t border-slate-200 dark:border-slate-800 py-3 text-center text-xs text-slate-500">
         SquashLevel · {mode === 'cloud' ? 'synced across your group' : 'local-first · your data stays in your browser'}
       </footer>
+      {showSignIn && <SignInDialog onClose={() => setShowSignIn(false)} signIn={signInWithEmail} />}
+    </div>
+  )
+}
+
+function SignInDialog({
+  onClose,
+  signIn,
+}: {
+  onClose: () => void
+  signIn: (email: string) => Promise<void>
+}) {
+  const [email, setEmail] = useState('')
+  const [sent, setSent] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setErr(null)
+    setLoading(true)
+    try {
+      await signIn(email)
+      setSent(true)
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-20 grid place-items-center bg-slate-950/40 p-4" onClick={onClose}>
+      <div className="card w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Owner sign in</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">×</button>
+        </div>
+        {sent ? (
+          <div className="text-sm">
+            <p className="mb-2">Magic link sent to <span className="font-medium">{email}</span>.</p>
+            <p className="text-slate-500">Open it on this device to sign in.</p>
+          </div>
+        ) : (
+          <form onSubmit={onSubmit} className="space-y-3">
+            <div>
+              <label className="label" htmlFor="email">Email</label>
+              <input
+                id="email"
+                type="email"
+                required
+                className="input w-full"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoFocus
+              />
+              <p className="mt-1 text-xs text-slate-500">We'll email you a link. Only the owner email can make changes.</p>
+            </div>
+            {err && <div className="text-sm text-red-600">{err}</div>}
+            <button className="btn-primary w-full" disabled={loading} type="submit">
+              {loading ? 'Sending…' : 'Send magic link'}
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   )
 }
