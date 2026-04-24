@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import clsx from 'clsx'
-import { supabase, supabaseEnabled } from '../lib/supabase/client'
+import { supabaseEnabled } from '../lib/supabase/client'
 import { useStore } from '../state/store'
 
 const nav = [
@@ -13,10 +13,14 @@ const nav = [
 ]
 
 export function Layout() {
-  const { mode } = useStore()
+  const { mode, session, canEdit, signInWithGoogle, signOut } = useStore()
 
-  const signOut = async () => {
-    if (supabase) await supabase.auth.signOut()
+  const onSignIn = async () => {
+    try {
+      await signInWithGoogle()
+    } catch (e) {
+      alert('Sign-in failed: ' + (e as Error).message)
+    }
   }
 
   return (
@@ -46,10 +50,21 @@ export function Layout() {
               </NavLink>
             ))}
           </nav>
+          {supabaseEnabled && !canEdit && (
+            <span className="hidden sm:inline text-xs rounded-md bg-slate-100 px-2 py-1 text-slate-600 dark:bg-slate-800 dark:text-slate-300 whitespace-nowrap">
+              Read only
+            </span>
+          )}
           {supabaseEnabled && (
-            <button onClick={signOut} className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 whitespace-nowrap">
-              Sign out
-            </button>
+            session ? (
+              <button onClick={signOut} className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 whitespace-nowrap">
+                Sign out
+              </button>
+            ) : (
+              <button onClick={onSignIn} className="text-xs rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap">
+                Sign in
+              </button>
+            )
           )}
         </div>
       </header>

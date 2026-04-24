@@ -4,7 +4,7 @@ import { fmtLevel } from '../lib/format'
 import type { Player } from '../types'
 
 export function RosterPage() {
-  const { players, recomputed, settings, addPlayer, updatePlayer, removePlayer } = useStore()
+  const { players, recomputed, settings, canEdit, addPlayer, updatePlayer, removePlayer } = useStore()
   const [name, setName] = useState('')
   const [startingLevel, setStartingLevel] = useState<string>('1000')
   const [notes, setNotes] = useState('')
@@ -54,6 +54,7 @@ export function RosterPage() {
 
   return (
     <div className="space-y-6">
+      {canEdit && (
       <section>
         <h1 className="mb-3">{editingId ? 'Edit player' : 'Add player'}</h1>
         <form onSubmit={onSubmit} className="card space-y-3 max-w-lg">
@@ -85,6 +86,7 @@ export function RosterPage() {
           </div>
         </form>
       </section>
+      )}
 
       <section>
         <h2 className="mb-2">Players ({players.length})</h2>
@@ -99,7 +101,7 @@ export function RosterPage() {
                   <th className="px-3 py-2 text-right">Start</th>
                   <th className="px-3 py-2 text-right">Current</th>
                   <th className="px-3 py-2 text-right">Matches</th>
-                  <th className="px-3 py-2"></th>
+                  {canEdit && <th className="px-3 py-2"></th>}
                 </tr>
               </thead>
               <tbody>
@@ -115,10 +117,12 @@ export function RosterPage() {
                       <td className="px-3 py-2 text-right">{fmtLevel(p.startingLevel)}</td>
                       <td className="px-3 py-2 text-right font-semibold">{fmtLevel(s?.currentLevel)}</td>
                       <td className="px-3 py-2 text-right text-slate-500">{s?.matchesPlayed ?? 0}</td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <button className="text-xs text-brand-600 hover:underline" onClick={() => beginEdit(p)}>Edit</button>
-                        <button className="ml-3 text-xs text-red-600 hover:underline" onClick={() => remove(p)}>Delete</button>
-                      </td>
+                      {canEdit && (
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <button className="text-xs text-brand-600 hover:underline" onClick={() => beginEdit(p)}>Edit</button>
+                          <button className="ml-3 text-xs text-red-600 hover:underline" onClick={() => remove(p)}>Delete</button>
+                        </td>
+                      )}
                     </tr>
                   )
                 })}

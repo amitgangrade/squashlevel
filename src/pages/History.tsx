@@ -4,7 +4,7 @@ import { MATCH_TYPE_LABEL } from '../types'
 import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
 
 export function HistoryPage() {
-  const { players, recomputed, removeMatch } = useStore()
+  const { players, recomputed, canEdit, removeMatch } = useStore()
   const [filter, setFilter] = useState<string>('')
 
   const nameOf = (id: string) => players.find((p) => p.id === id)?.name ?? '?'
@@ -66,9 +66,11 @@ export function HistoryPage() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-2 text-right">
-                  <button className="text-xs text-red-600 hover:underline" onClick={() => remove(m.id)}>Delete</button>
-                </div>
+                {canEdit && (
+                  <div className="mt-2 text-right">
+                    <button className="text-xs text-red-600 hover:underline" onClick={() => remove(m.id)}>Delete</button>
+                  </div>
+                )}
               </div>
             )
           })}

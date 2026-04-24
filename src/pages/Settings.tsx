@@ -4,7 +4,7 @@ import { downloadExport, restoreFromJson } from '../lib/storage/import-export'
 import { DEFAULT_SETTINGS, type Settings } from '../types'
 
 export function SettingsPage() {
-  const { settings, updateSettings, resetAll, refresh } = useStore()
+  const { settings, canEdit, updateSettings, resetAll, refresh } = useStore()
   const [draft, setDraft] = useState<Settings>(settings)
   const [msg, setMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -47,6 +47,14 @@ export function SettingsPage() {
   const num = (val: string, fallback: number) => {
     const n = Number(val)
     return Number.isFinite(n) ? n : fallback
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="card text-slate-500 text-sm">
+        Settings are only editable by the owner. Current algorithm values are applied automatically.
+      </div>
+    )
   }
 
   return (

@@ -11,3 +11,7 @@ export const supabase: SupabaseClient | null =
     : null
 
 export const supabaseEnabled = supabase !== null
+
+// Only this email is allowed to write in cloud mode. Keep in sync with RLS policies
+// in supabase/schema.sql.
+export const OWNER_EMAIL = 'amit.gangrade@gmail.com'

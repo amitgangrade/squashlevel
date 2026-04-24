@@ -36,20 +36,43 @@ alter table public.players enable row level security;
 alter table public.matches enable row level security;
 alter table public.settings enable row level security;
 
--- Any authenticated user (your friend group) can read and write.
+-- Public read-only access (no auth required). Only the owner email can write.
+-- Change the email below if you fork this project.
 drop policy if exists "auth all players" on public.players;
-create policy "auth all players" on public.players
-  for all to authenticated using (true) with check (true);
-
 drop policy if exists "auth all matches" on public.matches;
-create policy "auth all matches" on public.matches
-  for all to authenticated using (true) with check (true);
-
 drop policy if exists "auth all settings" on public.settings;
-create policy "auth all settings" on public.settings
-  for all to authenticated using (true) with check (true);
 
--- Enable realtime on these tables
+drop policy if exists "public read players" on public.players;
+create policy "public read players" on public.players
+  for select using (true);
+
+drop policy if exists "owner write players" on public.players;
+create policy "owner write players" on public.players
+  for all to authenticated
+  using (auth.jwt() ->> 'email' = 'amit.gangrade@gmail.com')
+  with check (auth.jwt() ->> 'email' = 'amit.gangrade@gmail.com');
+
+drop policy if exists "public read matches" on public.matches;
+create policy "public read matches" on public.matches
+  for select using (true);
+
+drop policy if exists "owner write matches" on public.matches;
+create policy "owner write matches" on public.matches
+  for all to authenticated
+  using (auth.jwt() ->> 'email' = 'amit.gangrade@gmail.com')
+  with check (auth.jwt() ->> 'email' = 'amit.gangrade@gmail.com');
+
+drop policy if exists "public read settings" on public.settings;
+create policy "public read settings" on public.settings
+  for select using (true);
+
+drop policy if exists "owner write settings" on public.settings;
+create policy "owner write settings" on public.settings
+  for all to authenticated
+  using (auth.jwt() ->> 'email' = 'amit.gangrade@gmail.com')
+  with check (auth.jwt() ->> 'email' = 'amit.gangrade@gmail.com');
+
+-- Enable realtime on these tables (ignore duplicate errors if already added)
 alter publication supabase_realtime add table public.players;
 alter publication supabase_realtime add table public.matches;
 alter publication supabase_realtime add table public.settings;

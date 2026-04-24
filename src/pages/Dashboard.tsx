@@ -4,7 +4,7 @@ import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
 
 export function DashboardPage() {
-  const { players, matches, recomputed, settings } = useStore()
+  const { players, matches, recomputed, settings, canEdit } = useStore()
 
   const rows = players
     .map((p) => {
@@ -31,14 +31,20 @@ export function DashboardPage() {
       <section>
         <div className="flex items-center justify-between mb-2">
           <h1>Leaderboard</h1>
-          <div className="flex gap-2">
-            <Link className="btn-secondary" to="/roster">Add player</Link>
-            <Link className="btn-primary" to="/log">Log match</Link>
-          </div>
+          {canEdit && (
+            <div className="flex gap-2">
+              <Link className="btn-secondary" to="/roster">Add player</Link>
+              <Link className="btn-primary" to="/log">Log match</Link>
+            </div>
+          )}
         </div>
         {rows.length === 0 ? (
           <div className="card text-center text-slate-500">
-            No players yet. <Link className="text-brand-600 underline" to="/roster">Add your first player</Link> to get started.
+            {canEdit ? (
+              <>No players yet. <Link className="text-brand-600 underline" to="/roster">Add your first player</Link> to get started.</>
+            ) : (
+              <>No players yet.</>
+            )}
           </div>
         ) : (
           <div className="card overflow-x-auto p-0">

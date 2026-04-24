@@ -8,8 +8,16 @@ import { fmtDelta, fmtLevel, todayIso } from '../lib/format'
 const MATCH_TYPES: MatchType[] = ['friendly', 'box', 'league', 'tournament']
 
 export function LogMatchPage() {
-  const { players, recomputed, settings, addMatch } = useStore()
+  const { players, recomputed, settings, canEdit, addMatch } = useStore()
   const navigate = useNavigate()
+
+  if (!canEdit) {
+    return (
+      <div className="card text-center text-slate-500">
+        This app is read-only for viewers. Only the owner can log matches.
+      </div>
+    )
+  }
 
   const [playerAId, setPlayerAId] = useState('')
   const [playerBId, setPlayerBId] = useState('')
