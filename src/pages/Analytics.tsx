@@ -12,6 +12,8 @@ import {
 } from 'recharts'
 import { fmtDate, fmtLevel } from '../lib/format'
 import { gamesWonBy, pointsRatio, winnerSide } from '../lib/rating/levels'
+import { totalPoints } from '../lib/match-summary'
+import { GameScores } from '../components/MatchScores'
 
 const PALETTE = ['#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#ec4899', '#6366f1', '#84cc16']
 
@@ -79,14 +81,40 @@ export function AnalyticsPage() {
         (m.playerAId === h2hA && m.playerBId === h2hB) ||
         (m.playerAId === h2hB && m.playerBId === h2hA),
     )
-    let aWins = 0
-    let bWins = 0
+    let aMatchWins = 0
+    let bMatchWins = 0
+    let aGamesWon = 0
+    let bGamesWon = 0
+    let aPoints = 0
+    let bPoints = 0
     for (const m of ms) {
-      const w = winnerSide(m.games)
-      if (w === 'a') m.playerAId === h2hA ? aWins++ : bWins++
-      else if (w === 'b') m.playerBId === h2hA ? aWins++ : bWins++
+      const aIsSideA = m.playerAId === h2hA
+      const winner = winnerSide(m.games)
+      if (winner === 'a') aIsSideA ? aMatchWins++ : bMatchWins++
+      else if (winner === 'b') aIsSideA ? bMatchWins++ : aMatchWins++
+      const gA = gamesWonBy(m.games, 'a')
+      const gB = gamesWonBy(m.games, 'b')
+      aGamesWon += aIsSideA ? gA : gB
+      bGamesWon += aIsSideA ? gB : gA
+      const pts = totalPoints(m.games)
+      aPoints += aIsSideA ? pts.a : pts.b
+      bPoints += aIsSideA ? pts.b : pts.a
     }
-    return { matches: ms, aWins, bWins }
+    const totalGames = aGamesWon + bGamesWon
+    const totalPts = aPoints + bPoints
+    return {
+      matches: ms,
+      aMatchWins,
+      bMatchWins,
+      aGamesWon,
+      bGamesWon,
+      aPoints,
+      bPoints,
+      gameShareA: totalGames > 0 ? aGamesWon / totalGames : 0,
+      gameShareB: totalGames > 0 ? bGamesWon / totalGames : 0,
+      pointShareA: totalPts > 0 ? aPoints / totalPts : 0,
+      pointShareB: totalPts > 0 ? bPoints / totalPts : 0,
+    }
   }, [h2hA, h2hB, recomputed.matches])
 
   const toggleHidden = (name: string) => {
@@ -183,22 +211,119 @@ export function AnalyticsPage() {
             </select>
           </div>
           {h2h && (
-            <div className="text-sm">
-              <div className="font-medium mb-2">
-                {players.find((p) => p.id === h2hA)?.name} {h2h.aWins} – {h2h.bWins} {players.find((p) => p.id === h2hB)?.name}
-                <span className="ml-2 text-slate-500">({h2h.matches.length} matches)</span>
+            <div className="text-sm space-y-4">
+              <H2HBreakdown
+                nameA={players.find((p) => p.id === h2hA)?.name ?? '?'}
+                nameB={players.find((p) => p.id === h2hB)?.name ?? '?'}
+                h2h={h2h}
+              />
+              <div>
+                <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Matches</div>
+                <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {h2h.matches.slice().sort((a, b) => b.date.localeCompare(a.date)).map((m) => {
+                    const aName = players.find((p) => p.id === m.playerAId)?.name ?? '?'
+                    const bName = players.find((p) => p.id === m.playerBId)?.name ?? '?'
+                    const aGames = gamesWonBy(m.games, 'a')
+                    const bGames = gamesWonBy(m.games, 'b')
+                    const winner = winnerSide(m.games)
+                    return (
+                      <li key={m.id} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="text-xs text-slate-500 w-20 shrink-0">{fmtDate(m.date)}</span>
+                        <span className="flex items-center gap-2">
+                          <span className={winner === 'a' ? 'font-semibold text-green-700 dark:text-green-400' : 'text-slate-500'}>
+                            {aName}
+                          </span>
+                          <span className="font-mono text-sm">
+                            <span className={winner === 'a' ? 'font-bold' : ''}>{aGames}</span>
+                            <span className="text-slate-400">–</span>
+                            <span className={winner === 'b' ? 'font-bold' : ''}>{bGames}</span>
+                          </span>
+                          <span className={winner === 'b' ? 'font-semibold text-green-700 dark:text-green-400' : 'text-slate-500'}>
+                            {bName}
+                          </span>
+                        </span>
+                        <GameScores games={m.games} />
+                      </li>
+                    )
+                  })}
+                </ul>
               </div>
-              <ul className="space-y-1 text-xs">
-                {h2h.matches.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10).map((m) => (
-                  <li key={m.id} className="text-slate-600 dark:text-slate-300">
-                    {fmtDate(m.date)} — {m.games.map((g) => `${g.a}-${g.b}`).join(', ')}
-                  </li>
-                ))}
-              </ul>
             </div>
           )}
         </div>
       </section>
+    </div>
+  )
+}
+
+interface H2HData {
+  matches: unknown[]
+  aMatchWins: number
+  bMatchWins: number
+  aGamesWon: number
+  bGamesWon: number
+  aPoints: number
+  bPoints: number
+  gameShareA: number
+  gameShareB: number
+  pointShareA: number
+  pointShareB: number
+}
+
+function H2HBreakdown({ nameA, nameB, h2h }: { nameA: string; nameB: string; h2h: H2HData }) {
+  const totalMatches = h2h.aMatchWins + h2h.bMatchWins
+  const matchShareA = totalMatches > 0 ? h2h.aMatchWins / totalMatches : 0
+  const matchShareB = totalMatches > 0 ? h2h.bMatchWins / totalMatches : 0
+  return (
+    <div className="grid sm:grid-cols-3 gap-3">
+      <StatBar
+        label="Matches"
+        a={{ name: nameA, value: h2h.aMatchWins, share: matchShareA }}
+        b={{ name: nameB, value: h2h.bMatchWins, share: matchShareB }}
+      />
+      <StatBar
+        label="Games"
+        a={{ name: nameA, value: h2h.aGamesWon, share: h2h.gameShareA }}
+        b={{ name: nameB, value: h2h.bGamesWon, share: h2h.gameShareB }}
+      />
+      <StatBar
+        label="Points"
+        a={{ name: nameA, value: h2h.aPoints, share: h2h.pointShareA }}
+        b={{ name: nameB, value: h2h.bPoints, share: h2h.pointShareB }}
+      />
+    </div>
+  )
+}
+
+function StatBar({
+  label,
+  a,
+  b,
+}: {
+  label: string
+  a: { name: string; value: number; share: number }
+  b: { name: string; value: number; share: number }
+}) {
+  const aWins = a.value > b.value
+  return (
+    <div className="rounded-md border border-slate-200 dark:border-slate-800 p-3">
+      <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">{label}</div>
+      <div className="flex items-baseline justify-between gap-2 text-sm">
+        <span className={aWins ? 'font-semibold text-green-700 dark:text-green-400' : 'text-slate-600 dark:text-slate-300'}>
+          {a.name} <span className="font-mono">{a.value}</span>
+        </span>
+        <span className={!aWins ? 'font-semibold text-green-700 dark:text-green-400' : 'text-slate-600 dark:text-slate-300'}>
+          <span className="font-mono">{b.value}</span> {b.name}
+        </span>
+      </div>
+      <div className="mt-2 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex">
+        <div className="bg-brand-500" style={{ width: `${a.share * 100}%` }} />
+        <div className="bg-slate-400 dark:bg-slate-600" style={{ width: `${b.share * 100}%` }} />
+      </div>
+      <div className="mt-1 flex justify-between text-xs text-slate-500 font-mono">
+        <span>{(a.share * 100).toFixed(0)}%</span>
+        <span>{(b.share * 100).toFixed(0)}%</span>
+      </div>
     </div>
   )
 }

@@ -1,7 +1,10 @@
 import { Link } from 'react-router-dom'
+import clsx from 'clsx'
 import { useStore } from '../state/store'
 import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
+import { summarizeMatch } from '../lib/match-summary'
+import { GameScores } from '../components/MatchScores'
 
 export function DashboardPage() {
   const { players, matches, recomputed, settings, canEdit } = useStore()
@@ -23,8 +26,6 @@ export function DashboardPage() {
     .sort((a, b) => b.ranking - a.ranking)
 
   const recent = [...recomputed.matches].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
-
-  const playerName = (id: string) => players.find((p) => p.id === id)?.name ?? 'Unknown'
 
   return (
     <div className="space-y-6">
@@ -86,26 +87,46 @@ export function DashboardPage() {
           <div className="card text-center text-slate-500">No matches logged yet.</div>
         ) : (
           <div className="space-y-2">
-            {recent.map((m) => (
-              <div key={m.id} className="card flex items-center justify-between">
-                <div>
-                  <div className="font-medium">
-                    {playerName(m.playerAId)} <span className="text-slate-400">vs</span> {playerName(m.playerBId)}
+            {recent.map((m) => {
+              const s = summarizeMatch(m, players)
+              const aIsWinner = !s.isDraw && s.winnerId === m.playerAId
+              const bIsWinner = !s.isDraw && s.winnerId === m.playerBId
+              return (
+                <div key={m.id} className="card flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={clsx('font-semibold', aIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}>
+                        {s.aName}
+                      </span>
+                      <span className="font-mono">
+                        <span className={aIsWinner ? 'font-bold' : ''}>{s.aGames}</span>
+                        <span className="text-slate-400 mx-1">–</span>
+                        <span className={bIsWinner ? 'font-bold' : ''}>{s.bGames}</span>
+                      </span>
+                      <span className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}>
+                        {s.bName}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {fmtDate(m.date)} · {m.type}
+                    </div>
+                    <div className="mt-1">
+                      <GameScores games={m.games} />
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-500">
-                    {fmtDate(m.date)} · {m.type} · {m.games.map((g) => `${g.a}-${g.b}`).join(', ')}
+                  <div className="text-right text-sm shrink-0">
+                    <div className={clsx('text-xs', aIsWinner ? 'text-green-700 dark:text-green-400 font-medium' : 'text-slate-500')}>{s.aName}</div>
+                    <div className={m.deltaA && m.deltaA >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      {fmtDelta(m.deltaA)}
+                    </div>
+                    <div className={clsx('text-xs mt-1', bIsWinner ? 'text-green-700 dark:text-green-400 font-medium' : 'text-slate-500')}>{s.bName}</div>
+                    <div className={m.deltaB && m.deltaB >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      {fmtDelta(m.deltaB)}
+                    </div>
                   </div>
                 </div>
-                <div className="text-right text-sm">
-                  <div className={m.deltaA && m.deltaA >= 0 ? 'text-green-600' : 'text-red-600'}>
-                    {fmtDelta(m.deltaA)}
-                  </div>
-                  <div className={m.deltaB && m.deltaB >= 0 ? 'text-green-600' : 'text-red-600'}>
-                    {fmtDelta(m.deltaB)}
-                  </div>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </section>
