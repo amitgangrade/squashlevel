@@ -3,20 +3,11 @@ import type { ReactNode } from 'react'
 import { v4 as uuid } from 'uuid'
 import type { Match, Player, Settings } from '../types'
 import { DEFAULT_SETTINGS } from '../types'
-import {
-  deleteMatch as dbDeleteMatch,
-  deletePlayer as dbDeletePlayer,
-  getAllMatches,
-  getAllPlayers,
-  getSettings,
-  putMatch,
-  putPlayer,
-  saveSettings,
-  wipeAll,
-} from '../lib/storage/db'
+import { backend } from '../lib/storage/backend'
 import { recomputeAll, type RecomputeResult } from '../lib/rating/recompute'
 
 interface StoreCtx {
+  mode: 'local' | 'cloud'
   players: Player[]
   matches: Match[]
   settings: Settings
@@ -42,14 +33,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    const [p, m, s] = await Promise.all([getAllPlayers(), getAllMatches(), getSettings()])
-    setPlayers(p)
-    setMatches(m)
-    setSettings(s)
+    const { players, matches, settings } = await backend.getAll()
+    setPlayers(players)
+    setMatches(matches)
+    setSettings(settings)
   }, [])
 
   useEffect(() => {
     refresh().finally(() => setLoading(false))
+    if (!backend.subscribe) return
+    const unsub = backend.subscribe(() => {
+      refresh().catch(console.error)
+    })
+    return unsub
   }, [refresh])
 
   const recomputed = useMemo(
@@ -59,51 +55,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addPlayer: StoreCtx['addPlayer'] = async (data) => {
     const player: Player = { ...data, id: uuid(), createdAt: new Date().toISOString() }
-    await putPlayer(player)
+    await backend.putPlayer(player)
     setPlayers((prev) => [...prev, player])
     return player
   }
 
   const updatePlayer: StoreCtx['updatePlayer'] = async (p) => {
-    await putPlayer(p)
+    await backend.putPlayer(p)
     setPlayers((prev) => prev.map((x) => (x.id === p.id ? p : x)))
   }
 
   const removePlayer: StoreCtx['removePlayer'] = async (id) => {
-    await dbDeletePlayer(id)
+    await backend.deletePlayer(id)
     setPlayers((prev) => prev.filter((p) => p.id !== id))
+    setMatches((prev) => prev.filter((m) => m.playerAId !== id && m.playerBId !== id))
   }
 
   const addMatch: StoreCtx['addMatch'] = async (data) => {
     const match: Match = { ...data, id: uuid() }
-    await putMatch(match)
+    await backend.putMatch(match)
     setMatches((prev) => [...prev, match])
     return match
   }
 
   const updateMatch: StoreCtx['updateMatch'] = async (m) => {
-    await putMatch(m)
+    await backend.putMatch(m)
     setMatches((prev) => prev.map((x) => (x.id === m.id ? m : x)))
   }
 
   const removeMatch: StoreCtx['removeMatch'] = async (id) => {
-    await dbDeleteMatch(id)
+    await backend.deleteMatch(id)
     setMatches((prev) => prev.filter((x) => x.id !== id))
   }
 
   const updateSettings: StoreCtx['updateSettings'] = async (s) => {
-    await saveSettings(s)
+    await backend.saveSettings(s)
     setSettings(s)
   }
 
   const resetAll: StoreCtx['resetAll'] = async () => {
-    await wipeAll()
+    await backend.wipeAll()
     setPlayers([])
     setMatches([])
     setSettings(DEFAULT_SETTINGS)
   }
 
   const value: StoreCtx = {
+    mode: backend.mode,
     players,
     matches,
     settings,

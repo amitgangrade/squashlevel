@@ -13,6 +13,7 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.104.1",
     "clsx": "^2.1.1",
     "idb": "^8.0.3",
     "react": "^19.2.5",

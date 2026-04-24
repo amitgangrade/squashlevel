@@ -1,12 +1,8 @@
 import { ExportSchema, type ExportData, type Match, type Player, type Settings } from '../../types'
-import { getAllMatches, getAllPlayers, getSettings, replaceAll } from './db'
+import { backend } from './backend'
 
 export async function buildExport(): Promise<ExportData> {
-  const [players, matches, settings] = await Promise.all([
-    getAllPlayers(),
-    getAllMatches(),
-    getSettings(),
-  ])
+  const { players, matches, settings } = await backend.getAll()
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -47,6 +43,6 @@ export function parseImport(json: string): ImportResult {
 
 export async function restoreFromJson(json: string): Promise<ImportResult> {
   const data = parseImport(json)
-  await replaceAll(data.players, data.matches, data.settings)
+  await backend.replaceAll(data.players, data.matches, data.settings)
   return data
 }

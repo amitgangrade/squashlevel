@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import clsx from 'clsx'
+import { supabase, supabaseEnabled } from '../lib/supabase/client'
+import { useStore } from '../state/store'
 
 const nav = [
   { to: '/', label: 'Dashboard', end: true },
@@ -11,6 +13,12 @@ const nav = [
 ]
 
 export function Layout() {
+  const { mode } = useStore()
+
+  const signOut = async () => {
+    if (supabase) await supabase.auth.signOut()
+  }
+
   return (
     <div className="min-h-full flex flex-col">
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
@@ -38,13 +46,18 @@ export function Layout() {
               </NavLink>
             ))}
           </nav>
+          {supabaseEnabled && (
+            <button onClick={signOut} className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 whitespace-nowrap">
+              Sign out
+            </button>
+          )}
         </div>
       </header>
       <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-6">
         <Outlet />
       </main>
       <footer className="border-t border-slate-200 dark:border-slate-800 py-3 text-center text-xs text-slate-500">
-        SquashLevel · local-first · your data stays in your browser
+        SquashLevel · {mode === 'cloud' ? 'synced across your group' : 'local-first · your data stays in your browser'}
       </footer>
     </div>
   )
