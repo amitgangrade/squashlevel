@@ -2,7 +2,7 @@
 // Deploy: `supabase functions deploy send-match-email`
 // Required secrets (set via `supabase secrets set KEY=value`):
 //   RESEND_API_KEY   — Resend API key
-//   EMAIL_FROM       — e.g. "SquashLevel <updates@yourdomain.com>"
+//   EMAIL_FROM       — e.g. "Spring Tropica Squash <updates@yourdomain.com>"
 //   SITE_URL         — e.g. "https://amitgangrade.github.io/squashlevel/"
 //
 // Invoked from the client after a match is saved with `{ matchId }`.
@@ -18,7 +18,7 @@ const env = Deno.env
 const SUPABASE_URL = env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const RESEND_API_KEY = env.get('RESEND_API_KEY')
-const EMAIL_FROM = env.get('EMAIL_FROM') ?? 'SquashLevel <onboarding@resend.dev>'
+const EMAIL_FROM = env.get('EMAIL_FROM') ?? 'Spring Tropica Squash <onboarding@resend.dev>'
 const SITE_URL = env.get('SITE_URL') ?? 'https://amitgangrade.github.io/squashlevel/'
 
 const cors = {
@@ -61,13 +61,19 @@ serve(async (req: Request) => {
     const winner = aGames > bGames ? a.name : b.name
     const subject = `${a.name} vs ${b.name} — ${aGames}-${bGames} (${winner} wins)`
     const html = `
-      <div style="font-family:system-ui,sans-serif;color:#0f172a">
-        <h2 style="margin:0 0 8px">Match logged: ${escapeHtml(a.name)} vs ${escapeHtml(b.name)}</h2>
-        <p><strong>${escapeHtml(winner)}</strong> wins ${aGames}-${bGames}.</p>
-        <p>Games: ${escapeHtml(scoreLine)}</p>
-        <p>Match type: ${escapeHtml(m.type)}<br/>Date: ${escapeHtml(m.date)}</p>
-        ${m.notes ? `<p>Notes: ${escapeHtml(m.notes)}</p>` : ''}
-        <p><a href="${SITE_URL}" style="color:#7c3aed">Open SquashLevel →</a></p>
+      <div style="font-family:system-ui,sans-serif;color:#0f172a;max-width:560px">
+        <div style="background:linear-gradient(135deg,#dc2626,#06b6d4);color:#fff;padding:18px 20px;border-radius:10px 10px 0 0">
+          <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:0.9">Spring Tropica Squash Group · Singapore</div>
+          <div style="font-size:20px;font-weight:700;margin-top:4px">Match logged</div>
+        </div>
+        <div style="border:1px solid #e2e8f0;border-top:0;border-radius:0 0 10px 10px;padding:20px">
+          <h2 style="margin:0 0 8px;font-size:18px">${escapeHtml(a.name)} vs ${escapeHtml(b.name)}</h2>
+          <p style="margin:4px 0"><strong>${escapeHtml(winner)}</strong> wins ${aGames}-${bGames}.</p>
+          <p style="margin:4px 0">Games: ${escapeHtml(scoreLine)}</p>
+          <p style="margin:4px 0;color:#64748b;font-size:13px">Match type: ${escapeHtml(m.type)} · Date: ${escapeHtml(m.date)}</p>
+          ${m.notes ? `<p style="margin:8px 0;color:#475569">Notes: ${escapeHtml(m.notes)}</p>` : ''}
+          <p style="margin-top:16px"><a href="${SITE_URL}" style="color:#dc2626;font-weight:600">Open Spring Tropica Squash Group →</a></p>
+        </div>
       </div>
     `
 

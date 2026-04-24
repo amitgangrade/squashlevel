@@ -22,8 +22,13 @@ export function Layout() {
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-md bg-brand-600 text-white grid place-items-center font-bold">S</div>
-            <span className="font-semibold hidden sm:inline">SquashLevel</span>
+            <div className="h-8 w-8 rounded-md bg-gradient-to-br from-brand-600 to-tropic-500 text-white grid place-items-center font-bold text-xs tracking-tight shadow-sm">
+              ST
+            </div>
+            <div className="hidden sm:flex flex-col leading-tight">
+              <span className="font-semibold text-sm">Spring Tropica</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">Squash · Singapore</span>
+            </div>
           </div>
           <nav className="flex gap-1 overflow-x-auto flex-1 -mx-1 px-1">
             {nav.map((n) => (
@@ -66,7 +71,7 @@ export function Layout() {
         <Outlet />
       </main>
       <footer className="border-t border-slate-200 dark:border-slate-800 py-3 text-center text-xs text-slate-500">
-        SquashLevel · {mode === 'cloud' ? 'synced across your group' : 'local-first · your data stays in your browser'}
+        Spring Tropica Squash Group · Singapore 🇸🇬 · {mode === 'cloud' ? 'synced across the group' : 'local-first · your data stays in your browser'}
       </footer>
       {showSignIn && <SignInDialog onClose={() => setShowSignIn(false)} signIn={signInWithEmail} />}
     </div>
@@ -103,7 +108,10 @@ function SignInDialog({
     <div className="fixed inset-0 z-20 grid place-items-center bg-slate-950/40 p-4" onClick={onClose}>
       <div className="card w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Owner sign in</h2>
+          <div>
+            <h2 className="text-lg font-semibold">Owner sign in</h2>
+            <p className="text-xs text-slate-500">Spring Tropica Squash Group</p>
+          </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">×</button>
         </div>
         {sent ? (

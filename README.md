@@ -1,6 +1,6 @@
-# SquashLevel
+# Spring Tropica Squash Group
 
-A local-first squash tracker for groups of friends. Mirrors the [SquashLevels](https://squashlevels.com) / [LevelTech](https://leveltech.io) rating methodology so numbers stay comparable with your public rating.
+A squash tracker for the **Spring Tropica Squash Group** in Singapore 🇸🇬. Mirrors the [SquashLevels](https://squashlevels.com) / [LevelTech](https://leveltech.io) rating methodology so numbers stay comparable with your public rating.
 
 - Installable as a **PWA** on desktop (Chrome, Edge, Safari) and mobile (iOS "Add to Home Screen", Android "Install app").
 - Data lives in **your browser's IndexedDB** — no server, no account.
