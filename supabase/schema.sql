@@ -72,7 +72,10 @@ create policy "owner write settings" on public.settings
   using (auth.jwt() ->> 'email' = 'amit.gangrade@gmail.com')
   with check (auth.jwt() ->> 'email' = 'amit.gangrade@gmail.com');
 
--- Enable realtime on these tables (ignore duplicate errors if already added)
-alter publication supabase_realtime add table public.players;
-alter publication supabase_realtime add table public.matches;
-alter publication supabase_realtime add table public.settings;
+-- Enable realtime on these tables (skip if already added)
+do $$
+begin
+  begin alter publication supabase_realtime add table public.players; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.matches; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.settings; exception when duplicate_object then null; end;
+end $$;
