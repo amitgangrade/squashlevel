@@ -117,8 +117,16 @@ export function AnalyticsPage() {
     }
   }, [h2hA, h2hB, recomputed.matches])
 
-  const toggleHidden = (name: string) => {
+  const toggleHidden = (name: string, solo: boolean) => {
     setHid((prev) => {
+      if (solo) {
+        const othersHidden = players.every((p) => p.name === name || prev.has(p.name))
+        const thisVisible = !prev.has(name)
+        // Already soloed on this player → restore all.
+        if (othersHidden && thisVisible) return new Set()
+        // Solo: hide everyone except this one.
+        return new Set(players.filter((p) => p.name !== name).map((p) => p.name))
+      }
       const n = new Set(prev)
       if (n.has(name)) n.delete(name)
       else n.add(name)
@@ -144,7 +152,12 @@ export function AnalyticsPage() {
                     labelFormatter={(l) => fmtDate(String(l))}
                     formatter={(v) => fmtLevel(Number(v))}
                   />
-                  <Legend onClick={(e) => toggleHidden(String(e.dataKey ?? ''))} />
+                  <Legend
+                    onClick={(entry, _i, event) => {
+                      const e = event as unknown as MouseEvent
+                      toggleHidden(String(entry.dataKey ?? ''), e.ctrlKey || e.metaKey)
+                    }}
+                  />
                   {players.map((p, i) => (
                     <Line
                       key={p.id}
@@ -160,7 +173,9 @@ export function AnalyticsPage() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <p className="text-xs text-slate-500 mt-2">Click a player in the legend to show/hide.</p>
+            <p className="text-xs text-slate-500 mt-2">
+              Click a legend entry to show/hide. <kbd className="px-1 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[10px]">Ctrl</kbd>/<kbd className="px-1 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[10px]">⌘</kbd>+click to isolate just that player (click again to restore all).
+            </p>
           </div>
         )}
       </section>
