@@ -1,12 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#dc2626"/>
-      <stop offset="1" stop-color="#06b6d4"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
-  <circle cx="168" cy="168" r="52" fill="#fff" opacity="0.95"/>
-  <rect x="220" y="224" width="220" height="36" rx="18" fill="#fff" transform="rotate(45 330 242)"/>
-  <text x="50%" y="430" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="800" font-size="96" fill="#fff" letter-spacing="2">ST</text>
+  <!-- Court-floor charcoal tile -->
+  <rect width="512" height="512" rx="96" fill="#111827"/>
+  <!-- Squash ball: pro double-yellow-dot -->
+  <circle cx="368" cy="160" r="64" fill="#f5e000"/>
+  <circle cx="350" cy="148" r="6" fill="#111827"/>
+  <circle cx="386" cy="148" r="6" fill="#111827"/>
+  <!-- Wordmark "B" with a notch suggesting a ball trace -->
+  <text x="50%" y="370" text-anchor="middle"
+        font-family="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+        font-weight="900" font-size="320" fill="#ffffff" letter-spacing="-8">B</text>
+  <!-- Tin: subtle red strip at the bottom -->
+  <rect x="64" y="446" width="384" height="14" rx="7" fill="#e03a3a"/>
 </svg>

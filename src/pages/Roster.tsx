@@ -4,7 +4,7 @@ import { fmtLevel } from '../lib/format'
 import type { Player } from '../types'
 
 export function RosterPage() {
-  const { players, recomputed, settings, canEdit, addPlayer, updatePlayer, removePlayer } = useStore()
+  const { players, recomputed, settings, isAdmin, addPlayer, updatePlayer, removePlayer } = useStore()
   const [name, setName] = useState('')
   const [startingLevel, setStartingLevel] = useState<string>('1000')
   const [notes, setNotes] = useState('')
@@ -62,7 +62,7 @@ export function RosterPage() {
 
   return (
     <div className="space-y-6">
-      {canEdit && (
+      {isAdmin && (
       <section>
         <h1 className="mb-3">{editingId ? 'Edit player' : 'Add player'}</h1>
         <form onSubmit={onSubmit} className="card space-y-3 max-w-lg">
@@ -80,7 +80,7 @@ export function RosterPage() {
               onChange={(e) => setStartingLevel(e.target.value)}
             />
             <p className="mt-1 text-xs text-slate-500">
-              Use the player's current rating from SquashLevels.com (e.g. 1200). Scale: 50 beginner → 50,000+ top pro.
+              Use the player's current rating from SquashLevels.com if known (e.g. 1200), otherwise 1000. Scale: 50 beginner → 50,000+ top pro.
             </p>
           </div>
           <div>
@@ -121,7 +121,7 @@ export function RosterPage() {
                   <th className="px-3 py-2 text-right">Start</th>
                   <th className="px-3 py-2 text-right">Current</th>
                   <th className="px-3 py-2 text-right">Matches</th>
-                  {canEdit && <th className="px-3 py-2"></th>}
+                  {isAdmin && <th className="px-3 py-2"></th>}
                 </tr>
               </thead>
               <tbody>
@@ -137,10 +137,10 @@ export function RosterPage() {
                       <td className="px-3 py-2 text-right">{fmtLevel(p.startingLevel)}</td>
                       <td className="px-3 py-2 text-right font-semibold">{fmtLevel(s?.currentLevel)}</td>
                       <td className="px-3 py-2 text-right text-slate-500">{s?.matchesPlayed ?? 0}</td>
-                      {canEdit && (
+                      {isAdmin && (
                         <td className="px-3 py-2 text-right whitespace-nowrap">
-                          <button className="text-xs text-brand-600 hover:underline" onClick={() => beginEdit(p)}>Edit</button>
-                          <button className="ml-3 text-xs text-red-600 hover:underline" onClick={() => remove(p)}>Delete</button>
+                          <button className="btn-link" onClick={() => beginEdit(p)}>Edit</button>
+                          <button className="btn-link-danger ml-1" onClick={() => remove(p)}>Delete</button>
                         </td>
                       )}
                     </tr>

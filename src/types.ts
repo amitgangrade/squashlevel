@@ -24,14 +24,60 @@ export const PlayerSchema = z.object({
   createdAt: z.string(),
   notes: z.string().optional(),
   email: z.string().email().optional(),
+  userId: z.string().uuid().optional(),
 })
 export type Player = z.infer<typeof PlayerSchema>
+
+export const Gender = z.enum(['male', 'female'])
+export type Gender = z.infer<typeof Gender>
+
+export const DominantHand = z.enum(['right', 'left', 'ambi'])
+export type DominantHand = z.infer<typeof DominantHand>
+
+export const GENDER_LABEL: Record<Gender, string> = {
+  male: 'Male',
+  female: 'Female',
+}
+
+export const DOMINANT_HAND_LABEL: Record<DominantHand, string> = {
+  right: 'Right',
+  left: 'Left',
+  ambi: 'Ambidextrous',
+}
+
+export const ProfileSchema = z.object({
+  id: z.string().uuid(),
+  fullName: z.string().min(1),
+  username: z.string().min(1),
+  email: z.string().email(),
+  phone: z.string().optional(),
+  country: z.string().optional(),
+  city: z.string().optional(),
+  club: z.string().optional(),
+  avatarUrl: z.string().url().optional(),
+  birthYear: z.number().int().min(1900).max(new Date().getFullYear()).optional(),
+  gender: Gender.optional(),
+  dominantHand: DominantHand.optional(),
+  startingLevel: z.number().positive(),
+  isAdmin: z.boolean(),
+  createdAt: z.string(),
+})
+export type Profile = z.infer<typeof ProfileSchema>
 
 export const GameScoreSchema = z.object({
   a: z.number().int().min(0),
   b: z.number().int().min(0),
 })
 export type GameScore = z.infer<typeof GameScoreSchema>
+
+export const MatchStatus = z.enum(['pending', 'confirmed', 'disputed'])
+export type MatchStatus = z.infer<typeof MatchStatus>
+
+export const MATCH_STATUS_LABEL: Record<MatchStatus, string> = {
+  pending: 'Awaiting confirmation',
+  confirmed: 'Confirmed',
+  disputed: 'Disputed',
+}
 
 export const MatchSchema = z.object({
   id: z.string(),
@@ -41,6 +87,12 @@ export const MatchSchema = z.object({
   games: z.array(GameScoreSchema).min(1),
   type: MatchType,
   notes: z.string().optional(),
+  status: MatchStatus.optional(),
+  confirmedAt: z.string().optional(),
+  disputedAt: z.string().optional(),
+  autoConfirmed: z.boolean().optional(),
+  createdBy: z.string().optional(),
+  createdAt: z.string().optional(),
   levelABefore: z.number().optional(),
   levelBBefore: z.number().optional(),
   levelAAfter: z.number().optional(),

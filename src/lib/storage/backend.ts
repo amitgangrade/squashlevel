@@ -16,7 +16,9 @@ export interface Backend {
   getAll(): Promise<{ players: Player[]; matches: Match[]; settings: Settings }>
   putPlayer(p: Player): Promise<void>
   deletePlayer(id: string): Promise<void>
-  putMatch(m: Match): Promise<void>
+  /** Inserts/upserts a match. Returns the canonical row (with any trigger-applied
+   *  fields like `status`/`confirmed_at`/`auto_confirmed`). */
+  putMatch(m: Match): Promise<Match>
   deleteMatch(id: string): Promise<void>
   saveSettings(s: Settings): Promise<void>
   replaceAll(players: Player[], matches: Match[], settings: Settings): Promise<void>
@@ -36,7 +38,10 @@ const localBackend: Backend = {
   },
   putPlayer: local.putPlayer,
   deletePlayer: local.deletePlayer,
-  putMatch: local.putMatch,
+  async putMatch(m) {
+    await local.putMatch(m)
+    return m
+  },
   deleteMatch: local.deleteMatch,
   saveSettings: local.saveSettings,
   replaceAll: local.replaceAll,
@@ -69,8 +74,13 @@ const cloudBackend: Backend = {
     if (error) throw error
   },
   async putMatch(m) {
-    const { error } = await supabase!.from('matches').upsert(toMatchRow(m))
+    const { data, error } = await supabase!
+      .from('matches')
+      .upsert(toMatchRow(m))
+      .select('*')
+      .single()
     if (error) throw error
+    return fromMatchRow(data as MatchRow)
   },
   async deleteMatch(id) {
     const { error } = await supabase!.from('matches').delete().eq('id', id)

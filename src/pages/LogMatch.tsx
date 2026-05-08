@@ -1,26 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../state/store'
-import { MATCH_TYPE_LABEL, type GameScore, type MatchType } from '../types'
+import { MATCH_TYPE_LABEL, type GameScore, type MatchType, type Player } from '../types'
 import { updateLevels } from '../lib/rating/update'
 import { fmtDelta, fmtLevel, todayIso } from '../lib/format'
+import { PlayerSearch } from '../components/PlayerSearch'
+import { TrashIcon } from '../components/Icons'
+import { supabaseEnabled } from '../lib/supabase/client'
 
 const MATCH_TYPES: MatchType[] = ['friendly', 'box', 'league', 'tournament']
 
 export function LogMatchPage() {
-  const { players, recomputed, settings, canEdit, addMatch } = useStore()
+  const { players, recomputed, settings, isAdmin, session, myPlayer, addMatch } = useStore()
   const navigate = useNavigate()
 
-  if (!canEdit) {
-    return (
-      <div className="card text-center text-slate-500">
-        This app is read-only for viewers. Only the owner can log matches.
-      </div>
-    )
-  }
+  const signedIn = !supabaseEnabled || !!session
+  const canLog = !supabaseEnabled || isAdmin || !!myPlayer
 
-  const [playerAId, setPlayerAId] = useState('')
-  const [playerBId, setPlayerBId] = useState('')
+  const [playerA, setPlayerA] = useState<Player | null>(myPlayer)
+  const [playerB, setPlayerB] = useState<Player | null>(null)
+
+  // If we just learned about myPlayer (post-onboarding), default Player A to it.
+  useEffect(() => {
+    if (!isAdmin && myPlayer && !playerA) setPlayerA(myPlayer)
+  }, [myPlayer, isAdmin, playerA])
+
   const [date, setDate] = useState(todayIso())
   const [type, setType] = useState<MatchType>('friendly')
   const [notes, setNotes] = useState('')
@@ -31,12 +35,14 @@ export function LogMatchPage() {
   ])
   const [error, setError] = useState('')
 
-  const levelA = recomputed.states.get(playerAId)?.currentLevel
-  const levelB = recomputed.states.get(playerBId)?.currentLevel
-  const provisionalA =
-    (recomputed.states.get(playerAId)?.matchesPlayed ?? 0) < settings.provisionalThreshold
-  const provisionalB =
-    (recomputed.states.get(playerBId)?.matchesPlayed ?? 0) < settings.provisionalThreshold
+  const levelA = playerA ? recomputed.states.get(playerA.id)?.currentLevel : undefined
+  const levelB = playerB ? recomputed.states.get(playerB.id)?.currentLevel : undefined
+  const provisionalA = playerA
+    ? (recomputed.states.get(playerA.id)?.matchesPlayed ?? 0) < settings.provisionalThreshold
+    : false
+  const provisionalB = playerB
+    ? (recomputed.states.get(playerB.id)?.matchesPlayed ?? 0) < settings.provisionalThreshold
+    : false
 
   const preview = useMemo(() => {
     if (!levelA || !levelB) return null
@@ -67,29 +73,46 @@ export function LogMatchPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!playerAId || !playerBId) return setError('Select both players')
-    if (playerAId === playerBId) return setError('Players must be different')
+    if (!playerA || !playerB) return setError('Select both players')
+    if (playerA.id === playerB.id) return setError('Players must be different')
     const clean = scores.filter((g) => g.a > 0 || g.b > 0)
     if (clean.length === 0) return setError('Enter at least one game score')
-    await addMatch({
-      date,
-      playerAId,
-      playerBId,
-      games: clean,
-      type,
-      notes: notes || undefined,
-    })
-    navigate('/history')
+    try {
+      await addMatch({
+        date,
+        playerAId: playerA.id,
+        playerBId: playerB.id,
+        games: clean,
+        type,
+        notes: notes || undefined,
+      })
+      // Haptic feedback (Chrome Android etc; iOS Safari ignores it gracefully).
+      if ('vibrate' in navigator) navigator.vibrate(40)
+      navigate('/history')
+    } catch (e) {
+      setError((e as Error).message)
+    }
   }
 
-  const aName = players.find((p) => p.id === playerAId)?.name
-  const bName = players.find((p) => p.id === playerBId)?.name
+  if (!signedIn) {
+    return (
+      <div className="card text-center text-slate-500 space-y-2">
+        <p>Sign in with Google to log a match.</p>
+      </div>
+    )
+  }
 
-  if (players.length < 2) {
+  if (supabaseEnabled && !canLog) {
     return (
       <div className="card text-center text-slate-500">
-        You need at least 2 players to log a match. <a href="#/roster" className="text-brand-600 underline">Add players</a>.
+        Finish setting up your profile to log matches.
       </div>
+    )
+  }
+
+  if (!isAdmin && players.length < 1) {
+    return (
+      <div className="card text-center text-slate-500">No players available yet.</div>
     )
   }
 
@@ -99,26 +122,33 @@ export function LogMatchPage() {
       <form onSubmit={onSubmit} className="card space-y-4">
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
-            <label className="label">Player A</label>
-            <select className="input w-full" value={playerAId} onChange={(e) => setPlayerAId(e.target.value)}>
-              <option value="">Select…</option>
-              {players.map((p) => (
-                <option key={p.id} value={p.id} disabled={p.id === playerBId}>
-                  {p.name} ({fmtLevel(recomputed.states.get(p.id)?.currentLevel)})
-                </option>
-              ))}
-            </select>
+            <label className="label">{isAdmin ? 'Player A' : 'You'}</label>
+            {isAdmin ? (
+              <PlayerSearch
+                value={playerA}
+                onChange={setPlayerA}
+                excludeId={playerB?.id}
+                placeholder="Search Player A…"
+              />
+            ) : (
+              <div className="rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+                {playerA?.name ?? '—'}
+                {playerA && (
+                  <span className="ml-2 text-xs text-slate-500">
+                    Lvl {fmtLevel(levelA ?? playerA.startingLevel)}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div>
-            <label className="label">Player B</label>
-            <select className="input w-full" value={playerBId} onChange={(e) => setPlayerBId(e.target.value)}>
-              <option value="">Select…</option>
-              {players.map((p) => (
-                <option key={p.id} value={p.id} disabled={p.id === playerAId}>
-                  {p.name} ({fmtLevel(recomputed.states.get(p.id)?.currentLevel)})
-                </option>
-              ))}
-            </select>
+            <label className="label">Opponent</label>
+            <PlayerSearch
+              value={playerB}
+              onChange={setPlayerB}
+              excludeId={playerA?.id}
+              placeholder="Search opponent by name…"
+            />
           </div>
           <div>
             <label className="label">Date</label>
@@ -138,29 +168,45 @@ export function LogMatchPage() {
           <label className="label">Game scores</label>
           <div className="space-y-2">
             {scores.map((g, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 w-12">Game {i + 1}</span>
-                <input
-                  className="input w-20 text-center"
-                  inputMode="numeric"
-                  value={g.a}
-                  onChange={(e) => setGame(i, 'a', e.target.value)}
-                />
-                <span className="text-slate-400">–</span>
-                <input
-                  className="input w-20 text-center"
-                  inputMode="numeric"
-                  value={g.b}
-                  onChange={(e) => setGame(i, 'b', e.target.value)}
-                />
-                {scores.length > 1 && (
-                  <button type="button" className="text-xs text-red-600 ml-2" onClick={() => removeGame(i)}>
-                    Remove
+              <div
+                key={i}
+                className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40"
+              >
+                <span className="text-xs font-medium text-slate-500 w-14 shrink-0">Game {i + 1}</span>
+                <div className="flex-1 flex items-center justify-center gap-2">
+                  <input
+                    className="input w-20 text-center text-lg font-semibold"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={g.a}
+                    onChange={(e) => setGame(i, 'a', e.target.value)}
+                    aria-label={`Game ${i + 1} player A`}
+                  />
+                  <span className="text-slate-400 text-lg select-none">–</span>
+                  <input
+                    className="input w-20 text-center text-lg font-semibold"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={g.b}
+                    onChange={(e) => setGame(i, 'b', e.target.value)}
+                    aria-label={`Game ${i + 1} player B`}
+                  />
+                </div>
+                {scores.length > 1 ? (
+                  <button
+                    type="button"
+                    aria-label={`Remove game ${i + 1}`}
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+                    onClick={() => removeGame(i)}
+                  >
+                    <TrashIcon className="h-4 w-4" />
                   </button>
+                ) : (
+                  <span className="w-10 shrink-0" />
                 )}
               </div>
             ))}
-            <button type="button" className="btn-secondary" onClick={addGame}>+ Add game</button>
+            <button type="button" className="btn-secondary w-full sm:w-auto" onClick={addGame}>+ Add game</button>
           </div>
         </div>
 
@@ -169,18 +215,18 @@ export function LogMatchPage() {
           <input className="input w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
 
-        {preview && aName && bName && (
+        {preview && playerA && playerB && (
           <div className="rounded-md border border-brand-200 bg-brand-50 p-3 text-sm dark:border-brand-900/60 dark:bg-brand-900/20">
             <div className="font-medium mb-1">Preview</div>
             <div className="grid grid-cols-2 gap-2 sm:gap-6">
               <div>
-                <div className="text-slate-600 dark:text-slate-300">{aName}</div>
+                <div className="text-slate-600 dark:text-slate-300">{playerA.name}</div>
                 <div>{fmtLevel(levelA)} → <span className="font-semibold">{fmtLevel(preview.levelAAfter)}</span></div>
                 <div className={preview.deltaA >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(preview.deltaA)}</div>
                 {provisionalA && <div className="text-xs text-slate-500">provisional</div>}
               </div>
               <div>
-                <div className="text-slate-600 dark:text-slate-300">{bName}</div>
+                <div className="text-slate-600 dark:text-slate-300">{playerB.name}</div>
                 <div>{fmtLevel(levelB)} → <span className="font-semibold">{fmtLevel(preview.levelBAfter)}</span></div>
                 <div className={preview.deltaB >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(preview.deltaB)}</div>
                 {provisionalB && <div className="text-xs text-slate-500">provisional</div>}

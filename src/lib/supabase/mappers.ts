@@ -6,6 +6,25 @@ export interface PlayerRow {
   starting_level: number
   notes: string | null
   email: string | null
+  user_id: string | null
+  created_at: string
+}
+
+export interface ProfileRow {
+  id: string
+  full_name: string
+  username: string
+  email: string
+  phone: string | null
+  country: string | null
+  city: string | null
+  club: string | null
+  avatar_url: string | null
+  birth_year: number | null
+  gender: 'male' | 'female' | null
+  dominant_hand: 'right' | 'left' | 'ambi' | null
+  starting_level: number
+  is_admin: boolean
   created_at: string
 }
 
@@ -17,6 +36,11 @@ export interface MatchRow {
   games: Array<{ a: number; b: number }>
   type: Match['type']
   notes: string | null
+  status: 'pending' | 'confirmed' | 'disputed' | null
+  confirmed_at: string | null
+  disputed_at: string | null
+  auto_confirmed: boolean | null
+  created_by: string | null
   created_at: string
 }
 
@@ -31,6 +55,7 @@ export const fromPlayerRow = (r: PlayerRow): Player => ({
   startingLevel: Number(r.starting_level),
   notes: r.notes ?? undefined,
   email: r.email ?? undefined,
+  userId: r.user_id ?? undefined,
   createdAt: r.created_at,
 })
 
@@ -40,7 +65,26 @@ export const toPlayerRow = (p: Player): PlayerRow => ({
   starting_level: p.startingLevel,
   notes: p.notes ?? null,
   email: p.email ?? null,
+  user_id: p.userId ?? null,
   created_at: p.createdAt,
+})
+
+export const fromProfileRow = (r: ProfileRow): import('../../types').Profile => ({
+  id: r.id,
+  fullName: r.full_name,
+  username: r.username,
+  email: r.email,
+  phone: r.phone ?? undefined,
+  country: r.country ?? undefined,
+  city: r.city ?? undefined,
+  club: r.club ?? undefined,
+  avatarUrl: r.avatar_url ?? undefined,
+  birthYear: r.birth_year ?? undefined,
+  gender: r.gender ?? undefined,
+  dominantHand: r.dominant_hand ?? undefined,
+  startingLevel: Number(r.starting_level),
+  isAdmin: r.is_admin,
+  createdAt: r.created_at,
 })
 
 export const fromMatchRow = (r: MatchRow): Match => ({
@@ -51,6 +95,12 @@ export const fromMatchRow = (r: MatchRow): Match => ({
   games: r.games,
   type: r.type,
   notes: r.notes ?? undefined,
+  status: r.status ?? undefined,
+  confirmedAt: r.confirmed_at ?? undefined,
+  disputedAt: r.disputed_at ?? undefined,
+  autoConfirmed: r.auto_confirmed ?? undefined,
+  createdBy: r.created_by ?? undefined,
+  createdAt: r.created_at,
 })
 
 export const toMatchRow = (m: Match): MatchRow => ({
@@ -61,5 +111,10 @@ export const toMatchRow = (m: Match): MatchRow => ({
   games: m.games,
   type: m.type,
   notes: m.notes ?? null,
-  created_at: new Date().toISOString(),
+  status: m.status ?? null,
+  confirmed_at: m.confirmedAt ?? null,
+  disputed_at: m.disputedAt ?? null,
+  auto_confirmed: m.autoConfirmed ?? null,
+  created_by: m.createdBy ?? null,
+  created_at: m.createdAt ?? new Date().toISOString(),
 })

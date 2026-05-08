@@ -7,6 +7,8 @@ import { LogMatchPage } from './pages/LogMatch'
 import { HistoryPage } from './pages/History'
 import { AnalyticsPage } from './pages/Analytics'
 import { SettingsPage } from './pages/Settings'
+import { ProfilePage } from './pages/Profile'
+import { PendingMatchesPage } from './pages/PendingMatches'
 
 export default function App() {
   return (
@@ -19,6 +21,8 @@ export default function App() {
             <Route path="/log" element={<LogMatchPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/matches/pending" element={<PendingMatchesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Routes>
