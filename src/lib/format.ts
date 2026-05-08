@@ -24,3 +24,20 @@ export function todayIso(): string {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
+
+export function playerAge(birthYear: number | null | undefined): number | null {
+  if (!birthYear) return null
+  const age = new Date().getFullYear() - birthYear
+  return age > 0 && age < 130 ? age : null
+}
+
+export function initialsFor(name: string | null | undefined, fallback = '?'): string {
+  if (!name) return fallback
+  const init = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase())
+    .join('')
+  return init || fallback
+}

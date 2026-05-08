@@ -1,7 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { downloadExport, restoreFromJson } from '../lib/storage/import-export'
-import { DEFAULT_SETTINGS, type Settings } from '../types'
+import { DEFAULT_SETTINGS, type Profile, type Settings } from '../types'
+import { listAllProfiles, setAdminFlag } from '../lib/supabase/profile'
+import { supabaseEnabled } from '../lib/supabase/client'
+import { PlayerAvatar } from '../components/PlayerAvatar'
 
 export function SettingsPage() {
   const { settings, isAdmin, updateSettings, resetAll, refresh } = useStore()
@@ -59,8 +62,15 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-6">
+      {supabaseEnabled && (
+        <section>
+          <h1 className="mb-3">Admins</h1>
+          <AdminManager />
+        </section>
+      )}
+
       <section>
-        <h1 className="mb-3">Algorithm settings</h1>
+        <h2 className="mb-3">Algorithm settings</h2>
         <p className="text-sm text-slate-500 mb-3">
           These tune how the SquashLevels-style algorithm behaves. Defaults are calibrated to match documented behaviour (equal levels → 50/50 points, 2× level → ~80% points / ~97% games). Changing values triggers a full recompute from match history.
         </p>
@@ -154,6 +164,98 @@ function Field({ label, help, children }: { label: string; help?: string; childr
       <label className="label">{label}</label>
       {children}
       {help && <p className="mt-1 text-xs text-slate-500">{help}</p>}
+    </div>
+  )
+}
+
+function AdminManager() {
+  const { profile: me } = useStore()
+  const [profiles, setProfiles] = useState<Profile[] | null>(null)
+  const [search, setSearch] = useState('')
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    listAllProfiles()
+      .then(setProfiles)
+      .catch((e) => setErr((e as Error).message))
+  }, [])
+
+  const toggle = async (p: Profile) => {
+    setBusyId(p.id)
+    setErr(null)
+    try {
+      const updated = await setAdminFlag(p.id, !p.isAdmin)
+      setProfiles((prev) => prev?.map((x) => (x.id === p.id ? updated : x)) ?? null)
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (profiles === null && !err) {
+    return <div className="card text-sm text-slate-500">Loading…</div>
+  }
+  if (err && !profiles) {
+    return <div className="card text-sm text-red-600">{err}</div>
+  }
+
+  const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const filtered = (profiles ?? []).filter((p) => {
+    if (tokens.length === 0) return true
+    const hay = [p.fullName, p.email, p.club, p.country, p.username].filter(Boolean).join(' ').toLowerCase()
+    return tokens.every((t) => hay.includes(t))
+  })
+
+  return (
+    <div className="card space-y-3">
+      <p className="text-sm text-slate-500">
+        Admins can edit any player, manage matches, and promote others. Only registered (signed-in) users appear here.
+      </p>
+      <input
+        type="search"
+        className="input w-full"
+        placeholder="Search by name, email, club…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+      {err && <div className="text-sm text-red-600">{err}</div>}
+      {filtered.length === 0 ? (
+        <div className="text-sm text-slate-500 text-center py-3">No matches.</div>
+      ) : (
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {filtered.map((p) => {
+            const isMe = p.id === me?.id
+            return (
+              <li key={p.id} className="flex items-center gap-3 py-2">
+                <PlayerAvatar name={p.fullName} avatarUrl={p.avatarUrl} size={36} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate flex items-center gap-2">
+                    <span className="truncate">{p.fullName}</span>
+                    {p.isAdmin && (
+                      <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
+                        admin
+                      </span>
+                    )}
+                    {isMe && <span className="text-xs text-slate-500">(you)</span>}
+                  </div>
+                  <div className="text-xs text-slate-500 truncate">
+                    {[p.club, p.country, p.email].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+                <button
+                  className={p.isAdmin ? 'btn-link-danger' : 'btn-link'}
+                  onClick={() => toggle(p)}
+                  disabled={busyId === p.id}
+                >
+                  {busyId === p.id ? '…' : p.isAdmin ? 'Demote' : 'Make admin'}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }

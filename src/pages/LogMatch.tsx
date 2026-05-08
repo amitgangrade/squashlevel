@@ -27,6 +27,7 @@ export function LogMatchPage() {
 
   const [date, setDate] = useState(todayIso())
   const [type, setType] = useState<MatchType>('friendly')
+  const [venue, setVenue] = useState('')
   const [notes, setNotes] = useState('')
   const [scores, setScores] = useState<GameScore[]>([
     { a: 0, b: 0 },
@@ -84,6 +85,7 @@ export function LogMatchPage() {
         playerBId: playerB.id,
         games: clean,
         type,
+        venue: venue.trim() || undefined,
         notes: notes || undefined,
       })
       // Haptic feedback (Chrome Android etc; iOS Safari ignores it gracefully).
@@ -161,6 +163,16 @@ export function LogMatchPage() {
                 <option key={t} value={t}>{MATCH_TYPE_LABEL[t]}</option>
               ))}
             </select>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="label" htmlFor="venue">Venue</label>
+            <input
+              id="venue"
+              className="input w-full"
+              value={venue}
+              onChange={(e) => setVenue(e.target.value)}
+              placeholder="e.g. Singapore Cricket Club, Court 2"
+            />
           </div>
         </div>
 

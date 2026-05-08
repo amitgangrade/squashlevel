@@ -6,6 +6,7 @@ import { searchPlayers } from '../lib/supabase/profile'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { fmtLevel } from '../lib/format'
 import { CloseIcon } from './Icons'
+import { PlayerAvatar, playerSubtitle } from './PlayerAvatar'
 
 interface Props {
   value: Player | null
@@ -21,7 +22,8 @@ interface Props {
  * - Desktop: classic absolute-positioned dropdown directly under the input.
  *
  * Server-side ilike search when cloud is configured; falls back to client-side
- * filtering of the locally loaded roster otherwise.
+ * filtering of the locally loaded roster otherwise. Result rows show avatar,
+ * country, age and club so admins can pick the right same-named player.
  */
 export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search by name…', autoFocus }: Props) {
   const { players, recomputed } = useStore()
@@ -35,7 +37,6 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
   const wrapperRef = useRef<HTMLDivElement>(null)
   const sheetInputRef = useRef<HTMLInputElement>(null)
 
-  // Track viewport size so we know whether to render a sheet or a dropdown.
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 639px)')
     const onChange = () => setIsMobile(mq.matches)
@@ -43,7 +44,6 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
-  // Debounced search whenever the panel is open.
   useEffect(() => {
     if (!open) return
     const t = setTimeout(async () => {
@@ -56,9 +56,10 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
         }
       } else {
         const ql = q.trim().toLowerCase()
+        const tokens = ql.split(/\s+/).filter(Boolean)
         const filtered = players
           .filter((p) => p.id !== excludeId)
-          .filter((p) => !ql || p.name.toLowerCase().includes(ql))
+          .filter((p) => tokens.every((t) => p.name.toLowerCase().includes(t)))
           .slice(0, 25)
         setResults(filtered)
       }
@@ -67,7 +68,6 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
     return () => clearTimeout(t)
   }, [q, open, players, excludeId])
 
-  // Click-outside to close the desktop dropdown.
   useEffect(() => {
     if (isMobile) return
     const onDoc = (e: MouseEvent) => {
@@ -77,7 +77,6 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
     return () => document.removeEventListener('mousedown', onDoc)
   }, [isMobile])
 
-  // Lock body scroll when the mobile sheet is open and focus its input.
   useEffect(() => {
     if (!open || !isMobile) return
     const prev = document.body.style.overflow
@@ -94,14 +93,19 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
     setOpen(false)
   }
 
-  // Selected display (same on mobile and desktop)
+  // Selected display
   if (value) {
     const lvl = recomputed.states.get(value.id)?.currentLevel
+    const sub = playerSubtitle(value)
     return (
-      <div className="flex items-center gap-3 rounded-md border border-slate-300 px-3 py-2.5 dark:border-slate-700">
+      <div className="flex items-center gap-3 rounded-md border border-slate-300 px-3 py-2 dark:border-slate-700">
+        <PlayerAvatar name={value.name} avatarUrl={value.avatarUrl} size={36} />
         <div className="flex-1 min-w-0">
           <div className="font-medium text-sm truncate">{value.name}</div>
-          <div className="text-xs text-slate-500">Level {fmtLevel(lvl ?? value.startingLevel)}</div>
+          <div className="text-xs text-slate-500 truncate">
+            Lvl {fmtLevel(lvl ?? value.startingLevel)}
+            {sub && <span className="ml-1">· {sub}</span>}
+          </div>
         </div>
         <button type="button" className="btn-link" onClick={() => onChange(null)}>
           Change
@@ -110,7 +114,7 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
     )
   }
 
-  // Mobile: read-only trigger that opens a sheet
+  // Mobile sheet
   if (isMobile) {
     return (
       <>
@@ -151,14 +155,19 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
                 <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                   {results.map((p) => {
                     const lvl = recomputed.states.get(p.id)?.currentLevel ?? p.startingLevel
+                    const sub = playerSubtitle(p)
                     return (
                       <li key={p.id}>
                         <button
                           type="button"
                           onClick={() => choose(p)}
-                          className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left hover:bg-slate-50 dark:hover:bg-slate-800 min-h-[56px]"
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 min-h-[60px]"
                         >
-                          <span className="font-medium truncate">{p.name}</span>
+                          <PlayerAvatar name={p.name} avatarUrl={p.avatarUrl} size={40} />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">{p.name}</div>
+                            {sub && <div className="text-xs text-slate-500 truncate">{sub}</div>}
+                          </div>
                           <span className="text-sm text-slate-500 shrink-0">Lvl {fmtLevel(lvl)}</span>
                         </button>
                       </li>
@@ -173,7 +182,7 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
     )
   }
 
-  // Desktop: input + absolute-positioned dropdown
+  // Desktop dropdown
   return (
     <div ref={wrapperRef} className="relative">
       <input
@@ -204,14 +213,15 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
         }}
       />
       {open && results.length > 0 && (
-        <ul className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+        <ul className="absolute z-20 mt-1 max-h-80 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
           {results.map((p, i) => {
             const lvl = recomputed.states.get(p.id)?.currentLevel ?? p.startingLevel
+            const sub = playerSubtitle(p)
             return (
               <li
                 key={p.id}
                 className={clsx(
-                  'cursor-pointer px-3 py-2 text-sm flex items-center justify-between',
+                  'cursor-pointer px-3 py-2 text-sm flex items-center gap-3',
                   i === highlight ? 'bg-brand-100 dark:bg-brand-900/40' : 'hover:bg-slate-50 dark:hover:bg-slate-800',
                 )}
                 onMouseDown={(e) => {
@@ -220,8 +230,12 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
                 }}
                 onMouseEnter={() => setHighlight(i)}
               >
-                <span className="font-medium">{p.name}</span>
-                <span className="text-xs text-slate-500">Lvl {fmtLevel(lvl)}</span>
+                <PlayerAvatar name={p.name} avatarUrl={p.avatarUrl} size={32} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{p.name}</div>
+                  {sub && <div className="text-xs text-slate-500 truncate">{sub}</div>}
+                </div>
+                <span className="text-xs text-slate-500 shrink-0">Lvl {fmtLevel(lvl)}</span>
               </li>
             )
           })}

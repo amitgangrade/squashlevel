@@ -8,6 +8,14 @@ export interface PlayerRow {
   email: string | null
   user_id: string | null
   created_at: string
+  phone: string | null
+  country: string | null
+  city: string | null
+  club: string | null
+  avatar_url: string | null
+  birth_year: number | null
+  gender: 'male' | 'female' | null
+  dominant_hand: 'right' | 'left' | 'ambi' | null
 }
 
 export interface ProfileRow {
@@ -35,6 +43,7 @@ export interface MatchRow {
   player_b_id: string
   games: Array<{ a: number; b: number }>
   type: Match['type']
+  venue: string | null
   notes: string | null
   status: 'pending' | 'confirmed' | 'disputed' | null
   confirmed_at: string | null
@@ -57,6 +66,14 @@ export const fromPlayerRow = (r: PlayerRow): Player => ({
   email: r.email ?? undefined,
   userId: r.user_id ?? undefined,
   createdAt: r.created_at,
+  phone: r.phone ?? undefined,
+  country: r.country ?? undefined,
+  city: r.city ?? undefined,
+  club: r.club ?? undefined,
+  avatarUrl: r.avatar_url ?? undefined,
+  birthYear: r.birth_year ?? undefined,
+  gender: r.gender ?? undefined,
+  dominantHand: r.dominant_hand ?? undefined,
 })
 
 export const toPlayerRow = (p: Player): PlayerRow => ({
@@ -67,6 +84,14 @@ export const toPlayerRow = (p: Player): PlayerRow => ({
   email: p.email ?? null,
   user_id: p.userId ?? null,
   created_at: p.createdAt,
+  phone: p.phone ?? null,
+  country: p.country ?? null,
+  city: p.city ?? null,
+  club: p.club ?? null,
+  avatar_url: p.avatarUrl ?? null,
+  birth_year: p.birthYear ?? null,
+  gender: p.gender ?? null,
+  dominant_hand: p.dominantHand ?? null,
 })
 
 export const fromProfileRow = (r: ProfileRow): import('../../types').Profile => ({
@@ -94,6 +119,7 @@ export const fromMatchRow = (r: MatchRow): Match => ({
   playerBId: r.player_b_id,
   games: r.games,
   type: r.type,
+  venue: r.venue ?? undefined,
   notes: r.notes ?? undefined,
   status: r.status ?? undefined,
   confirmedAt: r.confirmed_at ?? undefined,
@@ -110,6 +136,7 @@ export const toMatchRow = (m: Match): MatchRow => ({
   player_b_id: m.playerBId,
   games: m.games,
   type: m.type,
+  venue: m.venue ?? null,
   notes: m.notes ?? null,
   status: m.status ?? null,
   confirmed_at: m.confirmedAt ?? null,

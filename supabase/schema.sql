@@ -54,6 +54,18 @@ create table if not exists public.players (
 alter table public.players add column if not exists email text;
 alter table public.players add column if not exists user_id uuid unique references auth.users(id) on delete set null;
 
+-- Rich identity fields (mirrored from profiles for claimed players, set
+-- directly by admins for unclaimed ones). Lets the picker show a player's
+-- club / country / age / photo so admins can disambiguate same-named players.
+alter table public.players add column if not exists phone text;
+alter table public.players add column if not exists country text;
+alter table public.players add column if not exists city text;
+alter table public.players add column if not exists club text;
+alter table public.players add column if not exists avatar_url text;
+alter table public.players add column if not exists birth_year smallint;
+alter table public.players add column if not exists gender text;
+alter table public.players add column if not exists dominant_hand text;
+
 -- Trigram index for fast ilike search at scale (tens of thousands of players).
 create extension if not exists pg_trgm;
 create index if not exists players_name_trgm_idx on public.players using gin (name gin_trgm_ops);
@@ -79,6 +91,7 @@ alter table public.matches add column if not exists status text;
 alter table public.matches add column if not exists confirmed_at timestamptz;
 alter table public.matches add column if not exists disputed_at timestamptz;
 alter table public.matches add column if not exists auto_confirmed boolean not null default false;
+alter table public.matches add column if not exists venue text;
 
 -- Backfill existing matches as already confirmed (preserves leaderboard).
 update public.matches set status = 'confirmed', confirmed_at = coalesce(confirmed_at, created_at)
@@ -218,6 +231,164 @@ end;
 $$;
 
 grant execute on function public.claim_player_for_me() to authenticated;
+
+-- ensure_player_for_profile():
+-- Trigger function that guarantees every profile has a corresponding player
+-- row, with all the rich identity fields copied across. Runs AFTER INSERT on
+-- profiles. If a pre-existing player matches by email (admin pre-create flow),
+-- claim it AND refresh its rich fields from the profile. Otherwise create a
+-- fresh player. SECURITY DEFINER so it can write to players regardless of the
+-- inserting user's RLS context.
+create or replace function public.ensure_player_for_profile()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uemail text := public.norm_email(new.email);
+  claimed_id uuid;
+begin
+  if exists (select 1 from public.players where user_id = new.id) then
+    return new;
+  end if;
+
+  if uemail is not null then
+    update public.players
+       set user_id = new.id,
+           name = new.full_name,
+           phone = coalesce(public.players.phone, new.phone),
+           country = coalesce(public.players.country, new.country),
+           city = coalesce(public.players.city, new.city),
+           club = coalesce(public.players.club, new.club),
+           avatar_url = coalesce(public.players.avatar_url, new.avatar_url),
+           birth_year = coalesce(public.players.birth_year, new.birth_year),
+           gender = coalesce(public.players.gender, new.gender),
+           dominant_hand = coalesce(public.players.dominant_hand, new.dominant_hand)
+     where id = (
+       select id from public.players
+       where user_id is null
+         and email is not null
+         and public.norm_email(email) = uemail
+       order by created_at asc
+       limit 1
+     )
+     returning id into claimed_id;
+    if claimed_id is not null then
+      return new;
+    end if;
+  end if;
+
+  insert into public.players (
+    id, name, starting_level, email, user_id, created_at,
+    phone, country, city, club, avatar_url, birth_year, gender, dominant_hand
+  )
+  values (
+    new.id, new.full_name, new.starting_level, new.email, new.id, new.created_at,
+    new.phone, new.country, new.city, new.club, new.avatar_url, new.birth_year, new.gender, new.dominant_hand
+  );
+
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_ensure_player on public.profiles;
+create trigger profiles_ensure_player
+  after insert on public.profiles
+  for each row execute function public.ensure_player_for_profile();
+
+-- sync_player_from_profile():
+-- AFTER UPDATE trigger that mirrors profile edits to the linked player row,
+-- so an admin or the user themselves only have to edit one place to update
+-- their public-facing identity fields.
+create or replace function public.sync_player_from_profile()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.players
+     set name = new.full_name,
+         email = new.email,
+         starting_level = new.starting_level,
+         phone = new.phone,
+         country = new.country,
+         city = new.city,
+         club = new.club,
+         avatar_url = new.avatar_url,
+         birth_year = new.birth_year,
+         gender = new.gender,
+         dominant_hand = new.dominant_hand
+   where user_id = new.id;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_sync_player on public.profiles;
+create trigger profiles_sync_player
+  after update on public.profiles
+  for each row execute function public.sync_player_from_profile();
+
+-- set_admin(target_id, value): admin-only RPC to promote / demote another
+-- profile. Throws if caller isn't admin or target doesn't exist. Allows an
+-- admin to demote themselves but not the last admin (safety guard).
+create or replace function public.set_admin(target_id uuid, value boolean)
+returns public.profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller uuid := auth.uid();
+  target public.profiles;
+  remaining_admins int;
+begin
+  if caller is null then
+    raise exception 'not authenticated';
+  end if;
+  if not public.is_admin(caller) then
+    raise exception 'admin only';
+  end if;
+
+  select * into target from public.profiles where id = target_id;
+  if target.id is null then
+    raise exception 'profile not found';
+  end if;
+
+  if target.is_admin and not value then
+    select count(*) into remaining_admins from public.profiles where is_admin = true and id <> target_id;
+    if remaining_admins = 0 then
+      raise exception 'cannot demote the last admin';
+    end if;
+  end if;
+
+  update public.profiles set is_admin = value where id = target_id returning * into target;
+  return target;
+end;
+$$;
+
+grant execute on function public.set_admin(uuid, boolean) to authenticated;
+
+-- list_profiles_for_admin(): admin-only listing of every profile, used by the
+-- admin-management UI. Plain table SELECT also works (RLS allows public read)
+-- but this endpoint exists so the client can fail fast for non-admins and
+-- so we can attach derived counts later if useful.
+create or replace function public.list_profiles_for_admin()
+returns setof public.profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  return query select * from public.profiles order by full_name;
+end;
+$$;
+
+grant execute on function public.list_profiles_for_admin() to authenticated;
 
 -- ===========================================================================
 -- Match confirmation
@@ -538,3 +709,73 @@ begin
   begin alter publication supabase_realtime add table public.matches;  exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.settings; exception when duplicate_object then null; end;
 end $$;
+
+-- ===========================================================================
+-- Backfill: any profile that lacks a player row gets one. Idempotent — the
+-- WHERE clause matches nothing once every profile has a player.
+-- ===========================================================================
+do $$
+declare
+  p record;
+  uemail text;
+  claimed_id uuid;
+begin
+  for p in
+    select pr.* from public.profiles pr
+    where not exists (select 1 from public.players pl where pl.user_id = pr.id)
+  loop
+    uemail := public.norm_email(p.email);
+    claimed_id := null;
+
+    if uemail is not null then
+      update public.players
+         set user_id = p.id,
+             phone = coalesce(public.players.phone, p.phone),
+             country = coalesce(public.players.country, p.country),
+             city = coalesce(public.players.city, p.city),
+             club = coalesce(public.players.club, p.club),
+             avatar_url = coalesce(public.players.avatar_url, p.avatar_url),
+             birth_year = coalesce(public.players.birth_year, p.birth_year),
+             gender = coalesce(public.players.gender, p.gender),
+             dominant_hand = coalesce(public.players.dominant_hand, p.dominant_hand)
+       where id = (
+         select id from public.players
+         where user_id is null
+           and email is not null
+           and public.norm_email(email) = uemail
+         order by created_at asc
+         limit 1
+       )
+       returning id into claimed_id;
+    end if;
+
+    if claimed_id is null then
+      insert into public.players (
+        id, name, starting_level, email, user_id, created_at,
+        phone, country, city, club, avatar_url, birth_year, gender, dominant_hand
+      ) values (
+        p.id, p.full_name, p.starting_level, p.email, p.id, p.created_at,
+        p.phone, p.country, p.city, p.club, p.avatar_url, p.birth_year, p.gender, p.dominant_hand
+      );
+    end if;
+  end loop;
+end $$;
+
+-- Backfill rich fields for already-linked players whose row predates the new
+-- columns. Only overwrites a player field when it is null AND the linked
+-- profile has a value, so admin overrides on player rows are preserved.
+update public.players pl
+set phone = coalesce(pl.phone, pr.phone),
+    country = coalesce(pl.country, pr.country),
+    city = coalesce(pl.city, pr.city),
+    club = coalesce(pl.club, pr.club),
+    avatar_url = coalesce(pl.avatar_url, pr.avatar_url),
+    birth_year = coalesce(pl.birth_year, pr.birth_year),
+    gender = coalesce(pl.gender, pr.gender),
+    dominant_hand = coalesce(pl.dominant_hand, pr.dominant_hand)
+from public.profiles pr
+where pl.user_id = pr.id
+  and (
+    pl.phone is null or pl.country is null or pl.city is null or pl.club is null
+    or pl.avatar_url is null or pl.birth_year is null or pl.gender is null or pl.dominant_hand is null
+  );

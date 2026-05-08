@@ -163,6 +163,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const saveProfile = async (p: Profile) => {
     const updated = await updateProfileApi(p)
     setProfile(updated)
+    // The sync_player_from_profile trigger updates the linked player row;
+    // refresh so myPlayer + leaderboard pick up the new club/country/etc.
+    await refresh()
+    if (session?.user) {
+      const fresh = await fetchPlayerForUser(session.user.id)
+      if (fresh) setMyPlayer(fresh)
+    }
   }
 
   const addPlayer: StoreCtx['addPlayer'] = async (data) => {

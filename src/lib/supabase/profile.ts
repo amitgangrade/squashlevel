@@ -1,7 +1,6 @@
-import { v4 as uuid } from 'uuid'
 import type { DominantHand, Gender, Player, Profile } from '../../types'
 import { supabase } from './client'
-import { fromPlayerRow, fromProfileRow, toPlayerRow, type PlayerRow, type ProfileRow } from './mappers'
+import { fromPlayerRow, fromProfileRow, type PlayerRow, type ProfileRow } from './mappers'
 
 const SLUG_RE = /[^a-z0-9]+/g
 
@@ -152,36 +151,15 @@ export async function createProfileAndPlayer(
     }
   }
 
-  // Step 1: try to claim a pre-existing player matching the user's auth email.
-  const { data: claimedRow, error: claimErr } = await sb.rpc('claim_player_for_me')
-  if (claimErr) throw claimErr
-
-  let player: Player
-  if (claimedRow) {
-    player = fromPlayerRow(claimedRow as PlayerRow)
-    // Refresh the display name to whatever the user typed in onboarding.
-    if (player.name !== input.fullName.trim()) {
-      const { data: updated, error: uErr } = await sb
-        .from('players')
-        .update({ name: input.fullName.trim() })
-        .eq('id', player.id)
-        .select('*')
-        .single()
-      if (!uErr && updated) player = fromPlayerRow(updated as PlayerRow)
-    }
-  } else {
-    // Step 2: nothing to claim → create a fresh player.
-    player = {
-      id: uuid(),
-      name: input.fullName,
-      startingLevel: input.startingLevel,
-      email: input.email,
-      userId,
-      createdAt: new Date().toISOString(),
-    }
-    const { error: plErr } = await sb.from('players').insert(toPlayerRow(player))
-    if (plErr) throw plErr
-  }
+  // The DB trigger ensure_player_for_profile already created (or claimed) a
+  // player row when we inserted the profile. Just read it back.
+  const { data: playerRow, error: plErr } = await sb
+    .from('players')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+  if (plErr) throw plErr
+  const player = fromPlayerRow(playerRow as PlayerRow)
 
   return { profile, player }
 }
@@ -211,7 +189,9 @@ export async function updateProfile(profile: Profile): Promise<Profile> {
 
 /**
  * Server-side player search (typeahead). Uses ilike with a trigram index so it
- * stays cheap at tens of thousands of rows.
+ * stays cheap at tens of thousands of rows. Splits the query on whitespace and
+ * requires every token to match (so "john do" finds "John Doe" but not just
+ * "John" — useful when there are many people sharing a first name).
  */
 export async function searchPlayers(query: string, limit = 20): Promise<Player[]> {
   const sb = supabase!
@@ -221,12 +201,27 @@ export async function searchPlayers(query: string, limit = 20): Promise<Player[]
     if (error) throw error
     return (data as PlayerRow[]).map(fromPlayerRow)
   }
-  const { data, error } = await sb
-    .from('players')
-    .select('*')
-    .ilike('name', `%${q}%`)
-    .order('name')
-    .limit(limit)
+  let req = sb.from('players').select('*')
+  for (const token of q.split(/\s+/).filter(Boolean)) {
+    req = req.ilike('name', `%${token}%`)
+  }
+  const { data, error } = await req.order('name').limit(limit)
   if (error) throw error
   return (data as PlayerRow[]).map(fromPlayerRow)
+}
+
+/** Admin-only: list every profile so admins can promote/demote others. */
+export async function listAllProfiles(): Promise<Profile[]> {
+  const sb = supabase!
+  const { data, error } = await sb.rpc('list_profiles_for_admin')
+  if (error) throw error
+  return (data as ProfileRow[]).map(fromProfileRow)
+}
+
+/** Admin-only: flip the is_admin flag on another profile. */
+export async function setAdminFlag(profileId: string, value: boolean): Promise<Profile> {
+  const sb = supabase!
+  const { data, error } = await sb.rpc('set_admin', { target_id: profileId, value })
+  if (error) throw error
+  return fromProfileRow(data as ProfileRow)
 }

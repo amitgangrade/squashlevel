@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
@@ -8,6 +8,7 @@ import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonRow } from '../components/Skeleton'
+import { PlayerAvatar, playerSubtitle } from '../components/PlayerAvatar'
 
 const AUTO_CONFIRM_KICK_KEY = 'sl_auto_confirm_kicked_at'
 const AUTO_CONFIRM_KICK_INTERVAL_MS = 60 * 60 * 1000 // 1h
@@ -27,21 +28,37 @@ export function DashboardPage() {
     runAutoConfirmAged().catch(() => {})
   }, [signedIn, runAutoConfirmAged])
 
-  const rows = players
-    .map((p) => {
-      const s = recomputed.states.get(p.id)
-      const level = s?.currentLevel ?? p.startingLevel
-      const ranking = s ? movingAverage(s.history, settings.movingAverageWindow) : level
-      return {
-        id: p.id,
-        name: p.name,
-        level,
-        ranking,
-        played: s?.matchesPlayed ?? 0,
-        provisional: (s?.matchesPlayed ?? 0) < settings.provisionalThreshold,
-      }
+  const [search, setSearch] = useState('')
+
+  const allRows = useMemo(
+    () =>
+      players
+        .map((p) => {
+          const s = recomputed.states.get(p.id)
+          const level = s?.currentLevel ?? p.startingLevel
+          const ranking = s ? movingAverage(s.history, settings.movingAverageWindow) : level
+          return {
+            id: p.id,
+            name: p.name,
+            player: p,
+            level,
+            ranking,
+            played: s?.matchesPlayed ?? 0,
+            provisional: (s?.matchesPlayed ?? 0) < settings.provisionalThreshold,
+          }
+        })
+        .sort((a, b) => b.ranking - a.ranking),
+    [players, recomputed, settings.movingAverageWindow, settings.provisionalThreshold],
+  )
+
+  const rows = useMemo(() => {
+    const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (tokens.length === 0) return allRows
+    return allRows.filter((r) => {
+      const hay = [r.name, r.player.club, r.player.country, r.player.city].filter(Boolean).join(' ').toLowerCase()
+      return tokens.every((t) => hay.includes(t))
     })
-    .sort((a, b) => b.ranking - a.ranking)
+  }, [allRows, search])
 
   const recent = [...recomputed.matches].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
 
@@ -66,13 +83,22 @@ export function DashboardPage() {
         )}
 
         <section>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
             <h1>Leaderboard</h1>
             <div className="hidden sm:flex gap-2">
               {isAdmin && <Link className="btn-secondary" to="/roster">Add player</Link>}
               {canLogMatch && <Link className="btn-primary" to="/log">Log match</Link>}
             </div>
           </div>
+          {allRows.length > 0 && (
+            <input
+              type="search"
+              className="input w-full sm:max-w-sm mb-3"
+              placeholder="Search by name, club, country…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          )}
 
           {loading && players.length === 0 ? (
             <div className="space-y-2">
@@ -80,7 +106,7 @@ export function DashboardPage() {
               <SkeletonRow />
               <SkeletonRow />
             </div>
-          ) : rows.length === 0 ? (
+          ) : allRows.length === 0 ? (
             <div className="card text-center text-slate-500">
               {isAdmin ? (
                 <>No players yet. <Link className="text-brand-600 underline" to="/roster">Add your first player</Link> to get started.</>
@@ -88,12 +114,15 @@ export function DashboardPage() {
                 <>No players yet.</>
               )}
             </div>
+          ) : rows.length === 0 ? (
+            <div className="card text-center text-slate-500">No players match "{search}".</div>
           ) : (
             <>
               {/* Mobile: card list */}
               <ul className="sm:hidden space-y-2">
                 {rows.map((r, i) => {
                   const isMe = myPlayer?.id === r.id
+                  const sub = playerSubtitle(r.player)
                   return (
                     <li
                       key={r.id}
@@ -102,13 +131,15 @@ export function DashboardPage() {
                         isMe && 'ring-2 ring-brand-500/40',
                       )}
                     >
-                      <div className="w-7 text-center text-sm font-semibold text-slate-400">{i + 1}</div>
+                      <div className="w-6 text-center text-sm font-semibold text-slate-400 shrink-0">{i + 1}</div>
+                      <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={36} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-medium truncate">{r.name}</span>
                           {r.provisional && <span className="tag">P</span>}
                           {isMe && <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">you</span>}
                         </div>
+                        {sub && <div className="text-xs text-slate-500 truncate">{sub}</div>}
                         <div className="text-xs text-slate-500 mt-0.5">
                           {r.played} {r.played === 1 ? 'match' : 'matches'} · 4-match avg {fmtLevel(r.ranking)}
                         </div>
@@ -135,18 +166,29 @@ export function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r, i) => (
-                      <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
-                        <td className="px-3 py-2 text-slate-400">{i + 1}</td>
-                        <td className="px-3 py-2 font-medium">
-                          {r.name}
-                          {r.provisional && <span className="ml-2 tag">P</span>}
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold">{fmtLevel(r.level)}</td>
-                        <td className="px-3 py-2 text-right">{fmtLevel(r.ranking)}</td>
-                        <td className="px-3 py-2 text-right text-slate-500">{r.played}</td>
-                      </tr>
-                    ))}
+                    {rows.map((r, i) => {
+                      const sub = playerSubtitle(r.player)
+                      return (
+                        <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={28} />
+                              <div className="min-w-0">
+                                <div className="font-medium truncate">
+                                  {r.name}
+                                  {r.provisional && <span className="ml-2 tag">P</span>}
+                                </div>
+                                {sub && <div className="text-xs text-slate-500 truncate">{sub}</div>}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold">{fmtLevel(r.level)}</td>
+                          <td className="px-3 py-2 text-right">{fmtLevel(r.ranking)}</td>
+                          <td className="px-3 py-2 text-right text-slate-500">{r.played}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

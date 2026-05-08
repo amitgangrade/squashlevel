@@ -1,52 +1,126 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useStore } from '../state/store'
-import { fmtLevel } from '../lib/format'
-import type { Player } from '../types'
+import { fmtLevel, playerAge } from '../lib/format'
+import {
+  DOMINANT_HAND_LABEL,
+  GENDER_LABEL,
+  type DominantHand,
+  type Gender,
+  type Player,
+} from '../types'
+import { PlayerAvatar, playerSubtitle } from '../components/PlayerAvatar'
+
+interface FormState {
+  name: string
+  startingLevel: string
+  email: string
+  phone: string
+  country: string
+  city: string
+  club: string
+  birthYear: string
+  gender: Gender | ''
+  dominantHand: DominantHand | ''
+  notes: string
+}
+
+const emptyForm: FormState = {
+  name: '',
+  startingLevel: '1000',
+  email: '',
+  phone: '',
+  country: '',
+  city: '',
+  club: '',
+  birthYear: '',
+  gender: '',
+  dominantHand: '',
+  notes: '',
+}
+
+function fromPlayer(p: Player): FormState {
+  return {
+    name: p.name,
+    startingLevel: String(p.startingLevel),
+    email: p.email ?? '',
+    phone: p.phone ?? '',
+    country: p.country ?? '',
+    city: p.city ?? '',
+    club: p.club ?? '',
+    birthYear: p.birthYear ? String(p.birthYear) : '',
+    gender: p.gender ?? '',
+    dominantHand: p.dominantHand ?? '',
+    notes: p.notes ?? '',
+  }
+}
 
 export function RosterPage() {
   const { players, recomputed, settings, isAdmin, addPlayer, updatePlayer, removePlayer } = useStore()
-  const [name, setName] = useState('')
-  const [startingLevel, setStartingLevel] = useState<string>('1000')
-  const [notes, setNotes] = useState('')
-  const [email, setEmail] = useState('')
-  const [error, setError] = useState('')
+  const [form, setForm] = useState<FormState>(emptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [showForm, setShowForm] = useState(false)
+  const [search, setSearch] = useState('')
 
   const reset = () => {
-    setName('')
-    setStartingLevel('1000')
-    setNotes('')
-    setEmail('')
+    setForm(emptyForm)
     setEditingId(null)
     setError('')
+    setShowForm(false)
   }
+
+  const update = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }))
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const lvl = Number(startingLevel)
-    if (!name.trim()) return setError('Name is required')
+    const lvl = Number(form.startingLevel)
+    if (!form.name.trim()) return setError('Name is required')
     if (!Number.isFinite(lvl) || lvl <= 0) return setError('Starting level must be a positive number')
-    const trimmedEmail = email.trim()
+    const trimmedEmail = form.email.trim()
     if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       return setError('Email looks invalid')
     }
-    const emailVal = trimmedEmail || undefined
-    if (editingId) {
-      const existing = players.find((p) => p.id === editingId)!
-      await updatePlayer({ ...existing, name: name.trim(), startingLevel: lvl, notes: notes || undefined, email: emailVal })
-    } else {
-      await addPlayer({ name: name.trim(), startingLevel: lvl, notes: notes || undefined, email: emailVal })
+    let parsedYear: number | undefined
+    if (form.birthYear.trim()) {
+      const y = Number(form.birthYear)
+      const thisYear = new Date().getFullYear()
+      if (!Number.isInteger(y) || y < 1900 || y > thisYear) {
+        return setError(`Year of birth must be between 1900 and ${thisYear}`)
+      }
+      parsedYear = y
     }
-    reset()
+    const data = {
+      name: form.name.trim(),
+      startingLevel: lvl,
+      email: trimmedEmail || undefined,
+      phone: form.phone.trim() || undefined,
+      country: form.country.trim() || undefined,
+      city: form.city.trim() || undefined,
+      club: form.club.trim() || undefined,
+      birthYear: parsedYear,
+      gender: form.gender || undefined,
+      dominantHand: form.dominantHand || undefined,
+      notes: form.notes.trim() || undefined,
+    }
+    try {
+      if (editingId) {
+        const existing = players.find((p) => p.id === editingId)!
+        await updatePlayer({ ...existing, ...data })
+      } else {
+        await addPlayer(data)
+      }
+      reset()
+    } catch (err) {
+      setError((err as Error).message)
+    }
   }
 
   const beginEdit = (p: Player) => {
     setEditingId(p.id)
-    setName(p.name)
-    setStartingLevel(String(p.startingLevel))
-    setNotes(p.notes ?? '')
-    setEmail(p.email ?? '')
+    setForm(fromPlayer(p))
     setError('')
+    setShowForm(true)
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const remove = async (p: Player) => {
@@ -60,64 +134,132 @@ export function RosterPage() {
     await removePlayer(p.id)
   }
 
+  const filteredPlayers = useMemo(() => {
+    const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (tokens.length === 0) return players
+    return players.filter((p) => {
+      const haystack = [p.name, p.club, p.country, p.city, p.email].filter(Boolean).join(' ').toLowerCase()
+      return tokens.every((t) => haystack.includes(t))
+    })
+  }, [players, search])
+
   return (
     <div className="space-y-6">
       {isAdmin && (
-      <section>
-        <h1 className="mb-3">{editingId ? 'Edit player' : 'Add player'}</h1>
-        <form onSubmit={onSubmit} className="card space-y-3 max-w-lg">
-          <div>
-            <label className="label" htmlFor="name">Name</label>
-            <input id="name" className="input w-full" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h1>{editingId ? 'Edit player' : 'Players'}</h1>
+            {!showForm && !editingId && (
+              <button className="btn-primary" onClick={() => setShowForm(true)}>+ Add player</button>
+            )}
           </div>
-          <div>
-            <label className="label" htmlFor="level">Starting level</label>
-            <input
-              id="level"
-              className="input w-full"
-              inputMode="numeric"
-              value={startingLevel}
-              onChange={(e) => setStartingLevel(e.target.value)}
-            />
-            <p className="mt-1 text-xs text-slate-500">
-              Use the player's current rating from SquashLevels.com if known (e.g. 1200), otherwise 1000. Scale: 50 beginner → 50,000+ top pro.
-            </p>
-          </div>
-          <div>
-            <label className="label" htmlFor="email">Email (optional)</label>
-            <input
-              id="email"
-              type="email"
-              className="input w-full"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="player@example.com"
-            />
-            <p className="mt-1 text-xs text-slate-500">If set, this player gets an email when a match they played is logged.</p>
-          </div>
-          <div>
-            <label className="label" htmlFor="notes">Notes (optional)</label>
-            <input id="notes" className="input w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
-          {error && <div className="text-sm text-red-600">{error}</div>}
-          <div className="flex gap-2">
-            <button className="btn-primary" type="submit">{editingId ? 'Save' : 'Add'}</button>
-            {editingId && <button type="button" className="btn-secondary" onClick={reset}>Cancel</button>}
-          </div>
-        </form>
-      </section>
+          {showForm && (
+            <form onSubmit={onSubmit} className="card space-y-3 max-w-2xl">
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="label" htmlFor="name">Name</label>
+                  <input id="name" className="input w-full" value={form.name} onChange={(e) => update('name', e.target.value)} autoFocus />
+                </div>
+                <div>
+                  <label className="label" htmlFor="level">Starting level</label>
+                  <input
+                    id="level"
+                    className="input w-full"
+                    inputMode="numeric"
+                    value={form.startingLevel}
+                    onChange={(e) => update('startingLevel', e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Use the player's SquashLevels.com rating if known (e.g. 1200), otherwise 1000.
+                  </p>
+                </div>
+                <div>
+                  <label className="label" htmlFor="email">Email</label>
+                  <input
+                    id="email"
+                    type="email"
+                    className="input w-full"
+                    value={form.email}
+                    onChange={(e) => update('email', e.target.value)}
+                    placeholder="player@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="phone">Phone</label>
+                  <input id="phone" type="tel" className="input w-full" value={form.phone} onChange={(e) => update('phone', e.target.value)} placeholder="+65 9123 4567" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="club">Club</label>
+                  <input id="club" className="input w-full" value={form.club} onChange={(e) => update('club', e.target.value)} placeholder="e.g. Singapore Cricket Club" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="country">Country</label>
+                  <input id="country" className="input w-full" value={form.country} onChange={(e) => update('country', e.target.value)} placeholder="Singapore" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="city">City</label>
+                  <input id="city" className="input w-full" value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Singapore" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="birthYear">Year of birth</label>
+                  <input id="birthYear" inputMode="numeric" className="input w-full" value={form.birthYear} onChange={(e) => update('birthYear', e.target.value)} placeholder="1985" />
+                </div>
+                <div>
+                  <label className="label" htmlFor="gender">Gender</label>
+                  <select id="gender" className="input w-full" value={form.gender} onChange={(e) => update('gender', e.target.value as Gender | '')}>
+                    <option value="">—</option>
+                    {(Object.keys(GENDER_LABEL) as Gender[]).map((g) => (
+                      <option key={g} value={g}>{GENDER_LABEL[g]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label" htmlFor="hand">Dominant hand</label>
+                  <select id="hand" className="input w-full" value={form.dominantHand} onChange={(e) => update('dominantHand', e.target.value as DominantHand | '')}>
+                    <option value="">—</option>
+                    {(Object.keys(DOMINANT_HAND_LABEL) as DominantHand[]).map((h) => (
+                      <option key={h} value={h}>{DOMINANT_HAND_LABEL[h]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label" htmlFor="notes">Notes</label>
+                  <input id="notes" className="input w-full" value={form.notes} onChange={(e) => update('notes', e.target.value)} />
+                </div>
+              </div>
+              {error && <div className="text-sm text-red-600">{error}</div>}
+              <div className="flex gap-2">
+                <button className="btn-primary" type="submit">{editingId ? 'Save' : 'Add'}</button>
+                <button type="button" className="btn-secondary" onClick={reset}>Cancel</button>
+              </div>
+            </form>
+          )}
+        </section>
       )}
 
       <section>
-        <h2 className="mb-2">Players ({players.length})</h2>
+        <div className="flex items-center justify-between mb-2 gap-2">
+          <h2>Players ({players.length})</h2>
+          <input
+            type="search"
+            className="input w-40 sm:w-64"
+            placeholder="Search by name, club, country…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         {players.length === 0 ? (
           <div className="card text-slate-500 text-center">No players yet.</div>
+        ) : filteredPlayers.length === 0 ? (
+          <div className="card text-slate-500 text-center">No players match "{search}".</div>
         ) : (
           <div className="card p-0 overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500">
                 <tr>
-                  <th className="px-3 py-2 text-left">Name</th>
+                  <th className="px-3 py-2 text-left">Player</th>
+                  <th className="px-3 py-2 text-left hidden md:table-cell">Club</th>
+                  <th className="px-3 py-2 text-left hidden md:table-cell">Country</th>
                   <th className="px-3 py-2 text-right">Start</th>
                   <th className="px-3 py-2 text-right">Current</th>
                   <th className="px-3 py-2 text-right">Matches</th>
@@ -125,14 +267,29 @@ export function RosterPage() {
                 </tr>
               </thead>
               <tbody>
-                {players.map((p) => {
+                {filteredPlayers.map((p) => {
                   const s = recomputed.states.get(p.id)
                   const prov = (s?.matchesPlayed ?? 0) < settings.provisionalThreshold
+                  const sub = playerSubtitle(p)
+                  const age = playerAge(p.birthYear)
                   return (
                     <tr key={p.id} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="px-3 py-2 font-medium">
-                        {p.name}
-                        {prov && <span className="ml-2 tag">P</span>}
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <PlayerAvatar name={p.name} avatarUrl={p.avatarUrl} size={32} />
+                          <div className="min-w-0">
+                            <div className="font-medium truncate flex items-center gap-2">
+                              <span className="truncate">{p.name}</span>
+                              {prov && <span className="tag">P</span>}
+                            </div>
+                            <div className="text-xs text-slate-500 truncate md:hidden">{sub}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 hidden md:table-cell text-slate-600 dark:text-slate-300">{p.club || '—'}</td>
+                      <td className="px-3 py-2 hidden md:table-cell text-slate-600 dark:text-slate-300">
+                        {p.country || '—'}
+                        {age !== null && <span className="text-xs text-slate-400 ml-1">· age {age}</span>}
                       </td>
                       <td className="px-3 py-2 text-right">{fmtLevel(p.startingLevel)}</td>
                       <td className="px-3 py-2 text-right font-semibold">{fmtLevel(s?.currentLevel)}</td>

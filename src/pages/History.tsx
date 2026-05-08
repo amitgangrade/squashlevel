@@ -2,14 +2,15 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
-import { MATCH_STATUS_LABEL, MATCH_TYPE_LABEL } from '../types'
+import { MATCH_STATUS_LABEL, MATCH_TYPE_LABEL, type Player } from '../types'
 import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
 import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
+import { PlayerSearch } from '../components/PlayerSearch'
 
 export function HistoryPage() {
   const { players, matches, recomputed, isAdmin, removeMatch, confirmMatch, session, myPlayer } = useStore()
-  const [filter, setFilter] = useState<string>('')
+  const [filterPlayer, setFilterPlayer] = useState<Player | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
@@ -19,9 +20,9 @@ export function HistoryPage() {
     const enrichedById = new Map(recomputed.matches.map((m) => [m.id, m] as const))
     const merged = matches.map((m) => enrichedById.get(m.id) ?? m)
     const sorted = [...merged].sort((a, b) => b.date.localeCompare(a.date))
-    if (!filter) return sorted
-    return sorted.filter((m) => m.playerAId === filter || m.playerBId === filter)
-  }, [matches, recomputed.matches, filter])
+    if (!filterPlayer) return sorted
+    return sorted.filter((m) => m.playerAId === filterPlayer.id || m.playerBId === filterPlayer.id)
+  }, [matches, recomputed.matches, filterPlayer])
 
   const remove = async (id: string) => {
     if (!window.confirm('Delete this match? Levels will be recomputed from history.')) return
@@ -44,12 +45,13 @@ export function HistoryPage() {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <h1>Match history</h1>
-        <select className="input" value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="">All players</option>
-          {players.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+        <div className="w-full sm:w-72">
+          <PlayerSearch
+            value={filterPlayer}
+            onChange={setFilterPlayer}
+            placeholder="Filter by player…"
+          />
+        </div>
       </div>
 
       {err && <div className="text-sm text-red-600">{err}</div>}
@@ -100,6 +102,7 @@ export function HistoryPage() {
                     </div>
                     <div className="text-xs text-slate-500 mt-1">
                       {fmtDate(m.date)} · {MATCH_TYPE_LABEL[m.type]}
+                      {m.venue && <> · <span>{m.venue}</span></>}
                     </div>
                     <div className="mt-1">
                       <GameScores games={m.games} />

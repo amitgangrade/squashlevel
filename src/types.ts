@@ -25,6 +25,14 @@ export const PlayerSchema = z.object({
   notes: z.string().optional(),
   email: z.string().email().optional(),
   userId: z.string().uuid().optional(),
+  phone: z.string().optional(),
+  country: z.string().optional(),
+  city: z.string().optional(),
+  club: z.string().optional(),
+  avatarUrl: z.string().url().optional(),
+  birthYear: z.number().int().min(1900).max(new Date().getFullYear()).optional(),
+  gender: z.enum(['male', 'female']).optional(),
+  dominantHand: z.enum(['right', 'left', 'ambi']).optional(),
 })
 export type Player = z.infer<typeof PlayerSchema>
 
@@ -86,6 +94,7 @@ export const MatchSchema = z.object({
   playerBId: z.string(),
   games: z.array(GameScoreSchema).min(1),
   type: MatchType,
+  venue: z.string().optional(),
   notes: z.string().optional(),
   status: MatchStatus.optional(),
   confirmedAt: z.string().optional(),
