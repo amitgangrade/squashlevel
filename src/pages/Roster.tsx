@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { fmtLevel, playerAge } from '../lib/format'
@@ -64,6 +65,8 @@ export function RosterPage() {
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 100
   const cityOptions = useMemo(() => distinctValues(players, 'city'), [players])
   const clubOptions = useMemo(() => distinctValues(players, 'club'), [players])
 
@@ -156,6 +159,11 @@ export function RosterPage() {
       return tokens.every((t) => haystack.includes(t))
     })
   }, [players, search])
+
+  const visiblePlayers = useMemo(
+    () => filteredPlayers.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [filteredPlayers, page, PAGE_SIZE],
+  )
 
   return (
     <div className="space-y-6">
@@ -262,13 +270,18 @@ export function RosterPage() {
 
       <section>
         <div className="flex items-center justify-between mb-2 gap-2">
-          <h2>Players ({players.length})</h2>
+          <h2>
+            Players{' '}
+            {search.trim()
+              ? `(${filteredPlayers.length.toLocaleString()} of ${players.length.toLocaleString()})`
+              : `(${players.length.toLocaleString()})`}
+          </h2>
           <input
             type="search"
             className="input w-40 sm:w-64"
             placeholder="Search by name, club, country…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(0) }}
           />
         </div>
         {players.length === 0 ? (
@@ -290,7 +303,7 @@ export function RosterPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredPlayers.map((p) => {
+                {visiblePlayers.map((p) => {
                   const s = recomputed.states.get(p.id)
                   const prov = (s?.matchesPlayed ?? 0) < settings.provisionalThreshold
                   const age = playerAge(p.birthYear)
@@ -358,6 +371,13 @@ export function RosterPage() {
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={filteredPlayers.length}
+            onPage={setPage}
+            noun="players"
+          />
         )}
       </section>
     </div>

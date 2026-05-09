@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
@@ -13,6 +14,8 @@ import { UnrankedTag } from '../components/UnrankedTag'
 export function HistoryPage() {
   const { players, matches, recomputed, isAdmin, removeMatch, confirmMatch, session, myPlayer } = useStore()
   const [filterPlayer, setFilterPlayer] = useState<Player | null>(null)
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 100
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
@@ -25,6 +28,11 @@ export function HistoryPage() {
     if (!filterPlayer) return sorted
     return sorted.filter((m) => m.playerAId === filterPlayer.id || m.playerBId === filterPlayer.id)
   }, [matches, recomputed.matches, filterPlayer])
+
+  const visibleRows = useMemo(
+    () => rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [rows, page, PAGE_SIZE],
+  )
 
   const remove = async (id: string) => {
     if (!window.confirm('Delete this match? Levels will be recomputed from history.')) return
@@ -46,11 +54,16 @@ export function HistoryPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <h1>Match history</h1>
+        <h1>
+          Match history{' '}
+          <span className="text-base font-normal text-slate-500">
+            ({rows.length.toLocaleString()}{filterPlayer ? ` for ${filterPlayer.name}` : ''})
+          </span>
+        </h1>
         <div className="w-full sm:w-72">
           <PlayerSearch
             value={filterPlayer}
-            onChange={setFilterPlayer}
+            onChange={(p) => { setFilterPlayer(p); setPage(0) }}
             placeholder="Filter by player…"
           />
         </div>
@@ -62,7 +75,7 @@ export function HistoryPage() {
         <div className="card text-center text-slate-500">No matches found.</div>
       ) : (
         <div className="space-y-2">
-          {rows.map((m) => {
+          {visibleRows.map((m) => {
             const s = summarizeMatch(m, players)
             const aIsWinner = !s.isDraw && s.winnerId === m.playerAId
             const bIsWinner = !s.isDraw && s.winnerId === m.playerBId
@@ -174,6 +187,15 @@ export function HistoryPage() {
             )
           })}
         </div>
+      )}
+      {rows.length > 0 && (
+        <Pagination
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={rows.length}
+          onPage={setPage}
+          noun="matches"
+        />
       )}
     </div>
   )
