@@ -14,14 +14,14 @@ import { useStore } from '../state/store'
 import { fmtDate, fmtDelta, fmtLevel, playerAge } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
 import { gamesWonBy, winnerSide } from '../lib/rating/levels'
-import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
+import { Pagination } from '../components/Pagination'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ChallengeButton } from '../components/ChallengeButton'
 import { ShareButton } from '../components/ShareButton'
 import { UnrankedTag } from '../components/UnrankedTag'
-import { DOMINANT_HAND_LABEL, GENDER_LABEL, type Match } from '../types'
+import { DOMINANT_HAND_LABEL, GENDER_LABEL, MATCH_TYPE_LABEL, type Match, type Player } from '../types'
 
 export function PlayerProfilePage() {
   const { id } = useParams<{ id: string }>()
@@ -35,6 +35,12 @@ export function PlayerProfilePage() {
     if (!id) return
     fetchRecentMatches(10000, [id]).then(setPlayerMatches).catch(console.error)
   }, [id, fetchRecentMatches])
+
+  // Match-history pagination. Reset to page 0 whenever we look at a different
+  // player so navigating between profiles doesn't leave you stuck on page 7.
+  const HISTORY_PAGE_SIZE = 100
+  const [historyPage, setHistoryPage] = useState(0)
+  useEffect(() => { setHistoryPage(0) }, [id])
 
   const stats = useMemo(() => {
     if (!id) return null
@@ -75,17 +81,22 @@ export function PlayerProfilePage() {
 
   // Prefer server-truth on Player; fall back to in-memory recompute (local mode).
   const currentLevel = player.currentLevel ?? state?.currentLevel ?? player.startingLevel
-  const matchesPlayed = player.matchesPlayed ?? state?.matchesPlayed ?? playerMatches.length
+  // Use playerMatches.length as the source of truth for the displayed count —
+  // it reflects every match this player participated in. The server's
+  // matches_played is rated-only and starts at 0 for players whose history
+  // pre-dates the trigger (until Rebuild Levels backfills). Take the max so
+  // we never show zero when matches are clearly loaded.
+  const matchesPlayed = Math.max(
+    playerMatches.length,
+    player.matchesPlayed ?? 0,
+    state?.matchesPlayed ?? 0,
+  )
   const provisional = matchesPlayed < settings.provisionalThreshold
   const ranking = state && state.history.length > 1
     ? movingAverage(state.history, settings.movingAverageWindow)
     : currentLevel
   const isMe = myPlayer?.id === player.id
   const age = playerAge(player.birthYear)
-  const recent = stats?.matches.slice(0, 10) ?? []
-  
-  // Note: we might want a loading state here if matches takes a second to load
-  // But for now it will just show 0 matches until loaded
 
   // Build the chart from each match's stored *_after value for this player.
   // Falls back to the in-memory recompute history when matches haven't been
@@ -201,62 +212,32 @@ export function PlayerProfilePage() {
 
       <section>
         <div className="flex items-center justify-between mb-2">
-          <h2>Recent matches</h2>
+          <h2>Match history</h2>
+          {stats && stats.total > 0 && (
+            <span className="text-xs text-slate-500">
+              {stats.total.toLocaleString()} total · {stats.wins}W · {stats.losses}L
+            </span>
+          )}
         </div>
-        {recent.length === 0 ? (
+        {!stats || stats.total === 0 ? (
           <div className="card text-center text-slate-500">No matches yet.</div>
         ) : (
-          <div className="space-y-2">
-            {recent.map((m) => {
-              const s = summarizeMatch(m, players)
-              const aIsWinner = !s.isDraw && s.winnerId === m.playerAId
-              const bIsWinner = !s.isDraw && s.winnerId === m.playerBId
-              const isA = m.playerAId === player.id
-              const myBefore = isA ? m.levelABefore : m.levelBBefore
-              const myAfter = isA ? m.levelAAfter : m.levelBAfter
-              const myDelta = isA ? m.deltaA : m.deltaB
-              return (
-                <div key={m.id} className="card space-y-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <PlayerLink
-                      id={m.playerAId}
-                      name={s.aName}
-                      className={clsx('font-semibold', aIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
-                    />
-                    <span className="font-mono">
-                      <span className={aIsWinner ? 'font-bold' : ''}>{s.aGames}</span>
-                      <span className="text-slate-400 mx-1">–</span>
-                      <span className={bIsWinner ? 'font-bold' : ''}>{s.bGames}</span>
-                    </span>
-                    <PlayerLink
-                      id={m.playerBId}
-                      name={s.bName}
-                      className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
-                    />
-                    {m.unranked && <span className="ml-auto"><UnrankedTag /></span>}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {fmtDate(m.date)} · {m.type}
-                    {m.venue && <> · {m.venue}</>}
-                  </div>
-                  <GameScores games={m.games} />
-                  {!m.unranked && myBefore != null && myAfter != null && (
-                    <div className="text-xs flex flex-wrap items-baseline gap-x-1 pt-1">
-                      <span className="text-slate-400">Level</span>
-                      <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">{fmtLevel(myBefore)}</span>
-                      <span className="text-slate-400" aria-hidden>→</span>
-                      <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">{fmtLevel(myAfter)}</span>
-                      {myDelta != null && (
-                        <span className={clsx('font-mono tabular-nums font-semibold', myDelta >= 0 ? 'text-green-600' : 'text-red-600')}>
-                          ({fmtDelta(myDelta)})
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+          <>
+            <div className="space-y-2">
+              {stats.matches
+                .slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE)
+                .map((m) => (
+                  <MatchHistoryCard key={m.id} match={m} player={player} players={players} />
+                ))}
+            </div>
+            <Pagination
+              page={historyPage}
+              pageSize={HISTORY_PAGE_SIZE}
+              total={stats.total}
+              onPage={setHistoryPage}
+              noun="matches"
+            />
+          </>
         )}
       </section>
     </div>
@@ -269,6 +250,140 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
       <div className="text-xs text-slate-500">{label}</div>
       <div className="text-lg font-semibold">{value}</div>
       {sub && <div className="text-[10px] text-slate-400">{sub}</div>}
+    </div>
+  )
+}
+
+/**
+ * Match card on the profile page. Always renders the profile owner on the
+ * left regardless of whether they were playerA or playerB in the match — this
+ * makes a long list scannable without the eye having to figure out which side
+ * is "me" each time. Win/Loss/Drew is called out as a coloured badge.
+ */
+function MatchHistoryCard({
+  match: m,
+  player,
+  players,
+}: {
+  match: Match
+  player: Player
+  players: Player[]
+}) {
+  const isA = m.playerAId === player.id
+  const me = player
+  const oppId = isA ? m.playerBId : m.playerAId
+  const opponent = players.find((p) => p.id === oppId) ?? null
+  const oppName = opponent?.name ?? 'Unknown'
+  const myGames = gamesWonBy(m.games, isA ? 'a' : 'b')
+  const oppGames = gamesWonBy(m.games, isA ? 'b' : 'a')
+  const winner = winnerSide(m.games)
+  const drew = winner === null
+  const won = !drew && winner === (isA ? 'a' : 'b')
+  const myBefore = isA ? m.levelABefore : m.levelBBefore
+  const myAfter  = isA ? m.levelAAfter  : m.levelBAfter
+  const myDelta  = isA ? m.deltaA       : m.deltaB
+  const oppBefore = isA ? m.levelBBefore : m.levelABefore
+  const oppAfter  = isA ? m.levelBAfter  : m.levelAAfter
+  const oppDelta  = isA ? m.deltaB       : m.deltaA
+
+  return (
+    <div className="card space-y-3">
+      {/* Top row: just date / type / venue. The result badge sits with the
+          profile owner below so the eye groups Won/Lost with the right name. */}
+      <div className="text-xs text-slate-500">
+        {fmtDate(m.date)} · {MATCH_TYPE_LABEL[m.type]}
+        {m.venue && <> · {m.venue}</>}
+      </div>
+
+      {/* Score row: profile owner on the left, overall + per-game score in
+          the centre (always from the owner's perspective), opponent on right. */}
+      <div className="flex items-start gap-3">
+        <div className="flex items-start gap-2 flex-1 min-w-0">
+          <PlayerAvatar name={me.name} avatarUrl={me.avatarUrl} size={36} />
+          <div className="min-w-0 space-y-1">
+            <div className="font-semibold truncate text-slate-900 dark:text-slate-100">
+              {me.name}
+            </div>
+            <LevelChange before={myBefore} after={myAfter} delta={myDelta} unranked={m.unranked} />
+            <div>
+              {m.unranked ? (
+                <UnrankedTag />
+              ) : drew ? (
+                <ResultBadge variant="draw">Drew</ResultBadge>
+              ) : won ? (
+                <ResultBadge variant="win">Won</ResultBadge>
+              ) : (
+                <ResultBadge variant="loss">Lost</ResultBadge>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="shrink-0 text-center space-y-1">
+          <div className="font-mono text-lg leading-none">
+            <span className={clsx(won && 'font-bold')}>{myGames}</span>
+            <span className="text-slate-400 mx-1.5">–</span>
+            <span className={clsx(!won && !drew && 'font-bold')}>{oppGames}</span>
+          </div>
+          {/* Per-game scores in profile owner's perspective. Larger text and
+              no per-game colouring — the Won/Lost badge already conveys the
+              result, so dressing each "11" in green is redundant noise. */}
+          <div className="flex justify-center">
+            <GameScores games={m.games} viewerSide={isA ? 'a' : 'b'} size="sm" colorize={false} />
+          </div>
+        </div>
+
+        <div className="flex items-start gap-2 flex-1 min-w-0 justify-end">
+          <div className="min-w-0 text-right">
+            <div className="font-medium truncate text-slate-600 dark:text-slate-400">
+              <PlayerLink id={oppId} name={oppName} />
+            </div>
+            <LevelChange before={oppBefore} after={oppAfter} delta={oppDelta} unranked={m.unranked} align="right" />
+          </div>
+          {opponent && <PlayerAvatar name={opponent.name} avatarUrl={opponent.avatarUrl} size={36} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ResultBadge({ variant, children }: { variant: 'win' | 'loss' | 'draw'; children: React.ReactNode }) {
+  const cls = variant === 'win'
+    ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
+    : variant === 'loss'
+    ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'
+    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+  return (
+    <span className={clsx('inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider', cls)}>
+      {children}
+    </span>
+  )
+}
+
+function LevelChange({
+  before,
+  after,
+  delta,
+  unranked,
+  align,
+}: {
+  before?: number
+  after?: number
+  delta?: number
+  unranked?: boolean
+  align?: 'right'
+}) {
+  if (unranked) return null
+  if (before == null || after == null) return null
+  const up = (delta ?? 0) >= 0
+  return (
+    <div className={clsx('text-xs font-mono tabular-nums text-slate-500 truncate', align === 'right' && 'text-right')}>
+      {fmtLevel(before)} <span className="text-slate-400" aria-hidden>→</span> {fmtLevel(after)}
+      {delta != null && (
+        <span className={clsx('ml-1 font-semibold', up ? 'text-green-600' : 'text-red-600')}>
+          {fmtDelta(delta)}
+        </span>
+      )}
     </div>
   )
 }

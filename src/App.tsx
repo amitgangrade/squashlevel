@@ -5,7 +5,6 @@ import { LeaderboardPage } from './pages/Leaderboard'
 import { RosterPage } from './pages/Roster'
 import { LogMatchPage } from './pages/LogMatch'
 import { HistoryPage } from './pages/History'
-import { AnalyticsPage } from './pages/Analytics'
 import { SettingsPage } from './pages/Settings'
 import { ProfilePage } from './pages/Profile'
 import { PlayerProfilePage } from './pages/PlayerProfile'
@@ -26,7 +25,6 @@ export default function App() {
             <Route path="/roster" element={<RosterPage />} />
             <Route path="/log" element={<LogMatchPage />} />
             <Route path="/history" element={<HistoryPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/players/:id" element={<PlayerProfilePage />} />
             <Route path="/clubs" element={<ClubsPage />} />

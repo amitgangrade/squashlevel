@@ -6,7 +6,6 @@ import { useStore } from '../state/store'
 import { OnboardingModal } from './OnboardingModal'
 import { IOSInstallHint } from './IOSInstallHint'
 import {
-  BarChartIcon,
   CloseIcon,
   CogIcon,
   HistoryIcon,
@@ -23,7 +22,6 @@ const desktopNav = [
   { to: '/clubs', label: 'Clubs' },
   { to: '/groups', label: 'Groups' },
   { to: '/log', label: 'Log match' },
-  { to: '/analytics', label: 'Analytics' },
 ]
 
 export function Layout() {
@@ -264,7 +262,6 @@ function MoreSheet({
           <SheetLink to="/challenges" icon={<UsersIcon className="h-5 w-5" />} label="Challenges" />
           <SheetLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />} label="Clubs" />
           <SheetLink to="/groups" icon={<UsersIcon className="h-5 w-5" />} label="Groups" />
-          <SheetLink to="/analytics" icon={<BarChartIcon className="h-5 w-5" />} label="Analytics" />
           {isAdmin && <SheetLink to="/settings" icon={<CogIcon className="h-5 w-5" />} label="Settings" />}
           <li>
             <button

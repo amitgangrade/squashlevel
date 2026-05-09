@@ -189,6 +189,7 @@ export function SettingsPage() {
           <p className="text-sm text-slate-500">
             Recompute every player's current level and match count by replaying all confirmed matches.
             Use this after editing or deleting old matches, or after a dispute that flipped a confirmed match — incremental updates can drift in those cases.
+            Rebuild runs entirely on the server in a single transaction; expect roughly 1 second per 15&nbsp;000 matches.
           </p>
           <div className="flex gap-2 flex-wrap items-center">
             <button className="btn-secondary" onClick={onRebuild} disabled={rebuildRunning}>

@@ -21,6 +21,11 @@ export interface UpdateInput {
   settings: Settings
 }
 
+// IMPORTANT: this function is mirrored in plpgsql as
+// `public.compute_level_update` in supabase/schema.sql, which is called by
+// `rebuild_all_levels()` to do server-side rebuilds at 100K+ scale. Any
+// change to the math here must be ported to that function or rebuilds will
+// drift from the live (per-match-write) algorithm.
 export function updateLevels({
   levelA,
   levelB,

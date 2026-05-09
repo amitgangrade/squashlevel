@@ -680,88 +680,261 @@ $$;
 grant execute on function public.auto_confirm_aged_matches() to authenticated;
 
 -- ---------------------------------------------------------------------------
--- apply_match_level_updates / apply_player_level_updates
+-- Server-side level rebuild.
 --
--- Bulk write helpers for the admin "Rebuild levels" flow. The client runs
--- recomputeAll() in TS (so the rating math stays in one place), then ships
--- the result here as a JSON array. Each call updates thousands of rows in a
--- single SQL statement instead of one HTTP round-trip per row.
---
--- Admin-only — these can rewrite every player's rating, so non-admins must
--- never reach them.
+-- Original design did the math in TS and shipped per-batch UPDATE payloads
+-- via apply_match_level_updates / apply_player_level_updates. That
+-- architecture hit timeouts at >100K matches: 300+ HTTP round-trips, edge
+-- proxy idle limits, browser throttling, etc. Replaced by a single
+-- rebuild_all_levels() RPC that does everything server-side in one
+-- transaction. Math is ported from src/lib/rating/update.ts — keep these
+-- two implementations in sync.
 -- ---------------------------------------------------------------------------
-create or replace function public.apply_match_level_updates(updates jsonb)
-returns int
+
+-- Drop the legacy per-batch helpers since rebuildLevels() no longer uses
+-- them. Safe to remove unconditionally; they had no other callers.
+drop function if exists public.apply_match_level_updates(jsonb);
+drop function if exists public.apply_player_level_updates(jsonb);
+
+-- compute_level_update: plpgsql port of updateLevels() from
+-- src/lib/rating/update.ts. Uses double precision throughout to match JS's
+-- Number behaviour (Postgres numeric is arbitrary precision and would diverge
+-- from the TS implementation on the same inputs).
+create or replace function public.compute_level_update(
+  level_a          numeric,
+  level_b          numeric,
+  games            jsonb,
+  match_type       text,
+  provisional_a    boolean,
+  provisional_b    boolean,
+  damping_k        numeric,
+  points_weight    numeric,
+  points_exponent  numeric,
+  games_exponent   numeric
+)
+returns table(
+  level_a_after numeric,
+  level_b_after numeric,
+  delta_a       numeric,
+  delta_b       numeric
+)
 language plpgsql
-security definer
-set search_path = public
--- Functions inherit the caller's statement_timeout (8 s on Supabase's
--- authenticated role) unless we override it here. Bulk UPDATE over a
--- jsonb_to_recordset of ~thousands of rows can exceed that on a busy DB
--- — this is admin-only and called rarely, so 5 minutes is plenty.
-set statement_timeout = '300s'
+immutable
 as $$
 declare
-  affected int;
+  la       double precision := level_a::double precision;
+  lb       double precision := level_b::double precision;
+  ratio    double precision := la / nullif(lb, 0);
+  e_p      double precision;
+  e_g      double precision;
+  expected double precision;
+  total_a  int := 0;
+  total_b  int := 0;
+  games_a  int := 0;
+  played   int := 0;
+  p_ratio  double precision;
+  g_ratio  double precision;
+  actual   double precision;
+  d        double precision;
+  weight   double precision;
+  change   double precision;
+  laa      double precision;
+  lba      double precision;
+  g        jsonb;
+  ga       int;
+  gb       int;
+  pw       double precision := points_weight::double precision;
 begin
-  if not public.is_admin(auth.uid()) then
-    raise exception 'admin only';
+  -- expectedPerformance: weighted blend of two sigmoids of the level ratio.
+  e_p := power(ratio, points_exponent::double precision);
+  e_p := e_p / (e_p + 1);
+  e_g := power(ratio, games_exponent::double precision);
+  e_g := e_g / (e_g + 1);
+  expected := pw * e_p + (1 - pw) * e_g;
+
+  -- actualPerformance: tally points + games won, blend by points_weight.
+  for g in select * from jsonb_array_elements(games) loop
+    ga := (g->>'a')::int;
+    gb := (g->>'b')::int;
+    total_a := total_a + ga;
+    total_b := total_b + gb;
+    if ga > gb then
+      games_a := games_a + 1;
+      played  := played + 1;
+    elsif gb > ga then
+      played  := played + 1;
+    end if;
+  end loop;
+
+  if total_a + total_b = 0 then
+    p_ratio := 0.5;
+  else
+    p_ratio := total_a::double precision / (total_a + total_b);
+  end if;
+  if played = 0 then
+    g_ratio := 0.5;
+  else
+    g_ratio := games_a::double precision / played;
+  end if;
+  actual := pw * p_ratio + (1 - pw) * g_ratio;
+
+  d := actual - expected;
+  weight := case match_type
+    when 'friendly'   then 0.7
+    when 'box'        then 1.0
+    when 'league'     then 1.3
+    when 'tournament' then 1.6
+    else 1.0
+  end;
+  change := damping_k::double precision * weight * d;
+
+  laa := la * (1 + change);
+  lba := lb * (1 - change);
+
+  -- Provisional handling: when only one side is provisional, the
+  -- non-provisional side's level is unchanged.
+  if provisional_a and not provisional_b then
+    lba := lb;
+  elsif provisional_b and not provisional_a then
+    laa := la;
   end if;
 
-  update public.matches m
-     set level_a_before = u.lab,
-         level_a_after  = u.laa,
-         level_b_before = u.lbb,
-         level_b_after  = u.lba,
-         delta_a        = u.da,
-         delta_b        = u.db,
-         provisional_a  = u.pa,
-         provisional_b  = u.pb
-    from jsonb_to_recordset(updates) as u(
-      id  uuid,
-      lab numeric, laa numeric, lbb numeric, lba numeric,
-      da  numeric, db  numeric,
-      pa  boolean, pb  boolean
-    )
-   where m.id = u.id;
+  -- Floor at 1 so divisions stay safe and levels can't go negative.
+  laa := greatest(1::double precision, laa);
+  lba := greatest(1::double precision, lba);
 
-  get diagnostics affected = row_count;
-  return affected;
+  return query select
+    laa::numeric,
+    lba::numeric,
+    (laa - la)::numeric,
+    (lba - lb)::numeric;
 end;
 $$;
 
-grant execute on function public.apply_match_level_updates(jsonb) to authenticated;
-
-create or replace function public.apply_player_level_updates(updates jsonb)
-returns int
+-- rebuild_all_levels: replays every rated match in (date, id) order,
+-- recomputing per-match level fields and the players' final state. Runs
+-- entirely server-side so the client only makes one HTTP call. Admin-only.
+create or replace function public.rebuild_all_levels()
+returns table(matches_updated int, players_updated int)
 language plpgsql
 security definer
 set search_path = public
-set statement_timeout = '300s'
+-- This rebuild is admin-triggered and runs to completion; ignore the
+-- session statement_timeout entirely.
+set statement_timeout = 0
 as $$
 declare
-  affected int;
+  s          jsonb;
+  damping_k  numeric;
+  pw         numeric;
+  pe         numeric;
+  ge         numeric;
+  pt         int;
+  m          record;
+  upd        record;
+  m_count    int := 0;
+  p_count    int := 0;
+  la         numeric;
+  lb         numeric;
+  ma_played  int;
+  mb_played  int;
+  pa         boolean;
+  pb         boolean;
 begin
   if not public.is_admin(auth.uid()) then
     raise exception 'admin only';
   end if;
 
+  -- Load settings. Defaults mirror DEFAULT_SETTINGS in src/types.ts.
+  select data into s from public.settings where id = 'app';
+  damping_k := coalesce((s->>'dampingK')::numeric, 0.12);
+  pw        := coalesce((s->>'pointsWeight')::numeric, 0.5);
+  pe        := coalesce((s->>'pointsExponent')::numeric, 2);
+  ge        := coalesce((s->>'gamesExponent')::numeric, 5);
+  pt        := coalesce((s->>'provisionalThreshold')::int, 5);
+
+  -- Per-session temp table for in-flight player state during the replay.
+  -- on commit drop is academic (security definer functions don't commit
+  -- mid-call) but harmless.
+  create temp table if not exists _player_state (
+    id             uuid primary key,
+    current_level  numeric not null,
+    matches_played int not null
+  ) on commit drop;
+  truncate _player_state;
+  insert into _player_state (id, current_level, matches_played)
+  select id, starting_level, 0 from public.players;
+
+  -- Walk rated matches in chronological order, updating temp state and
+  -- writing computed level fields back to each match row.
+  for m in
+    select id, date, player_a_id, player_b_id, games, type, unranked
+      from public.matches
+     where (status is null or status = 'confirmed')
+     order by date asc, id asc
+  loop
+    select current_level, matches_played
+      into la, ma_played
+      from _player_state where id = m.player_a_id;
+    select current_level, matches_played
+      into lb, mb_played
+      from _player_state where id = m.player_b_id;
+
+    -- A row referencing a deleted player would have already failed the
+    -- match's FK; a null state here means the player record is gone, so
+    -- skip silently (better than aborting the whole rebuild).
+    if la is null or lb is null then continue; end if;
+
+    pa := ma_played < pt;
+    pb := mb_played < pt;
+
+    if m.unranked then
+      update public.matches set
+        level_a_before = la,  level_b_before = lb,
+        level_a_after  = la,  level_b_after  = lb,
+        delta_a        = 0,   delta_b        = 0,
+        provisional_a  = pa,  provisional_b  = pb
+      where id = m.id;
+    else
+      select * into upd from public.compute_level_update(
+        la, lb, m.games, m.type, pa, pb,
+        damping_k, pw, pe, ge
+      );
+
+      update public.matches set
+        level_a_before = la,  level_b_before = lb,
+        level_a_after  = upd.level_a_after,
+        level_b_after  = upd.level_b_after,
+        delta_a        = upd.delta_a,
+        delta_b        = upd.delta_b,
+        provisional_a  = pa,  provisional_b  = pb
+      where id = m.id;
+
+      update _player_state
+         set current_level = upd.level_a_after,
+             matches_played = matches_played + 1
+       where id = m.player_a_id;
+      update _player_state
+         set current_level = upd.level_b_after,
+             matches_played = matches_played + 1
+       where id = m.player_b_id;
+    end if;
+    m_count := m_count + 1;
+  end loop;
+
+  -- Push final state to the players table.
   update public.players p
-     set current_level  = u.cl,
-         matches_played = u.mp
-    from jsonb_to_recordset(updates) as u(
-      id uuid,
-      cl numeric,
-      mp integer
-    )
-   where p.id = u.id;
+     set current_level  = ps.current_level,
+         matches_played = ps.matches_played
+    from _player_state ps
+   where p.id = ps.id;
+  get diagnostics p_count = row_count;
 
-  get diagnostics affected = row_count;
-  return affected;
+  return query select m_count, p_count;
 end;
 $$;
 
-grant execute on function public.apply_player_level_updates(jsonb) to authenticated;
+grant execute on function public.rebuild_all_levels() to authenticated;
 
 -- Optional: schedule the aging job daily via pg_cron (Supabase Pro+).
 -- If pg_cron isn't available, the dashboard calls auto_confirm_aged_matches()
