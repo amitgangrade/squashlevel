@@ -7,6 +7,7 @@ import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
 import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
 import { PlayerSearch } from '../components/PlayerSearch'
+import { PlayerLink } from '../components/PlayerLinks'
 
 export function HistoryPage() {
   const { players, matches, recomputed, isAdmin, removeMatch, confirmMatch, session, myPlayer } = useStore()
@@ -82,17 +83,21 @@ export function HistoryPage() {
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={clsx('font-semibold', aIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}>
-                        {s.aName}
-                      </span>
+                      <PlayerLink
+                        id={m.playerAId}
+                        name={s.aName}
+                        className={clsx('font-semibold', aIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
+                      />
                       <span className="font-mono text-base">
                         <span className={aIsWinner ? 'font-bold' : ''}>{s.aGames}</span>
                         <span className="text-slate-400 mx-1">–</span>
                         <span className={bIsWinner ? 'font-bold' : ''}>{s.bGames}</span>
                       </span>
-                      <span className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}>
-                        {s.bName}
-                      </span>
+                      <PlayerLink
+                        id={m.playerBId}
+                        name={s.bName}
+                        className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
+                      />
                       {!s.isDraw && status === 'confirmed' && (
                         <span className="rounded-full bg-green-100 text-green-800 text-[10px] font-semibold px-2 py-0.5 dark:bg-green-900/40 dark:text-green-300">
                           {s.winnerName} won
@@ -112,12 +117,20 @@ export function HistoryPage() {
                   {status === 'confirmed' && m.levelABefore != null && (
                     <div className="grid grid-cols-2 gap-4 text-sm shrink-0">
                       <div className="text-right">
-                        <div className={clsx('text-xs', aIsWinner ? 'text-green-700 dark:text-green-400 font-medium' : 'text-slate-500')}>{s.aName}</div>
+                        <PlayerLink
+                          id={m.playerAId}
+                          name={s.aName}
+                          className={clsx('text-xs', aIsWinner ? 'text-green-700 dark:text-green-400 font-medium' : 'text-slate-500')}
+                        />
                         <div>{fmtLevel(m.levelABefore)} → <span className="font-semibold">{fmtLevel(m.levelAAfter)}</span></div>
                         <div className={(m.deltaA ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaA)}</div>
                       </div>
                       <div className="text-right">
-                        <div className={clsx('text-xs', bIsWinner ? 'text-green-700 dark:text-green-400 font-medium' : 'text-slate-500')}>{s.bName}</div>
+                        <PlayerLink
+                          id={m.playerBId}
+                          name={s.bName}
+                          className={clsx('text-xs', bIsWinner ? 'text-green-700 dark:text-green-400 font-medium' : 'text-slate-500')}
+                        />
                         <div>{fmtLevel(m.levelBBefore)} → <span className="font-semibold">{fmtLevel(m.levelBAfter)}</span></div>
                         <div className={(m.deltaB ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaB)}</div>
                       </div>

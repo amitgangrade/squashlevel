@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { fmtLevel } from '../lib/format'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { uploadAvatar } from '../lib/supabase/profile'
+import { COUNTRIES, distinctValues, isValidCityName, normalizeCountry } from '../lib/places'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL, type DominantHand, type Gender } from '../types'
 
 export function ProfilePage() {
-  const { profile, myPlayer, recomputed, settings, saveProfile, isAdmin } = useStore()
+  const { profile, myPlayer, recomputed, settings, saveProfile, isAdmin, players } = useStore()
+  const cityOptions = useMemo(() => distinctValues(players, 'city'), [players])
+  const clubOptions = useMemo(() => distinctValues(players, 'club'), [players])
   const [editing, setEditing] = useState(false)
   const [draftFullName, setDraftFullName] = useState(profile?.fullName ?? '')
   const [draftPhone, setDraftPhone] = useState(profile?.phone ?? '')
@@ -89,6 +92,15 @@ export function ProfilePage() {
       }
       parsedYear = y
     }
+    let normalizedCountry: string | undefined
+    if (draftCountry.trim()) {
+      const c = normalizeCountry(draftCountry)
+      if (!c) return setErr(`"${draftCountry.trim()}" is not a recognized country. Please pick one from the list.`)
+      normalizedCountry = c
+    }
+    if (draftCity.trim() && !isValidCityName(draftCity)) {
+      return setErr('City name looks invalid. Use letters, spaces, hyphens or apostrophes.')
+    }
     setBusy(true)
     try {
       let avatarUrl = profile.avatarUrl
@@ -99,7 +111,7 @@ export function ProfilePage() {
         ...profile,
         fullName: draftFullName.trim(),
         phone: draftPhone.trim() || undefined,
-        country: draftCountry.trim() || undefined,
+        country: normalizedCountry,
         city: draftCity.trim() || undefined,
         club: draftClub.trim() || undefined,
         birthYear: parsedYear,
@@ -200,17 +212,29 @@ export function ProfilePage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Country</label>
-                  <input className="input w-full" value={draftCountry} onChange={(e) => setDraftCountry(e.target.value)} />
+                  <input list="profile-country-options" className="input w-full" value={draftCountry} onChange={(e) => setDraftCountry(e.target.value)} autoComplete="country-name" />
                 </div>
                 <div>
                   <label className="label">City</label>
-                  <input className="input w-full" value={draftCity} onChange={(e) => setDraftCity(e.target.value)} />
+                  <input list="profile-city-options" className="input w-full" value={draftCity} onChange={(e) => setDraftCity(e.target.value)} autoComplete="address-level2" />
                 </div>
               </div>
               <div>
                 <label className="label">Club</label>
-                <input className="input w-full" value={draftClub} onChange={(e) => setDraftClub(e.target.value)} />
+                <input list="profile-club-options" className="input w-full" value={draftClub} onChange={(e) => setDraftClub(e.target.value)} />
+                {clubOptions.length > 0 && (
+                  <p className="mt-1 text-xs text-slate-500">Pick from the list if your club is already there.</p>
+                )}
               </div>
+              <datalist id="profile-country-options">
+                {COUNTRIES.map((c) => <option key={c} value={c} />)}
+              </datalist>
+              <datalist id="profile-city-options">
+                {cityOptions.map((c) => <option key={c} value={c} />)}
+              </datalist>
+              <datalist id="profile-club-options">
+                {clubOptions.map((c) => <option key={c} value={c} />)}
+              </datalist>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Year of birth</label>

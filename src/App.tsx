@@ -8,6 +8,7 @@ import { HistoryPage } from './pages/History'
 import { AnalyticsPage } from './pages/Analytics'
 import { SettingsPage } from './pages/Settings'
 import { ProfilePage } from './pages/Profile'
+import { PlayerProfilePage } from './pages/PlayerProfile'
 import { PendingMatchesPage } from './pages/PendingMatches'
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/players/:id" element={<PlayerProfilePage />} />
             <Route path="/matches/pending" element={<PendingMatchesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

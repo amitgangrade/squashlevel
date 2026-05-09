@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { fmtLevel, playerAge } from '../lib/format'
+import { COUNTRIES, distinctValues, isValidCityName, normalizeCountry } from '../lib/places'
 import {
   DOMINANT_HAND_LABEL,
   GENDER_LABEL,
@@ -8,7 +10,8 @@ import {
   type Gender,
   type Player,
 } from '../types'
-import { PlayerAvatar, playerSubtitle } from '../components/PlayerAvatar'
+import { PlayerAvatar } from '../components/PlayerAvatar'
+import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 
 interface FormState {
   name: string
@@ -61,6 +64,8 @@ export function RosterPage() {
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [search, setSearch] = useState('')
+  const cityOptions = useMemo(() => distinctValues(players, 'city'), [players])
+  const clubOptions = useMemo(() => distinctValues(players, 'club'), [players])
 
   const reset = () => {
     setForm(emptyForm)
@@ -89,12 +94,21 @@ export function RosterPage() {
       }
       parsedYear = y
     }
+    let normalizedCountry: string | undefined
+    if (form.country.trim()) {
+      const c = normalizeCountry(form.country)
+      if (!c) return setError(`"${form.country.trim()}" is not a recognized country. Please pick one from the list.`)
+      normalizedCountry = c
+    }
+    if (form.city.trim() && !isValidCityName(form.city)) {
+      return setError('City name looks invalid. Use letters, spaces, hyphens or apostrophes.')
+    }
     const data = {
       name: form.name.trim(),
       startingLevel: lvl,
       email: trimmedEmail || undefined,
       phone: form.phone.trim() || undefined,
-      country: form.country.trim() || undefined,
+      country: normalizedCountry,
       city: form.city.trim() || undefined,
       club: form.club.trim() || undefined,
       birthYear: parsedYear,
@@ -190,16 +204,25 @@ export function RosterPage() {
                 </div>
                 <div>
                   <label className="label" htmlFor="club">Club</label>
-                  <input id="club" className="input w-full" value={form.club} onChange={(e) => update('club', e.target.value)} placeholder="e.g. Singapore Cricket Club" />
+                  <input id="club" list="roster-club-options" className="input w-full" value={form.club} onChange={(e) => update('club', e.target.value)} placeholder="e.g. Singapore Cricket Club" />
                 </div>
                 <div>
                   <label className="label" htmlFor="country">Country</label>
-                  <input id="country" className="input w-full" value={form.country} onChange={(e) => update('country', e.target.value)} placeholder="Singapore" />
+                  <input id="country" list="roster-country-options" className="input w-full" value={form.country} onChange={(e) => update('country', e.target.value)} placeholder="Singapore" autoComplete="country-name" />
                 </div>
                 <div>
                   <label className="label" htmlFor="city">City</label>
-                  <input id="city" className="input w-full" value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Singapore" />
+                  <input id="city" list="roster-city-options" className="input w-full" value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Singapore" autoComplete="address-level2" />
                 </div>
+                <datalist id="roster-country-options">
+                  {COUNTRIES.map((c) => <option key={c} value={c} />)}
+                </datalist>
+                <datalist id="roster-city-options">
+                  {cityOptions.map((c) => <option key={c} value={c} />)}
+                </datalist>
+                <datalist id="roster-club-options">
+                  {clubOptions.map((c) => <option key={c} value={c} />)}
+                </datalist>
                 <div>
                   <label className="label" htmlFor="birthYear">Year of birth</label>
                   <input id="birthYear" inputMode="numeric" className="input w-full" value={form.birthYear} onChange={(e) => update('birthYear', e.target.value)} placeholder="1985" />
@@ -270,30 +293,59 @@ export function RosterPage() {
                 {filteredPlayers.map((p) => {
                   const s = recomputed.states.get(p.id)
                   const prov = (s?.matchesPlayed ?? 0) < settings.provisionalThreshold
-                  const sub = playerSubtitle(p)
                   const age = playerAge(p.birthYear)
                   return (
                     <tr key={p.id} className="border-t border-slate-100 dark:border-slate-800">
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-3 min-w-0">
-                          <PlayerAvatar name={p.name} avatarUrl={p.avatarUrl} size={32} />
+                          <Link to={`/players/${p.id}`} aria-label={`View ${p.name}'s profile`}>
+                            <PlayerAvatar name={p.name} avatarUrl={p.avatarUrl} size={32} />
+                          </Link>
                           <div className="min-w-0">
                             <div className="font-medium truncate flex items-center gap-2">
-                              <span className="truncate">{p.name}</span>
+                              <PlayerLink id={p.id} name={p.name} className="truncate" />
                               {prov && <span className="tag">P</span>}
                             </div>
-                            <div className="text-xs text-slate-500 truncate md:hidden">{sub}</div>
+                            <div className="truncate md:hidden">
+                              <PlayerMetaLinks player={p} />
+                            </div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-3 py-2 hidden md:table-cell text-slate-600 dark:text-slate-300">{p.club || '—'}</td>
                       <td className="px-3 py-2 hidden md:table-cell text-slate-600 dark:text-slate-300">
-                        {p.country || '—'}
+                        {p.club ? (
+                          <Link to={`/?club=${encodeURIComponent(p.club)}`} className="hover:underline">
+                            {p.club}
+                          </Link>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="px-3 py-2 hidden md:table-cell text-slate-600 dark:text-slate-300">
+                        {p.country ? (
+                          <Link to={`/?country=${encodeURIComponent(p.country)}`} className="hover:underline">
+                            {p.country}
+                          </Link>
+                        ) : (
+                          '—'
+                        )}
                         {age !== null && <span className="text-xs text-slate-400 ml-1">· age {age}</span>}
                       </td>
                       <td className="px-3 py-2 text-right">{fmtLevel(p.startingLevel)}</td>
-                      <td className="px-3 py-2 text-right font-semibold">{fmtLevel(s?.currentLevel)}</td>
-                      <td className="px-3 py-2 text-right text-slate-500">{s?.matchesPlayed ?? 0}</td>
+                      <td className="px-3 py-2 text-right font-semibold">
+                        <Link to={`/players/${p.id}`} className="hover:underline">
+                          {fmtLevel(s?.currentLevel)}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-500">
+                        {(s?.matchesPlayed ?? 0) > 0 ? (
+                          <Link to={`/players/${p.id}`} className="hover:underline">
+                            {s?.matchesPlayed ?? 0}
+                          </Link>
+                        ) : (
+                          0
+                        )}
+                      </td>
                       {isAdmin && (
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button className="btn-link" onClick={() => beginEdit(p)}>Edit</button>

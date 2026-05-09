@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { suggestUsername } from '../lib/supabase/profile'
+import { COUNTRIES, distinctValues, isValidCityName, normalizeCountry } from '../lib/places'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL, type DominantHand, type Gender } from '../types'
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 export function OnboardingModal() {
-  const { session, completeOnboarding } = useStore()
+  const { session, completeOnboarding, players } = useStore()
+  const cityOptions = useMemo(() => distinctValues(players, 'city'), [players])
+  const clubOptions = useMemo(() => distinctValues(players, 'club'), [players])
   const initialName =
     (session?.user?.user_metadata as { full_name?: string; name?: string } | null)?.full_name ??
     (session?.user?.user_metadata as { name?: string } | null)?.name ??
@@ -69,6 +72,15 @@ export function OnboardingModal() {
       }
       parsedYear = y
     }
+    let normalizedCountry: string | undefined
+    if (country.trim()) {
+      const c = normalizeCountry(country)
+      if (!c) return setErr(`"${country.trim()}" is not a recognized country. Please pick one from the list.`)
+      normalizedCountry = c
+    }
+    if (city.trim() && !isValidCityName(city)) {
+      return setErr('City name looks invalid. Use letters, spaces, hyphens or apostrophes.')
+    }
     setBusy(true)
     try {
       await completeOnboarding({
@@ -76,7 +88,7 @@ export function OnboardingModal() {
         email: email.trim(),
         startingLevel: lvl,
         phone: phone.trim() || undefined,
-        country: country.trim() || undefined,
+        country: normalizedCountry,
         city: city.trim() || undefined,
         club: club.trim() || undefined,
         birthYear: parsedYear,
@@ -171,17 +183,29 @@ export function OnboardingModal() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="label" htmlFor="country">Country</label>
-                    <input id="country" className="input w-full" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Singapore" />
+                    <input id="country" list="country-options" className="input w-full" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Singapore" autoComplete="country-name" />
                   </div>
                   <div>
                     <label className="label" htmlFor="city">City</label>
-                    <input id="city" className="input w-full" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Singapore" />
+                    <input id="city" list="city-options" className="input w-full" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Singapore" autoComplete="address-level2" />
                   </div>
                 </div>
                 <div>
                   <label className="label" htmlFor="club">Club</label>
-                  <input id="club" className="input w-full" value={club} onChange={(e) => setClub(e.target.value)} placeholder="Your home club" />
+                  <input id="club" list="club-options" className="input w-full" value={club} onChange={(e) => setClub(e.target.value)} placeholder="Your home club" />
+                  {clubOptions.length > 0 && (
+                    <p className="mt-1 text-xs text-slate-500">Pick from the list if your club is already there.</p>
+                  )}
                 </div>
+                <datalist id="country-options">
+                  {COUNTRIES.map((c) => <option key={c} value={c} />)}
+                </datalist>
+                <datalist id="city-options">
+                  {cityOptions.map((c) => <option key={c} value={c} />)}
+                </datalist>
+                <datalist id="club-options">
+                  {clubOptions.map((c) => <option key={c} value={c} />)}
+                </datalist>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="label" htmlFor="birthYear">Year of birth</label>

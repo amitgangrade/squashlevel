@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
 import {
   CartesianGrid,
@@ -16,6 +17,7 @@ import { totalPoints } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
 import { PlayerSearch } from '../components/PlayerSearch'
 import { PlayerAvatar, playerSubtitle } from '../components/PlayerAvatar'
+import { PlayerLink } from '../components/PlayerLinks'
 import type { Player } from '../types'
 
 const PALETTE = ['#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#ec4899', '#6366f1', '#84cc16']
@@ -278,9 +280,13 @@ export function AnalyticsPage() {
                     <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2 min-w-0">
-                          <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={28} />
+                          <Link to={`/players/${r.id}`} aria-label={`View ${r.name}'s profile`}>
+                            <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={28} />
+                          </Link>
                           <div className="min-w-0">
-                            <div className="font-medium truncate">{r.name}</div>
+                            <div className="font-medium truncate">
+                              <PlayerLink id={r.id} name={r.name} />
+                            </div>
                             {sub && <div className="text-xs text-slate-500 truncate">{sub}</div>}
                           </div>
                         </div>
@@ -331,17 +337,21 @@ export function AnalyticsPage() {
                       <li key={m.id} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                         <span className="text-xs text-slate-500 w-20 shrink-0">{fmtDate(m.date)}</span>
                         <span className="flex items-center gap-2">
-                          <span className={winner === 'a' ? 'font-semibold text-green-700 dark:text-green-400' : 'text-slate-500'}>
-                            {aName}
-                          </span>
+                          <PlayerLink
+                            id={m.playerAId}
+                            name={aName}
+                            className={winner === 'a' ? 'font-semibold text-green-700 dark:text-green-400' : 'text-slate-500'}
+                          />
                           <span className="font-mono text-sm">
                             <span className={winner === 'a' ? 'font-bold' : ''}>{aGames}</span>
                             <span className="text-slate-400">–</span>
                             <span className={winner === 'b' ? 'font-bold' : ''}>{bGames}</span>
                           </span>
-                          <span className={winner === 'b' ? 'font-semibold text-green-700 dark:text-green-400' : 'text-slate-500'}>
-                            {bName}
-                          </span>
+                          <PlayerLink
+                            id={m.playerBId}
+                            name={bName}
+                            className={winner === 'b' ? 'font-semibold text-green-700 dark:text-green-400' : 'text-slate-500'}
+                          />
                         </span>
                         <GameScores games={m.games} />
                       </li>

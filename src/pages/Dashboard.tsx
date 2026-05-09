@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
 import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
@@ -8,15 +8,25 @@ import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonRow } from '../components/Skeleton'
-import { PlayerAvatar, playerSubtitle } from '../components/PlayerAvatar'
+import { PlayerAvatar } from '../components/PlayerAvatar'
+import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 
 const AUTO_CONFIRM_KICK_KEY = 'sl_auto_confirm_kicked_at'
 const AUTO_CONFIRM_KICK_INTERVAL_MS = 60 * 60 * 1000 // 1h
+
+const FILTER_KEYS = ['club', 'country', 'city'] as const
+type FilterKey = (typeof FILTER_KEYS)[number]
+const FILTER_LABEL: Record<FilterKey, string> = {
+  club: 'Club',
+  country: 'Country',
+  city: 'City',
+}
 
 export function DashboardPage() {
   const { players, matches, recomputed, settings, isAdmin, session, myPlayer, loading, refresh, pendingForMe, runAutoConfirmAged } = useStore()
   const signedIn = !!session
   const canLogMatch = signedIn && (isAdmin || !!myPlayer)
+  const [searchParams, setSearchParams] = useSearchParams()
 
   // Best-effort fallback for projects without pg_cron: kick the aging job at most
   // once an hour per browser. Idempotent on the server (no-op when nothing aged).
@@ -29,6 +39,26 @@ export function DashboardPage() {
   }, [signedIn, runAutoConfirmAged])
 
   const [search, setSearch] = useState('')
+
+  const filters = useMemo(() => {
+    const out: Partial<Record<FilterKey, string>> = {}
+    for (const k of FILTER_KEYS) {
+      const v = searchParams.get(k)?.trim()
+      if (v) out[k] = v
+    }
+    return out
+  }, [searchParams])
+
+  const clearFilter = (k: FilterKey) => {
+    const next = new URLSearchParams(searchParams)
+    next.delete(k)
+    setSearchParams(next, { replace: true })
+  }
+  const clearAllFilters = () => {
+    const next = new URLSearchParams(searchParams)
+    for (const k of FILTER_KEYS) next.delete(k)
+    setSearchParams(next, { replace: true })
+  }
 
   const allRows = useMemo(
     () =>
@@ -51,16 +81,30 @@ export function DashboardPage() {
     [players, recomputed, settings.movingAverageWindow, settings.provisionalThreshold],
   )
 
+  const filteredByFacet = useMemo(() => {
+    if (Object.keys(filters).length === 0) return allRows
+    return allRows.filter((r) => {
+      for (const k of FILTER_KEYS) {
+        const want = filters[k]
+        if (!want) continue
+        const got = (r.player[k] ?? '').toString().toLowerCase()
+        if (got !== want.toLowerCase()) return false
+      }
+      return true
+    })
+  }, [allRows, filters])
+
   const rows = useMemo(() => {
     const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
-    if (tokens.length === 0) return allRows
-    return allRows.filter((r) => {
+    if (tokens.length === 0) return filteredByFacet
+    return filteredByFacet.filter((r) => {
       const hay = [r.name, r.player.club, r.player.country, r.player.city].filter(Boolean).join(' ').toLowerCase()
       return tokens.every((t) => hay.includes(t))
     })
-  }, [allRows, search])
+  }, [filteredByFacet, search])
 
   const recent = [...recomputed.matches].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
+  const activeFilters = FILTER_KEYS.filter((k) => filters[k])
 
   return (
     <PullToRefresh onRefresh={refresh}>
@@ -90,6 +134,34 @@ export function DashboardPage() {
               {canLogMatch && <Link className="btn-primary" to="/log">Log match</Link>}
             </div>
           </div>
+
+          {activeFilters.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              {activeFilters.map((k) => (
+                <span
+                  key={k}
+                  className="inline-flex items-center gap-1 rounded-full bg-brand-100 text-brand-800 text-xs font-medium pl-2.5 pr-1 py-1 dark:bg-brand-900/40 dark:text-brand-200"
+                >
+                  <span className="text-brand-600 dark:text-brand-300">{FILTER_LABEL[k]}:</span>
+                  <span>{filters[k]}</span>
+                  <button
+                    onClick={() => clearFilter(k)}
+                    aria-label={`Remove ${FILTER_LABEL[k]} filter`}
+                    className="ml-0.5 grid h-5 w-5 place-items-center rounded-full hover:bg-brand-200 dark:hover:bg-brand-900/60"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <button onClick={clearAllFilters} className="btn-link text-xs">
+                Clear all
+              </button>
+              <span className="text-xs text-slate-500 ml-auto">
+                {filteredByFacet.length} {filteredByFacet.length === 1 ? 'player' : 'players'}
+              </span>
+            </div>
+          )}
+
           {allRows.length > 0 && (
             <input
               type="search"
@@ -115,14 +187,19 @@ export function DashboardPage() {
               )}
             </div>
           ) : rows.length === 0 ? (
-            <div className="card text-center text-slate-500">No players match "{search}".</div>
+            <div className="card text-center text-slate-500">
+              {activeFilters.length > 0 ? (
+                <>No players match this filter. <button onClick={clearAllFilters} className="text-brand-600 underline">Clear filters</button></>
+              ) : (
+                <>No players match "{search}".</>
+              )}
+            </div>
           ) : (
             <>
               {/* Mobile: card list */}
               <ul className="sm:hidden space-y-2">
                 {rows.map((r, i) => {
                   const isMe = myPlayer?.id === r.id
-                  const sub = playerSubtitle(r.player)
                   return (
                     <li
                       key={r.id}
@@ -132,14 +209,18 @@ export function DashboardPage() {
                       )}
                     >
                       <div className="w-6 text-center text-sm font-semibold text-slate-400 shrink-0">{i + 1}</div>
-                      <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={36} />
+                      <Link to={`/players/${r.id}`} aria-label={`View ${r.name}'s profile`}>
+                        <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={36} />
+                      </Link>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium truncate">{r.name}</span>
+                          <PlayerLink id={r.id} name={r.name} className="font-medium truncate" />
                           {r.provisional && <span className="tag">P</span>}
                           {isMe && <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">you</span>}
                         </div>
-                        {sub && <div className="text-xs text-slate-500 truncate">{sub}</div>}
+                        <div className="truncate">
+                          <PlayerMetaLinks player={r.player} />
+                        </div>
                         <div className="text-xs text-slate-500 mt-0.5">
                           {r.played} {r.played === 1 ? 'match' : 'matches'} · 4-match avg {fmtLevel(r.ranking)}
                         </div>
@@ -167,19 +248,22 @@ export function DashboardPage() {
                   </thead>
                   <tbody>
                     {rows.map((r, i) => {
-                      const sub = playerSubtitle(r.player)
                       return (
                         <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
                           <td className="px-3 py-2 text-slate-400">{i + 1}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-3 min-w-0">
-                              <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={28} />
+                              <Link to={`/players/${r.id}`} aria-label={`View ${r.name}'s profile`}>
+                                <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={28} />
+                              </Link>
                               <div className="min-w-0">
                                 <div className="font-medium truncate">
-                                  {r.name}
+                                  <PlayerLink id={r.id} name={r.name} />
                                   {r.provisional && <span className="ml-2 tag">P</span>}
                                 </div>
-                                {sub && <div className="text-xs text-slate-500 truncate">{sub}</div>}
+                                <div className="truncate">
+                                  <PlayerMetaLinks player={r.player} />
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -217,31 +301,36 @@ export function DashboardPage() {
                 return (
                   <div key={m.id} className="card space-y-2">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className={clsx('font-semibold', aIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}>
-                        {s.aName}
-                      </span>
+                      <PlayerLink
+                        id={m.playerAId}
+                        name={s.aName}
+                        className={clsx('font-semibold', aIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
+                      />
                       <span className="font-mono">
                         <span className={aIsWinner ? 'font-bold' : ''}>{s.aGames}</span>
                         <span className="text-slate-400 mx-1">–</span>
                         <span className={bIsWinner ? 'font-bold' : ''}>{s.bGames}</span>
                       </span>
-                      <span className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}>
-                        {s.bName}
-                      </span>
+                      <PlayerLink
+                        id={m.playerBId}
+                        name={s.bName}
+                        className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
+                      />
                     </div>
                     <div className="text-xs text-slate-500">
                       {fmtDate(m.date)} · {m.type}
+                      {m.venue && <> · {m.venue}</>}
                     </div>
                     <div className="text-xs">
                       <GameScores games={m.games} />
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
                       <span>
-                        <span className="text-slate-500">{s.aName}</span>{' '}
+                        <PlayerLink id={m.playerAId} name={s.aName} className="text-slate-500" />{' '}
                         <span className={(m.deltaA ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaA)}</span>
                       </span>
                       <span>
-                        <span className="text-slate-500">{s.bName}</span>{' '}
+                        <PlayerLink id={m.playerBId} name={s.bName} className="text-slate-500" />{' '}
                         <span className={(m.deltaB ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaB)}</span>
                       </span>
                     </div>
