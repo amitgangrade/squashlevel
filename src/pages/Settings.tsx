@@ -10,7 +10,7 @@ import type { ClubAdmin } from '../types'
 
 export function SettingsPage() {
   const {
-    settings, isAdmin, updateSettings, resetAll, refresh,
+    settings, isAdmin, updateSettings, refresh,
     rebuildLevels, rebuildRunning, rebuildStatus, rebuildError, rebuildStartedAt, dismissRebuildError,
   } = useStore()
   const [draft, setDraft] = useState<Settings>(settings)
@@ -56,14 +56,6 @@ export function SettingsPage() {
       if (fileRef.current) fileRef.current.value = ''
       setTimeout(() => setMsg(''), 3500)
     }
-  }
-
-  const onReset = async () => {
-    if (!window.confirm('Delete ALL players, matches, and settings? This cannot be undone.')) return
-    await resetAll()
-    setDraft(DEFAULT_SETTINGS)
-    setMsg('All data cleared.')
-    setTimeout(() => setMsg(''), 2500)
   }
 
   const onRebuild = async () => {
@@ -243,7 +235,6 @@ export function SettingsPage() {
             <button className="btn-secondary" onClick={onImportClick} disabled={importing}>
               {importing ? 'Importing…' : 'Import JSON…'}
             </button>
-            <button className="btn-danger" onClick={onReset}>Reset all data</button>
           </div>
           <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={onFile} />
         </div>
