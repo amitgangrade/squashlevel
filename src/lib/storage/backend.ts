@@ -266,10 +266,9 @@ const cloudBackend: Backend = {
   },
   async rebuildLevels() {
     // Admin-only. Loads everything, runs the canonical rating algorithm, and
-    // bulk-writes corrected level fields back to matches + players. The
-    // matches AFTER trigger fires for each updated row but updates with
-    // unchanged-status are no-ops on the players table; we explicitly set
-    // current_level / matches_played afterwards from the recompute result.
+    // bulk-writes corrected level fields via two Postgres RPCs that accept
+    // a JSON array and do the UPDATE in a single SQL statement. ~5–10 sec on
+    // 300K matches; replaces the previous per-row UPDATE which was 30+ min.
     const sb = supabase!
     const [players, matchRows, sRes] = await Promise.all([
       fetchAll<PlayerRow>('players'),
@@ -284,64 +283,53 @@ const cloudBackend: Backend = {
     const ratedMatches = matchObjs.filter((m) => !m.status || m.status === 'confirmed')
     const result = recomputeAll(playerObjs, ratedMatches, settings)
 
-    // Per-row UPDATE — can't use upsert here because that runs INSERT first,
-    // which would trip NOT NULL on date/player_a_id/etc. since our payload
-    // only carries the level fields. Patches in parallel batches.
+    // Pack into compact JSON (short keys to fit more rows under the 6 MB
+    // request body limit). Field names match the RPC's jsonb_to_recordset
+    // column list.
     const matchUpdates = result.matches.map((m) => ({
       id: m.id,
-      patch: {
-        level_a_before: m.levelABefore ?? null,
-        level_a_after:  m.levelAAfter  ?? null,
-        level_b_before: m.levelBBefore ?? null,
-        level_b_after:  m.levelBAfter  ?? null,
-        delta_a: m.deltaA ?? null,
-        delta_b: m.deltaB ?? null,
-        provisional_a: m.provisionalA ?? null,
-        provisional_b: m.provisionalB ?? null,
-      },
+      lab: m.levelABefore ?? null,
+      laa: m.levelAAfter  ?? null,
+      lbb: m.levelBBefore ?? null,
+      lba: m.levelBAfter  ?? null,
+      da:  m.deltaA ?? null,
+      db:  m.deltaB ?? null,
+      pa:  m.provisionalA ?? null,
+      pb:  m.provisionalB ?? null,
     }))
-    let matchesUpdated = 0
-    const M_PARALLEL = 8
-    for (let i = 0; i < matchUpdates.length; i += M_PARALLEL) {
-      const batch = matchUpdates.slice(i, i + M_PARALLEL)
-      await Promise.all(
-        batch.map((u) =>
-          sb.from('matches').update(u.patch).eq('id', u.id).then(({ error }) => {
-            if (error) throw error
-            matchesUpdated += 1
-          }),
-        ),
-      )
+    const playerUpdates = playerObjs.map((p) => {
+      const s = result.states.get(p.id)
+      return {
+        id: p.id,
+        cl: s?.currentLevel ?? null,
+        mp: s?.matchesPlayed ?? 0,
+      }
+    })
+
+    // ~200 B/row × 5000 ≈ 1 MB; stays well clear of the 6 MB body limit.
+    const RPC_BATCH = 5000
+    const RPC_PARALLEL = 4
+
+    const runBatches = async <T>(rows: T[], rpc: 'apply_match_level_updates' | 'apply_player_level_updates') => {
+      let updated = 0
+      const batches: T[][] = []
+      for (let i = 0; i < rows.length; i += RPC_BATCH) batches.push(rows.slice(i, i + RPC_BATCH))
+      for (let i = 0; i < batches.length; i += RPC_PARALLEL) {
+        const slice = batches.slice(i, i + RPC_PARALLEL)
+        await Promise.all(
+          slice.map((batch) =>
+            sb.rpc(rpc, { updates: batch }).then(({ data, error }) => {
+              if (error) throw error
+              updated += Number(data ?? 0)
+            }),
+          ),
+        )
+      }
+      return updated
     }
 
-    // Now reset players' current_level / matches_played from the recompute
-    // states. We update one at a time since there's no bulk patch in REST.
-    let playersUpdated = 0
-    const updates: Array<{ id: string; current_level: number | null; matches_played: number }> = []
-    for (const p of playerObjs) {
-      const s = result.states.get(p.id)
-      updates.push({
-        id: p.id,
-        current_level: s?.currentLevel ?? null,
-        matches_played: s?.matchesPlayed ?? 0,
-      })
-    }
-    // Patch in parallel batches.
-    const PARALLEL = 6
-    for (let i = 0; i < updates.length; i += PARALLEL) {
-      const batch = updates.slice(i, i + PARALLEL)
-      await Promise.all(
-        batch.map((u) =>
-          sb.from('players')
-            .update({ current_level: u.current_level, matches_played: u.matches_played })
-            .eq('id', u.id)
-            .then(({ error }) => {
-              if (error) throw error
-              playersUpdated += 1
-            }),
-        ),
-      )
-    }
+    const matchesUpdated = await runBatches(matchUpdates, 'apply_match_level_updates')
+    const playersUpdated = await runBatches(playerUpdates, 'apply_player_level_updates')
     return { matchesUpdated, playersUpdated }
   },
 }

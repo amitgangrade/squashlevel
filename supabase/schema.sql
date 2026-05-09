@@ -679,6 +679,84 @@ $$;
 
 grant execute on function public.auto_confirm_aged_matches() to authenticated;
 
+-- ---------------------------------------------------------------------------
+-- apply_match_level_updates / apply_player_level_updates
+--
+-- Bulk write helpers for the admin "Rebuild levels" flow. The client runs
+-- recomputeAll() in TS (so the rating math stays in one place), then ships
+-- the result here as a JSON array. Each call updates thousands of rows in a
+-- single SQL statement instead of one HTTP round-trip per row.
+--
+-- Admin-only — these can rewrite every player's rating, so non-admins must
+-- never reach them.
+-- ---------------------------------------------------------------------------
+create or replace function public.apply_match_level_updates(updates jsonb)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  affected int;
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+
+  update public.matches m
+     set level_a_before = u.lab,
+         level_a_after  = u.laa,
+         level_b_before = u.lbb,
+         level_b_after  = u.lba,
+         delta_a        = u.da,
+         delta_b        = u.db,
+         provisional_a  = u.pa,
+         provisional_b  = u.pb
+    from jsonb_to_recordset(updates) as u(
+      id  uuid,
+      lab numeric, laa numeric, lbb numeric, lba numeric,
+      da  numeric, db  numeric,
+      pa  boolean, pb  boolean
+    )
+   where m.id = u.id;
+
+  get diagnostics affected = row_count;
+  return affected;
+end;
+$$;
+
+grant execute on function public.apply_match_level_updates(jsonb) to authenticated;
+
+create or replace function public.apply_player_level_updates(updates jsonb)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  affected int;
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+
+  update public.players p
+     set current_level  = u.cl,
+         matches_played = u.mp
+    from jsonb_to_recordset(updates) as u(
+      id uuid,
+      cl numeric,
+      mp integer
+    )
+   where p.id = u.id;
+
+  get diagnostics affected = row_count;
+  return affected;
+end;
+$$;
+
+grant execute on function public.apply_player_level_updates(jsonb) to authenticated;
+
 -- Optional: schedule the aging job daily via pg_cron (Supabase Pro+).
 -- If pg_cron isn't available, the dashboard calls auto_confirm_aged_matches()
 -- on load as a fallback — comment the lines below out if you don't want it.
