@@ -1,7 +1,7 @@
 import { HashRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { StoreProvider } from './state/store'
-import { DashboardPage } from './pages/Dashboard'
+import { LeaderboardPage } from './pages/Leaderboard'
 import { RosterPage } from './pages/Roster'
 import { LogMatchPage } from './pages/LogMatch'
 import { HistoryPage } from './pages/History'
@@ -22,7 +22,7 @@ export default function App() {
       <HashRouter>
         <Routes>
           <Route element={<Layout />}>
-            <Route index element={<DashboardPage />} />
+            <Route index element={<LeaderboardPage />} />
             <Route path="/roster" element={<RosterPage />} />
             <Route path="/log" element={<LogMatchPage />} />
             <Route path="/history" element={<HistoryPage />} />

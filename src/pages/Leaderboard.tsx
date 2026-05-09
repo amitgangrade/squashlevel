@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Pagination } from '../components/Pagination'
 import { Link, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
@@ -23,7 +24,7 @@ const FILTER_LABEL: Record<FilterKey, string> = {
   city: 'City',
 }
 
-export function DashboardPage() {
+export function LeaderboardPage() {
   const { players, matches, recomputed, settings, isAdmin, session, myPlayer, loading, refresh, pendingForMe, runAutoConfirmAged } = useStore()
   const signedIn = !!session
   const canLogMatch = signedIn && (isAdmin || !!myPlayer)
@@ -40,6 +41,8 @@ export function DashboardPage() {
   }, [signedIn, runAutoConfirmAged])
 
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 100
 
   const filters = useMemo(() => {
     const out: Partial<Record<FilterKey, string>> = {}
@@ -103,6 +106,11 @@ export function DashboardPage() {
       return tokens.every((t) => hay.includes(t))
     })
   }, [filteredByFacet, search])
+
+  const visibleRows = useMemo(
+    () => rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [rows, page, PAGE_SIZE],
+  )
 
   const recent = [...recomputed.matches].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
   const activeFilters = FILTER_KEYS.filter((k) => filters[k])
@@ -169,7 +177,7 @@ export function DashboardPage() {
               className="input w-full sm:max-w-sm mb-3"
               placeholder="Search by name, club, country…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setPage(0) }}
             />
           )}
 
@@ -199,8 +207,9 @@ export function DashboardPage() {
             <>
               {/* Mobile: card list */}
               <ul className="sm:hidden space-y-2">
-                {rows.map((r, i) => {
+                {visibleRows.map((r, i) => {
                   const isMe = myPlayer?.id === r.id
+                  const rank = page * PAGE_SIZE + i + 1
                   return (
                     <li
                       key={r.id}
@@ -209,7 +218,7 @@ export function DashboardPage() {
                         isMe && 'ring-2 ring-brand-500/40',
                       )}
                     >
-                      <div className="w-6 text-center text-sm font-semibold text-slate-400 shrink-0">{i + 1}</div>
+                      <div className="w-6 text-center text-sm font-semibold text-slate-400 shrink-0">{rank}</div>
                       <Link to={`/players/${r.id}`} aria-label={`View ${r.name}'s profile`}>
                         <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={36} />
                       </Link>
@@ -248,10 +257,11 @@ export function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r, i) => {
+                    {visibleRows.map((r, i) => {
+                      const rank = page * PAGE_SIZE + i + 1
                       return (
                         <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                          <td className="px-3 py-2 text-slate-400">{rank}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-3 min-w-0">
                               <Link to={`/players/${r.id}`} aria-label={`View ${r.name}'s profile`}>
@@ -273,10 +283,17 @@ export function DashboardPage() {
                           <td className="px-3 py-2 text-right text-slate-500">{r.played}</td>
                         </tr>
                       )
-                    })}
+                    })
                   </tbody>
                 </table>
               </div>
+              <Pagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={rows.length}
+                onPage={setPage}
+                noun="players"
+              />
             </>
           )}
         </section>

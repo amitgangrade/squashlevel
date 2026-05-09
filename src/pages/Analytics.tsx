@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
 import {
@@ -30,6 +31,8 @@ export function AnalyticsPage() {
     myPlayer ? new Set([myPlayer.id]) : new Set(),
   )
   const [statsSearch, setStatsSearch] = useState('')
+  const [statsPage, setStatsPage] = useState(0)
+  const STATS_PAGE_SIZE = 100
   const [h2hA, setH2hA] = useState<Player | null>(null)
   const [h2hB, setH2hB] = useState<Player | null>(null)
 
@@ -105,6 +108,11 @@ export function AnalyticsPage() {
       return tokens.every((t) => hay.includes(t))
     })
   }, [perPlayer, statsSearch])
+
+  const visibleStats = useMemo(
+    () => filteredStats.slice(statsPage * STATS_PAGE_SIZE, (statsPage + 1) * STATS_PAGE_SIZE),
+    [filteredStats, statsPage, STATS_PAGE_SIZE],
+  )
 
   const h2h = useMemo(() => {
     if (!h2hA || !h2hB || h2hA.id === h2hB.id) return null
@@ -254,7 +262,7 @@ export function AnalyticsPage() {
             className="input w-40 sm:w-64"
             placeholder="Search by name, club, country…"
             value={statsSearch}
-            onChange={(e) => setStatsSearch(e.target.value)}
+            onChange={(e) => { setStatsSearch(e.target.value); setStatsPage(0) }}
           />
         </div>
         {perPlayer.length === 0 ? (
@@ -274,7 +282,7 @@ export function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredStats.map((r) => {
+                {visibleStats.map((r) => {
                   const sub = playerSubtitle(r.player)
                   return (
                     <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
@@ -301,6 +309,13 @@ export function AnalyticsPage() {
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={statsPage}
+            pageSize={STATS_PAGE_SIZE}
+            total={filteredStats.length}
+            onPage={setStatsPage}
+            noun="players"
+          />
         )}
       </section>
 

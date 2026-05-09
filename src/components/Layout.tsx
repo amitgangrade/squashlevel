@@ -19,7 +19,7 @@ import {
 } from './Icons'
 
 const desktopNav = [
-  { to: '/', label: 'Dashboard', end: true },
+  { to: '/', label: 'Leaderboard', end: true },
   { to: '/roster', label: 'Players' },
   { to: '/clubs', label: 'Clubs' },
   { to: '/groups', label: 'Groups' },
