@@ -304,7 +304,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const resetAll: StoreCtx['resetAll'] = async () => {
     requireAdmin()
-    await backend.wipeAll()
+    await backend.wipeAll(session?.user?.id)
     setPlayers([])
     setMatches([])
     setSettings(DEFAULT_SETTINGS)

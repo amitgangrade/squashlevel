@@ -22,7 +22,7 @@ export interface Backend {
   deleteMatch(id: string): Promise<void>
   saveSettings(s: Settings): Promise<void>
   replaceAll(players: Player[], matches: Match[], settings: Settings): Promise<void>
-  wipeAll(): Promise<void>
+  wipeAll(currentUserId?: string): Promise<void>
   subscribe?(onChange: () => void): () => void
 }
 
@@ -130,11 +130,18 @@ const cloudBackend: Backend = {
       _importing = false
     }
   },
-  async wipeAll() {
+  async wipeAll(currentUserId?: string) {
     const sb = supabase!
     await sb.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     await sb.from('players').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     await sb.from('settings').delete().neq('id', '_never_')
+    // Also clear profiles so the Admins list doesn't show stale users.
+    // Keep the current user's profile so they stay signed in as admin.
+    if (currentUserId) {
+      await sb.from('profiles').delete().neq('id', currentUserId)
+    } else {
+      await sb.from('profiles').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    }
   },
   subscribe(onChange) {
     // Debounce: collapse rapid-fire events (e.g. back-to-back match inserts) into
