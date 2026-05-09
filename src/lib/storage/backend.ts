@@ -91,6 +91,42 @@ const SUPABASE_BATCH = 500   // rows per insert; stays well under the 6 MB REST 
 // Without this, every 500-row insert fires onChange → getAll() → 600 parallel fetches.
 let _importing = false
 
+/** Cursor-paginated fetch of every match. Used by rebuildLevels at scale —
+ *  the unranged "select all + order by date" hits Supabase's 8s
+ *  statement_timeout once the table is non-trivial, and offset-based pagination
+ *  gets quadratic past a few thousand rows. Cursor on (date, id) is O(1) per
+ *  page provided matches_date_idx exists (it does). Pages are deliberately
+ *  small so each query finishes well under the timeout even on a busy DB. */
+async function fetchAllMatchesByCursor(): Promise<MatchRow[]> {
+  const PAGE = 500
+  const all: MatchRow[] = []
+  let lastDate: string | null = null
+  let lastId: string | null = null
+  // Hard ceiling on iterations as a paranoia stop in case something keeps
+  // returning the same row (shouldn't happen with strict (date,id) cursor).
+  for (let iter = 0; iter < 100_000; iter++) {
+    let q = supabase!
+      .from('matches')
+      .select('*')
+      .order('date', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(PAGE)
+    if (lastDate !== null && lastId !== null) {
+      // (date, id) > (lastDate, lastId)
+      q = q.or(`date.gt.${lastDate},and(date.eq.${lastDate},id.gt.${lastId})`)
+    }
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    all.push(...(data as MatchRow[]))
+    if (data.length < PAGE) break
+    const last = data[data.length - 1] as MatchRow
+    lastDate = last.date
+    lastId = last.id
+  }
+  return all
+}
+
 /** Supabase caps each query at 1 000 rows. This helper fetches all rows
  *  by first getting the total count, then firing parallel range requests. */
 async function fetchAll<T>(
@@ -286,7 +322,7 @@ const cloudBackend: Backend = {
     }
     const [players, matchRows, sRes] = await Promise.all([
       phase('fetchAll players', () => fetchAll<PlayerRow>('players')),
-      phase('fetchAll matches', () => fetchAll<MatchRow>('matches', { column: 'date', ascending: true })),
+      phase('fetchAll matches (cursor)', () => fetchAllMatchesByCursor()),
       phase('fetch settings', () => sb.from('settings').select('*').eq('id', 'app').maybeSingle()),
     ])
     if (sRes.error) throw sRes.error
