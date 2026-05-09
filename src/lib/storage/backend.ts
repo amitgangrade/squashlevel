@@ -275,34 +275,31 @@ const cloudBackend: Backend = {
     return (data as MatchRow[]).map(fromMatchRow)
   },
   async rebuildLevels(onProgress) {
-    // Admin-only. The rebuild now runs entirely server-side via the
-    // rebuild_all_levels() RPC: math is in plpgsql, no per-row HTTP traffic,
-    // single transaction, no statement timeout. The client just kicks it off
-    // and waits.
+    // Admin-only. Chunked server-side rebuild: math in plpgsql, but split
+    // across many short RPC calls so no individual call hits the edge proxy
+    // timeout (~100 s on Supabase). State (in-progress player levels) lives
+    // in level_rebuild_state between chunks. See supabase/schema.sql for the
+    // three RPCs that drive this: _start, _chunk, _finalize.
     const sb = supabase!
     const report = (msg: string) => { try { onProgress?.(msg) } catch { /* ignore */ } }
 
-    // Quick row count up front so we can show a useful "X matches" estimate.
-    // head:true on a covered table is fast even at 300K+.
+    // Best-effort row count for a useful progress label.
     let totalMatches: number | null = null
     try {
-      const { count } = await sb.from('matches').select('*', { count: 'exact', head: true })
+      const { count } = await sb
+        .from('matches')
+        .select('*', { count: 'exact', head: true })
+        .or('status.is.null,status.eq.confirmed')
       totalMatches = count ?? null
     } catch {
-      // Non-fatal — we'll fall back to a generic message.
+      // Non-fatal — will fall back to "X processed" if count fails.
     }
-    const eta = totalMatches != null ? `, ~${Math.max(5, Math.ceil(totalMatches / 15_000))}s` : ''
-    report(
-      totalMatches != null
-        ? `Rebuilding levels for ${totalMatches.toLocaleString()} matches${eta}…`
-        : 'Rebuilding levels server-side…',
-    )
 
-    // The RPC owns retry semantics implicitly — it's a single statement and
-    // either completes or rolls back. Network-level failures (proxy drop,
-    // browser timeout) DO need handling though: the server may have committed
-    // even though the client didn't see the response. Idempotent on retry.
-    const ATTEMPTS = 3
+    // Network-blip retry helper. Each individual RPC is idempotent enough
+    // that retrying is safe: _start truncates, _chunk advances by cursor (so
+    // re-running the same cursor re-applies the same updates), _finalize is
+    // an UPDATE … FROM that converges.
+    const ATTEMPTS = 4
     const isRetryable = (e: unknown): boolean => {
       if (e instanceof TypeError) return /failed to fetch|network|aborted/i.test(e.message)
       const err = e as { message?: string; code?: string; status?: number }
@@ -311,31 +308,70 @@ const cloudBackend: Backend = {
       return false
     }
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-    let result: { matches_updated: number; players_updated: number } | null = null
-    let lastErr: unknown
-    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-      try {
-        const { data, error } = await sb.rpc('rebuild_all_levels')
-        if (error) throw error
-        // RPC returns a single-row table; supabase-js unwraps to an array.
-        const row = Array.isArray(data) ? data[0] : data
-        result = row as { matches_updated: number; players_updated: number }
-        break
-      } catch (e) {
-        lastErr = e
-        if (attempt === ATTEMPTS || !isRetryable(e)) throw e
-        const delay = Math.min(2000 * 2 ** (attempt - 1), 10_000)
-        report(`Transient error during rebuild, retrying in ${(delay / 1000).toFixed(1)}s (attempt ${attempt + 1}/${ATTEMPTS})…`)
-        await sleep(delay)
+    const callRpc = async <T>(name: string, args: Record<string, unknown> = {}): Promise<T> => {
+      let lastErr: unknown
+      for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+        try {
+          const { data, error } = await sb.rpc(name, args)
+          if (error) throw error
+          return data as T
+        } catch (e) {
+          lastErr = e
+          if (attempt === ATTEMPTS || !isRetryable(e)) throw e
+          const delay = Math.min(1000 * 2 ** (attempt - 1), 8000) + Math.floor(Math.random() * 250)
+          report(`Transient error in ${name}, retrying in ${(delay / 1000).toFixed(1)}s (attempt ${attempt + 1}/${ATTEMPTS})…`)
+          await sleep(delay)
+        }
       }
+      throw lastErr ?? new Error(`${name} failed`)
     }
-    if (!result) throw lastErr ?? new Error('rebuild failed')
+
+    report('Initializing rebuild…')
+    await callRpc<unknown>('rebuild_levels_start')
+
+    // Chunk size is a tradeoff: bigger = fewer round-trips but each chunk
+    // takes longer (risking the per-chunk statement_timeout). 10K matches at
+    // typical rebuild speed (~2K-5K/s in plpgsql) is comfortably under a
+    // minute even on a slow tier.
+    const CHUNK = 10_000
+    let cursor: { p_after_date: string | null; p_after_id: string | null } = {
+      p_after_date: null,
+      p_after_id: null,
+    }
+    let processed = 0
+    type ChunkRow = { processed: number; next_after_date: string | null; next_after_id: string | null; done: boolean }
+    while (true) {
+      const data = await callRpc<ChunkRow | ChunkRow[]>('rebuild_levels_chunk', {
+        ...cursor,
+        p_limit: CHUNK,
+      })
+      const row = Array.isArray(data) ? data[0] : data
+      processed += Number(row?.processed ?? 0)
+      const pct = totalMatches && totalMatches > 0
+        ? Math.min(100, Math.round((processed / totalMatches) * 100))
+        : null
+      report(
+        totalMatches != null
+          ? `Replaying matches… ${processed.toLocaleString()} / ${totalMatches.toLocaleString()}${pct != null ? ` (${pct}%)` : ''}`
+          : `Replaying matches… ${processed.toLocaleString()} processed`,
+      )
+      if (row?.done) break
+      cursor = {
+        p_after_date: row?.next_after_date ?? null,
+        p_after_id: row?.next_after_id ?? null,
+      }
+      // Defensive: if the cursor didn't advance, bail to avoid an infinite
+      // loop. Means there's nothing left to do.
+      if (Number(row?.processed ?? 0) === 0) break
+    }
+
+    report('Finalizing player levels…')
+    const playersUpdated = await callRpc<number>('rebuild_levels_finalize')
 
     report('Done.')
     return {
-      matchesUpdated: Number(result.matches_updated ?? 0),
-      playersUpdated: Number(result.players_updated ?? 0),
+      matchesUpdated: processed,
+      playersUpdated: Number(playersUpdated ?? 0),
     }
   },
 }

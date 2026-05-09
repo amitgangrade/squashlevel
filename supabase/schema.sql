@@ -811,17 +811,68 @@ begin
 end;
 $$;
 
--- rebuild_all_levels: replays every rated match in (date, id) order,
--- recomputing per-match level fields and the players' final state. Runs
--- entirely server-side so the client only makes one HTTP call. Admin-only.
-create or replace function public.rebuild_all_levels()
-returns table(matches_updated int, players_updated int)
+-- Chunked rebuild. The original "do everything in one RPC" design hit
+-- Cloudflare/edge proxy timeouts (~100s) on large datasets. The chunked
+-- variant keeps each call short and stateless across HTTP boundaries by
+-- holding in-progress player state in a persistent table.
+--
+-- Flow from the client:
+--   1. rebuild_levels_start()      -- clears state, seeds from starting_level
+--   2. rebuild_levels_chunk(...)   -- repeatedly until done=true
+--   3. rebuild_levels_finalize()   -- copies state to players, clears table
+
+drop function if exists public.rebuild_all_levels();
+
+create table if not exists public.level_rebuild_state (
+  player_id      uuid primary key references public.players(id) on delete cascade,
+  current_level  numeric not null,
+  matches_played int not null
+);
+
+-- Admin-only. Anyone else trying to read/write this table goes through RLS.
+alter table public.level_rebuild_state enable row level security;
+drop policy if exists "admin all level_rebuild_state" on public.level_rebuild_state;
+create policy "admin all level_rebuild_state" on public.level_rebuild_state
+  for all to authenticated
+  using (public.is_admin(auth.uid()))
+  with check (public.is_admin(auth.uid()));
+
+create or replace function public.rebuild_levels_start()
+returns void
 language plpgsql
 security definer
 set search_path = public
--- This rebuild is admin-triggered and runs to completion; ignore the
--- session statement_timeout entirely.
-set statement_timeout = 0
+set statement_timeout = '60s'
+as $$
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  truncate public.level_rebuild_state;
+  insert into public.level_rebuild_state (player_id, current_level, matches_played)
+    select id, starting_level, 0 from public.players;
+end;
+$$;
+
+grant execute on function public.rebuild_levels_start() to authenticated;
+
+create or replace function public.rebuild_levels_chunk(
+  p_after_date date,
+  p_after_id   uuid,
+  p_limit      int default 10000
+)
+returns table(
+  processed       int,
+  next_after_date date,
+  next_after_id   uuid,
+  done            boolean
+)
+language plpgsql
+security definer
+set search_path = public
+-- Each chunk should comfortably finish in well under a minute. 60s gives
+-- some headroom on a busy DB.
+set statement_timeout = '60s'
 as $$
 declare
   s          jsonb;
@@ -832,14 +883,16 @@ declare
   pt         int;
   m          record;
   upd        record;
-  m_count    int := 0;
-  p_count    int := 0;
+  proc       int := 0;
   la         numeric;
   lb         numeric;
   ma_played  int;
   mb_played  int;
   pa         boolean;
   pb         boolean;
+  last_date  date := p_after_date;
+  last_id    uuid := p_after_id;
+  more       boolean := false;
 begin
   if not public.is_admin(auth.uid()) then
     raise exception 'admin only';
@@ -853,37 +906,32 @@ begin
   ge        := coalesce((s->>'gamesExponent')::numeric, 5);
   pt        := coalesce((s->>'provisionalThreshold')::int, 5);
 
-  -- Per-session temp table for in-flight player state during the replay.
-  -- on commit drop is academic (security definer functions don't commit
-  -- mid-call) but harmless.
-  create temp table if not exists _player_state (
-    id             uuid primary key,
-    current_level  numeric not null,
-    matches_played int not null
-  ) on commit drop;
-  truncate _player_state;
-  insert into _player_state (id, current_level, matches_played)
-  select id, starting_level, 0 from public.players;
-
-  -- Walk rated matches in chronological order, updating temp state and
-  -- writing computed level fields back to each match row.
   for m in
     select id, date, player_a_id, player_b_id, games, type, unranked
       from public.matches
      where (status is null or status = 'confirmed')
+       and (
+         p_after_date is null
+         or date > p_after_date
+         or (date = p_after_date and id > p_after_id)
+       )
      order by date asc, id asc
+     limit p_limit
   loop
-    select current_level, matches_played
-      into la, ma_played
-      from _player_state where id = m.player_a_id;
-    select current_level, matches_played
-      into lb, mb_played
-      from _player_state where id = m.player_b_id;
+    select current_level, matches_played into la, ma_played
+      from public.level_rebuild_state where player_id = m.player_a_id;
+    select current_level, matches_played into lb, mb_played
+      from public.level_rebuild_state where player_id = m.player_b_id;
 
-    -- A row referencing a deleted player would have already failed the
-    -- match's FK; a null state here means the player record is gone, so
-    -- skip silently (better than aborting the whole rebuild).
-    if la is null or lb is null then continue; end if;
+    -- Skip orphaned matches whose player rows are missing from the state
+    -- table (e.g., player created after rebuild_levels_start ran). The
+    -- foreign-key on matches would normally prevent the deeper case.
+    if la is null or lb is null then
+      last_date := m.date;
+      last_id   := m.id;
+      proc := proc + 1;
+      continue;
+    end if;
 
     pa := ma_played < pt;
     pb := mb_played < pt;
@@ -910,31 +958,65 @@ begin
         provisional_a  = pa,  provisional_b  = pb
       where id = m.id;
 
-      update _player_state
+      update public.level_rebuild_state
          set current_level = upd.level_a_after,
              matches_played = matches_played + 1
-       where id = m.player_a_id;
-      update _player_state
+       where player_id = m.player_a_id;
+      update public.level_rebuild_state
          set current_level = upd.level_b_after,
              matches_played = matches_played + 1
-       where id = m.player_b_id;
+       where player_id = m.player_b_id;
     end if;
-    m_count := m_count + 1;
+
+    last_date := m.date;
+    last_id   := m.id;
+    proc := proc + 1;
   end loop;
 
-  -- Push final state to the players table.
-  update public.players p
-     set current_level  = ps.current_level,
-         matches_played = ps.matches_played
-    from _player_state ps
-   where p.id = ps.id;
-  get diagnostics p_count = row_count;
+  -- Are there more rated matches after the last one we touched?
+  if last_date is null then
+    -- We didn't process anything — either the table is empty or our cursor
+    -- already pointed past the end. Either way we're done.
+    return query select proc, p_after_date, p_after_id, true;
+    return;
+  end if;
+  select exists (
+    select 1 from public.matches
+     where (status is null or status = 'confirmed')
+       and (date > last_date or (date = last_date and id > last_id))
+  ) into more;
 
-  return query select m_count, p_count;
+  return query select proc, last_date, last_id, not more;
 end;
 $$;
 
-grant execute on function public.rebuild_all_levels() to authenticated;
+grant execute on function public.rebuild_levels_chunk(date, uuid, int) to authenticated;
+
+create or replace function public.rebuild_levels_finalize()
+returns int
+language plpgsql
+security definer
+set search_path = public
+set statement_timeout = '60s'
+as $$
+declare
+  affected int;
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  update public.players p
+     set current_level  = ps.current_level,
+         matches_played = ps.matches_played
+    from public.level_rebuild_state ps
+   where p.id = ps.player_id;
+  get diagnostics affected = row_count;
+  truncate public.level_rebuild_state;
+  return affected;
+end;
+$$;
+
+grant execute on function public.rebuild_levels_finalize() to authenticated;
 
 -- Optional: schedule the aging job daily via pg_cron (Supabase Pro+).
 -- If pg_cron isn't available, the dashboard calls auto_confirm_aged_matches()
