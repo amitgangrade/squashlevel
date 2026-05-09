@@ -350,7 +350,7 @@ const cloudBackend: Backend = {
     const [players, matchRows, sRes] = await Promise.all([
       phase('fetchAll players', () => fetchAll<PlayerRow>('players')),
       phase('fetchAll matches (cursor)', () => fetchAllMatchesByCursor((n) => report(`Fetching matches… ${n.toLocaleString()} loaded`))),
-      phase('fetch settings', () => sb.from('settings').select('*').eq('id', 'app').maybeSingle()),
+      phase('fetch settings', async () => sb.from('settings').select('*').eq('id', 'app').maybeSingle()),
     ])
     if (sRes.error) throw sRes.error
     const settings = (sRes.data as SettingsRow | null)?.data ?? DEFAULT_SETTINGS

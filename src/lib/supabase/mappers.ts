@@ -16,8 +16,11 @@ export interface PlayerRow {
   birth_year: number | null
   gender: 'male' | 'female' | null
   dominant_hand: 'right' | 'left' | 'ambi' | null
-  current_level: number | null
-  matches_played: number | null
+  // Server-managed by the matches AFTER trigger / Rebuild Levels — never set
+  // these from a client write. Optional on the row so toPlayerRow can omit
+  // them and Supabase's upsert leaves the existing column values intact.
+  current_level?: number | null
+  matches_played?: number | null
 }
 
 export interface ProfileRow {
