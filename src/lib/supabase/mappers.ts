@@ -242,7 +242,7 @@ export const toMatchRow = (m: Match): MatchRow => ({
   confirmed_at: m.confirmedAt ?? null,
   disputed_at: m.disputedAt ?? null,
   auto_confirmed: m.autoConfirmed ?? null,
-  unranked: m.unranked ?? null,
+  unranked: m.unranked ?? false,
   created_by: m.createdBy ?? null,
   created_at: m.createdAt ?? new Date().toISOString(),
 })
