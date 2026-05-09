@@ -49,6 +49,7 @@ export interface MatchRow {
   confirmed_at: string | null
   disputed_at: string | null
   auto_confirmed: boolean | null
+  unranked: boolean | null
   created_by: string | null
   created_at: string
 }
@@ -125,6 +126,7 @@ export const fromMatchRow = (r: MatchRow): Match => ({
   confirmedAt: r.confirmed_at ?? undefined,
   disputedAt: r.disputed_at ?? undefined,
   autoConfirmed: r.auto_confirmed ?? undefined,
+  unranked: r.unranked ?? undefined,
   createdBy: r.created_by ?? undefined,
   createdAt: r.created_at,
 })
@@ -240,6 +242,7 @@ export const toMatchRow = (m: Match): MatchRow => ({
   confirmed_at: m.confirmedAt ?? null,
   disputed_at: m.disputedAt ?? null,
   auto_confirmed: m.autoConfirmed ?? null,
+  unranked: m.unranked ?? null,
   created_by: m.createdBy ?? null,
   created_at: m.createdAt ?? new Date().toISOString(),
 })

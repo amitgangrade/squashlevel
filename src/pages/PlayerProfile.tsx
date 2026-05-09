@@ -20,6 +20,7 @@ import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ChallengeButton } from '../components/ChallengeButton'
 import { ShareButton } from '../components/ShareButton'
+import { UnrankedTag } from '../components/UnrankedTag'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL } from '../types'
 
 export function PlayerProfilePage() {
@@ -203,11 +204,13 @@ export function PlayerProfilePage() {
                       name={s.bName}
                       className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
                     />
-                    {myDelta != null && (
+                    {m.unranked ? (
+                      <span className="ml-auto"><UnrankedTag /></span>
+                    ) : myDelta != null ? (
                       <span className={clsx('ml-auto text-xs font-semibold', myDelta >= 0 ? 'text-green-600' : 'text-red-600')}>
                         {fmtDelta(myDelta)}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                   <div className="text-xs text-slate-500">
                     {fmtDate(m.date)} · {m.type}

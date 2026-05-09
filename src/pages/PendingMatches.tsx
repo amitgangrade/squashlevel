@@ -5,6 +5,7 @@ import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
 import { MATCH_TYPE_LABEL, MATCH_STATUS_LABEL } from '../types'
 import { GameScores } from '../components/MatchScores'
 import { summarizeMatch } from '../lib/match-summary'
+import { UnrankedTag } from '../components/UnrankedTag'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const TIMEOUT_DAYS = 3
@@ -192,6 +193,7 @@ function MatchHeader({
         <span className={clsx('font-semibold', !s.isDraw && s.winnerId === m.playerBId ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}>
           {s.bName}
         </span>
+        {m.unranked && <UnrankedTag />}
         <span className={clsx(
           'ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
           statusBadge === 'pending' && 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
@@ -202,7 +204,7 @@ function MatchHeader({
       </div>
       <div className="text-xs text-slate-500">
         {fmtDate(m.date)} · {MATCH_TYPE_LABEL[m.type]}
-        {m.deltaA != null && m.deltaB != null && (
+        {!m.unranked && m.deltaA != null && m.deltaB != null && (
           <>
             {' · '}
             <span className={(m.deltaA ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaA)}</span>{' / '}
@@ -210,7 +212,7 @@ function MatchHeader({
             {' (preview)'}
           </>
         )}
-        {m.levelABefore != null && (
+        {!m.unranked && m.levelABefore != null && (
           <>
             {' · '}{fmtLevel(m.levelABefore)} / {fmtLevel(m.levelBBefore)}
           </>

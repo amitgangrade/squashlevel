@@ -92,6 +92,9 @@ alter table public.matches add column if not exists confirmed_at timestamptz;
 alter table public.matches add column if not exists disputed_at timestamptz;
 alter table public.matches add column if not exists auto_confirmed boolean not null default false;
 alter table public.matches add column if not exists venue text;
+-- When true, the match is recorded for posterity but excluded from rating
+-- calculations (e.g. friendly knockabouts both players agreed not to count).
+alter table public.matches add column if not exists unranked boolean not null default false;
 
 -- Backfill existing matches as already confirmed (preserves leaderboard).
 update public.matches set status = 'confirmed', confirmed_at = coalesce(confirmed_at, created_at)

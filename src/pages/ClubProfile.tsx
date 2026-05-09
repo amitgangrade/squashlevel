@@ -8,6 +8,7 @@ import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
+import { UnrankedTag } from '../components/UnrankedTag'
 import { clubSlug } from '../lib/supabase/clubs'
 
 export function ClubProfilePage() {
@@ -191,6 +192,7 @@ export function ClubProfilePage() {
                       name={s.bName}
                       className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
                     />
+                    {m.unranked && <UnrankedTag />}
                   </div>
                   {(a || b) && (
                     <div className="grid sm:grid-cols-2 gap-x-4 gap-y-0.5 text-xs">

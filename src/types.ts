@@ -100,6 +100,7 @@ export const MatchSchema = z.object({
   confirmedAt: z.string().optional(),
   disputedAt: z.string().optional(),
   autoConfirmed: z.boolean().optional(),
+  unranked: z.boolean().optional(),
   createdBy: z.string().optional(),
   createdAt: z.string().optional(),
   levelABefore: z.number().optional(),

@@ -8,6 +8,7 @@ import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
 import { PlayerSearch } from '../components/PlayerSearch'
 import { PlayerLink } from '../components/PlayerLinks'
+import { UnrankedTag } from '../components/UnrankedTag'
 
 export function HistoryPage() {
   const { players, matches, recomputed, isAdmin, removeMatch, confirmMatch, session, myPlayer } = useStore()
@@ -103,6 +104,7 @@ export function HistoryPage() {
                           {s.winnerName} won
                         </span>
                       )}
+                      {m.unranked && <UnrankedTag />}
                       <StatusBadge status={status} autoConfirmed={!!m.autoConfirmed} />
                     </div>
                     <div className="text-xs text-slate-500 mt-1">
@@ -114,7 +116,7 @@ export function HistoryPage() {
                     </div>
                     {m.notes && <div className="text-xs text-slate-500 mt-1 italic">{m.notes}</div>}
                   </div>
-                  {status === 'confirmed' && m.levelABefore != null && (
+                  {status === 'confirmed' && !m.unranked && m.levelABefore != null && (
                     <div className="grid grid-cols-2 gap-4 text-sm shrink-0">
                       <div className="text-right">
                         <PlayerLink

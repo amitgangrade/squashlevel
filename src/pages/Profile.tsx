@@ -5,6 +5,7 @@ import { supabaseEnabled } from '../lib/supabase/client'
 import { uploadAvatar } from '../lib/supabase/profile'
 import { COUNTRIES, distinctValues, isValidCityName, normalizeCountry } from '../lib/places'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL, type DominantHand, type Gender } from '../types'
+import { AvatarCropper } from '../components/AvatarCropper'
 
 export function ProfilePage() {
   const { profile, myPlayer, recomputed, settings, saveProfile, isAdmin, players } = useStore()
@@ -22,6 +23,7 @@ export function ProfilePage() {
   const [draftLevel, setDraftLevel] = useState(String(profile?.startingLevel ?? 1000))
   const [draftAvatarFile, setDraftAvatarFile] = useState<File | null>(null)
   const [draftAvatarPreview, setDraftAvatarPreview] = useState<string | null>(profile?.avatarUrl ?? null)
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState<string | null>(null)
@@ -72,10 +74,26 @@ export function ProfilePage() {
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     setErr(null)
     const f = e.target.files?.[0]
+    // Reset the input so re-picking the same file still triggers onChange.
+    e.target.value = ''
     if (!f) return
     if (!f.type.startsWith('image/')) return setErr('Photo must be an image file')
-    if (f.size > 5 * 1024 * 1024) return setErr('Photo must be 5 MB or smaller')
-    setDraftAvatarFile(f)
+    if (f.size > 10 * 1024 * 1024) return setErr('Photo must be 10 MB or smaller')
+    // Open the cropper instead of using the raw file. The user will scale and
+    // position the crop window; we receive a 512×512 JPEG blob on confirm.
+    setCropSrc(URL.createObjectURL(f))
+  }
+
+  const onCropConfirm = (blob: Blob) => {
+    if (cropSrc) URL.revokeObjectURL(cropSrc)
+    setCropSrc(null)
+    const cropped = new File([blob], 'avatar.jpg', { type: 'image/jpeg' })
+    setDraftAvatarFile(cropped)
+  }
+
+  const onCropCancel = () => {
+    if (cropSrc) URL.revokeObjectURL(cropSrc)
+    setCropSrc(null)
   }
 
   const onSave = async () => {
@@ -300,6 +318,10 @@ export function ProfilePage() {
       )}
 
       {msg && <div className="text-sm text-green-600">{msg}</div>}
+
+      {cropSrc && (
+        <AvatarCropper src={cropSrc} onConfirm={onCropConfirm} onCancel={onCropCancel} />
+      )}
     </div>
   )
 }

@@ -43,6 +43,25 @@ export function recomputeAll(
       continue
     }
 
+    // Unranked matches are recorded for history but explicitly excluded from
+    // the rating model. We pass them through with zero deltas and no level
+    // change so the UI can render them in match feeds without affecting any
+    // player's level trajectory.
+    if (m.unranked) {
+      enriched.push({
+        ...m,
+        levelABefore: a.currentLevel,
+        levelBBefore: b.currentLevel,
+        levelAAfter: a.currentLevel,
+        levelBAfter: b.currentLevel,
+        deltaA: 0,
+        deltaB: 0,
+        provisionalA: a.matchesPlayed < settings.provisionalThreshold,
+        provisionalB: b.matchesPlayed < settings.provisionalThreshold,
+      })
+      continue
+    }
+
     const provisionalA = a.matchesPlayed < settings.provisionalThreshold
     const provisionalB = b.matchesPlayed < settings.provisionalThreshold
 

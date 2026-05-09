@@ -31,6 +31,7 @@ export function LogMatchPage() {
   const [type, setType] = useState<MatchType>('friendly')
   const [venue, setVenue] = useState(searchParams.get('venue') || '')
   const [notes, setNotes] = useState('')
+  const [unranked, setUnranked] = useState(false)
 
   // Pre-fill opponent from ?opponent=<id> (e.g. coming from an accepted challenge).
   useEffect(() => {
@@ -87,6 +88,7 @@ export function LogMatchPage() {
     : false
 
   const preview = useMemo(() => {
+    if (unranked) return null
     if (!levelA || !levelB) return null
     const clean = scores.filter((g) => g.a > 0 || g.b > 0)
     if (clean.length === 0) return null
@@ -103,7 +105,7 @@ export function LogMatchPage() {
     } catch {
       return null
     }
-  }, [levelA, levelB, scores, type, provisionalA, provisionalB, settings])
+  }, [levelA, levelB, scores, type, provisionalA, provisionalB, settings, unranked])
 
   const setGame = (i: number, side: 'a' | 'b', val: string) => {
     const n = Math.max(0, Math.floor(Number(val) || 0))
@@ -128,6 +130,7 @@ export function LogMatchPage() {
         type,
         venue: venue.trim() || undefined,
         notes: notes || undefined,
+        unranked: unranked || undefined,
       })
       // Haptic feedback (Chrome Android etc; iOS Safari ignores it gracefully).
       if ('vibrate' in navigator) navigator.vibrate(40)
@@ -317,6 +320,31 @@ export function LogMatchPage() {
           <label className="label">Notes (optional)</label>
           <input className="input w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
+
+        <label className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50/60 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={unranked}
+            onChange={(e) => setUnranked(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium">Don't count toward Level</span>
+            <span className="block text-xs text-slate-500 mt-0.5">
+              Both players agreed this match is just for fun. The score is recorded and visible
+              everywhere, but levels won't change.
+            </span>
+          </span>
+        </label>
+
+        {unranked && playerA && playerB && (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40">
+            <div className="font-medium">Won't change levels</div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              {playerA.name} stays at {fmtLevel(levelA)} · {playerB.name} stays at {fmtLevel(levelB)}.
+            </div>
+          </div>
+        )}
 
         {preview && playerA && playerB && (
           <div className="rounded-md border border-brand-200 bg-brand-50 p-3 text-sm dark:border-brand-900/60 dark:bg-brand-900/20">

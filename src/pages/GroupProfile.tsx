@@ -9,6 +9,7 @@ import { GameScores } from '../components/MatchScores'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { PlayerSearch } from '../components/PlayerSearch'
+import { UnrankedTag } from '../components/UnrankedTag'
 import {
   addGroupMember,
   buildGroupShareUrl,
@@ -338,6 +339,7 @@ export function GroupProfilePage() {
                       name={s.bName}
                       className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
                     />
+                    {m.unranked && <UnrankedTag />}
                   </div>
                   {(a || b) && (
                     <div className="grid sm:grid-cols-2 gap-x-4 gap-y-0.5 text-xs">

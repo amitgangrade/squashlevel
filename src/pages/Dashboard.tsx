@@ -10,6 +10,7 @@ import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonRow } from '../components/Skeleton'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
+import { UnrankedTag } from '../components/UnrankedTag'
 
 const AUTO_CONFIRM_KICK_KEY = 'sl_auto_confirm_kicked_at'
 const AUTO_CONFIRM_KICK_INTERVAL_MS = 60 * 60 * 1000 // 1h
@@ -318,6 +319,7 @@ export function DashboardPage() {
                         name={s.bName}
                         className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
                       />
+                      {m.unranked && <UnrankedTag />}
                     </div>
                     {(a || b) && (
                       <div className="grid sm:grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
@@ -332,16 +334,18 @@ export function DashboardPage() {
                     <div className="text-xs">
                       <GameScores games={m.games} />
                     </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
-                      <span>
-                        <PlayerLink id={m.playerAId} name={s.aName} className="text-slate-500" />{' '}
-                        <span className={(m.deltaA ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaA)}</span>
-                      </span>
-                      <span>
-                        <PlayerLink id={m.playerBId} name={s.bName} className="text-slate-500" />{' '}
-                        <span className={(m.deltaB ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaB)}</span>
-                      </span>
-                    </div>
+                    {!m.unranked && (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
+                        <span>
+                          <PlayerLink id={m.playerAId} name={s.aName} className="text-slate-500" />{' '}
+                          <span className={(m.deltaA ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaA)}</span>
+                        </span>
+                        <span>
+                          <PlayerLink id={m.playerBId} name={s.bName} className="text-slate-500" />{' '}
+                          <span className={(m.deltaB ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaB)}</span>
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )
               })}
