@@ -289,6 +289,7 @@ export function RosterPage() {
         ) : filteredPlayers.length === 0 ? (
           <div className="card text-slate-500 text-center">No players match "{search}".</div>
         ) : (
+          <>
           <div className="card p-0 overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500">
@@ -378,6 +379,7 @@ export function RosterPage() {
             onPage={setPage}
             noun="players"
           />
+          </>
         )}
       </section>
     </div>
