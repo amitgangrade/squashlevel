@@ -47,6 +47,27 @@ export async function listGroupsForPlayer(playerId: string): Promise<Group[]> {
   return (data as unknown as Row[]).map((r) => fromGroupRow(r.groups))
 }
 
+/**
+ * Map of group_id → is_admin for the given player, fetched in one round-trip.
+ * Used by the Groups index to tag each card with the viewer's relationship
+ * (admin / member / public / private-admin-view).
+ */
+export async function fetchMyGroupRoles(
+  playerId: string,
+): Promise<Map<string, { isAdmin: boolean }>> {
+  const sb = supabase!
+  const { data, error } = await sb
+    .from('group_members')
+    .select('group_id, is_admin')
+    .eq('player_id', playerId)
+  if (error) throw error
+  const out = new Map<string, { isAdmin: boolean }>()
+  for (const r of (data as Array<{ group_id: string; is_admin: boolean }>) ?? []) {
+    out.set(r.group_id, { isAdmin: r.is_admin })
+  }
+  return out
+}
+
 export async function createGroup(input: {
   name: string
   description?: string

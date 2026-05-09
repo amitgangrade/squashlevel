@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
-import { createGroup, listGroups } from '../lib/supabase/groups'
+import { createGroup, fetchMyGroupRoles, listGroups } from '../lib/supabase/groups'
 import { supabaseEnabled } from '../lib/supabase/client'
 import type { Group } from '../types'
 
+type Role = 'admin' | 'member' | 'public' | 'private-admin-view'
+
 export function GroupsPage() {
-  const { session, myPlayer } = useStore()
+  const { session, myPlayer, isAdmin } = useStore()
   const [groups, setGroups] = useState<Group[]>([])
+  const [roles, setRoles] = useState<Map<string, { isAdmin: boolean }>>(new Map())
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [err, setErr] = useState<string | null>(null)
@@ -18,23 +21,57 @@ export function GroupsPage() {
       return
     }
     setLoading(true)
-    listGroups()
-      .then(setGroups)
+    Promise.all([
+      listGroups(),
+      myPlayer ? fetchMyGroupRoles(myPlayer.id).catch(() => new Map()) : Promise.resolve(new Map()),
+    ])
+      .then(([gs, rs]) => {
+        setGroups(gs)
+        setRoles(rs)
+      })
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoading(false))
   }
 
   useEffect(() => {
     refresh()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myPlayer?.id])
+
+  const roleFor = (g: Group): Role => {
+    const r = roles.get(g.id)
+    if (r?.isAdmin) return 'admin'
+    if (r) return 'member'
+    if (!g.isPrivate) return 'public'
+    return 'private-admin-view' // visible only because viewer is global admin
+  }
+
+  // Sort: admined groups first, then memberships, then public, then private-admin-view.
+  // Within each tier, alphabetical by name.
+  const ROLE_ORDER: Record<Role, number> = {
+    admin: 0,
+    member: 1,
+    public: 2,
+    'private-admin-view': 3,
+  }
+
+  const sortedGroups = useMemo(() => {
+    const withRole = groups.map((g) => ({ g, role: roleFor(g) }))
+    withRole.sort((a, b) => {
+      const d = ROLE_ORDER[a.role] - ROLE_ORDER[b.role]
+      return d !== 0 ? d : a.g.name.localeCompare(b.g.name)
+    })
+    return withRole
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, roles])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return groups
-    return groups.filter((g) =>
+    if (!q) return sortedGroups
+    return sortedGroups.filter(({ g }) =>
       [g.name, g.description].filter(Boolean).join(' ').toLowerCase().includes(q),
     )
-  }, [groups, search])
+  }, [sortedGroups, search])
 
   return (
     <div className="space-y-4">
@@ -46,6 +83,13 @@ export function GroupsPage() {
         Groups are casual circles of players who play often — your WhatsApp/Telegram squash crew.
         Anyone can start a group; members are added by an admin.
       </p>
+
+      {isAdmin && groups.some((g) => g.isPrivate && !roles.has(g.id)) && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+          As global admin, you can see every group, including private ones you're not a member of.
+          You can edit settings and add members in any group.
+        </div>
+      )}
 
       {session && myPlayer && supabaseEnabled && (
         <CreateGroupForm onCreated={refresh} />
@@ -78,7 +122,7 @@ export function GroupsPage() {
         <div className="card text-center text-slate-500">No groups match "{search}".</div>
       ) : (
         <ul className="grid sm:grid-cols-2 gap-3">
-          {filtered.map((g) => (
+          {filtered.map(({ g, role }) => (
             <li key={g.id}>
               <Link
                 to={`/groups/${encodeURIComponent(g.slug)}`}
@@ -89,9 +133,10 @@ export function GroupsPage() {
                     {g.name.slice(0, 2).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold truncate">{g.name}</span>
-                      {g.isPrivate && (
+                      <RoleTag role={role} />
+                      {g.isPrivate && role !== 'private-admin-view' && (
                         <span className="tag bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">private</span>
                       )}
                     </div>
@@ -107,6 +152,31 @@ export function GroupsPage() {
       )}
     </div>
   )
+}
+
+function RoleTag({ role }: { role: Role }) {
+  switch (role) {
+    case 'admin':
+      return (
+        <span className="tag bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+          you admin
+        </span>
+      )
+    case 'member':
+      return (
+        <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">
+          member
+        </span>
+      )
+    case 'private-admin-view':
+      return (
+        <span className="tag bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+          private · admin view
+        </span>
+      )
+    case 'public':
+      return null
+  }
 }
 
 function CreateGroupForm({ onCreated }: { onCreated: () => void }) {

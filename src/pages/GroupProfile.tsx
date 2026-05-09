@@ -155,7 +155,11 @@ export function GroupProfilePage() {
       <div className="space-y-4">
         <div className="card text-center text-slate-500 space-y-2">
           <p>No group found at <span className="font-mono">/{slug}</span>.</p>
-          <p className="text-xs">Private groups are only visible to their members.</p>
+          <p className="text-xs">
+            {isAdmin
+              ? 'It may have been deleted, or the slug is wrong.'
+              : 'Private groups are only visible to their members and the global admin.'}
+          </p>
           <Link className="btn-secondary" to="/groups">Browse groups</Link>
         </div>
       </div>
