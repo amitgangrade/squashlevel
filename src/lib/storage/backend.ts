@@ -60,22 +60,44 @@ const SUPABASE_BATCH = 500   // rows per insert; stays well under the 6 MB REST 
 // Without this, every 500-row insert fires onChange → getAll() → 600 parallel fetches.
 let _importing = false
 
+/** Supabase caps each query at 1 000 rows. This helper paginates to fetch all. */
+async function fetchAll<T>(
+  table: string,
+  order?: { column: string; ascending: boolean },
+): Promise<T[]> {
+  const PAGE = 1000
+  const all: T[] = []
+  let from = 0
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    let q = supabase!.from(table).select('*').range(from, from + PAGE - 1)
+    if (order) q = q.order(order.column, { ascending: order.ascending })
+    const { data, error } = await q
+    if (error) throw error
+    const rows = (data ?? []) as T[]
+    all.push(...rows)
+    if (rows.length < PAGE) break   // last page
+    from += PAGE
+  }
+  return all
+}
+
 const cloudBackend: Backend = {
   mode: 'cloud',
   async getAll() {
     const sb = supabase!
-    const [pRes, mRes, sRes] = await Promise.all([
-      sb.from('players').select('*'),
-      sb.from('matches').select('*').order('date', { ascending: true }),
+    const [players, matches, sRes] = await Promise.all([
+      fetchAll<PlayerRow>('players'),
+      fetchAll<MatchRow>('matches', { column: 'date', ascending: true }),
       sb.from('settings').select('*').eq('id', 'app').maybeSingle(),
     ])
-    if (pRes.error) throw pRes.error
-    if (mRes.error) throw mRes.error
     if (sRes.error) throw sRes.error
-    const players = (pRes.data as PlayerRow[] | null ?? []).map(fromPlayerRow)
-    const matches = (mRes.data as MatchRow[] | null ?? []).map(fromMatchRow)
     const settings = (sRes.data as SettingsRow | null)?.data ?? DEFAULT_SETTINGS
-    return { players, matches, settings }
+    return {
+      players: players.map(fromPlayerRow),
+      matches: matches.map(fromMatchRow),
+      settings,
+    }
   },
   async putPlayer(p) {
     const { error } = await supabase!.from('players').upsert(toPlayerRow(p))
