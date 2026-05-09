@@ -171,6 +171,8 @@ export function ClubProfilePage() {
               const s = summarizeMatch(m, players)
               const aIsWinner = !s.isDraw && s.winnerId === m.playerAId
               const bIsWinner = !s.isDraw && s.winnerId === m.playerBId
+              const a = players.find((p) => p.id === m.playerAId)
+              const b = players.find((p) => p.id === m.playerBId)
               return (
                 <div key={m.id} className="card space-y-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -190,6 +192,12 @@ export function ClubProfilePage() {
                       className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
                     />
                   </div>
+                  {(a || b) && (
+                    <div className="grid sm:grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
+                      {a && <div className="truncate"><span className="text-slate-400">{s.aName}: </span><PlayerMetaLinks player={a} /></div>}
+                      {b && <div className="truncate"><span className="text-slate-400">{s.bName}: </span><PlayerMetaLinks player={b} /></div>}
+                    </div>
+                  )}
                   <div className="text-xs text-slate-500">
                     {fmtDate(m.date)} · {m.type}
                     {m.venue && <> · {m.venue}</>}

@@ -1,4 +1,4 @@
-import type { Challenge, ChallengeStatus, ClubAdmin, Match, Player, Settings } from '../../types'
+import type { Challenge, ChallengeStatus, Club, ClubAdmin, Group, GroupMember, Match, Player, Settings } from '../../types'
 
 export interface PlayerRow {
   id: string
@@ -169,6 +169,62 @@ export const fromClubAdminRow = (r: ClubAdminRow): ClubAdmin => ({
   fullName: r.full_name,
   email: r.email,
   grantedAt: r.granted_at,
+})
+
+export interface ClubRow {
+  slug: string
+  name: string
+  city: string | null
+  country: string | null
+  description: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export const fromClubRow = (r: ClubRow): Club => ({
+  slug: r.slug,
+  name: r.name,
+  city: r.city ?? undefined,
+  country: r.country ?? undefined,
+  description: r.description ?? undefined,
+  createdBy: r.created_by ?? undefined,
+  createdAt: r.created_at,
+})
+
+export interface GroupRow {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  is_private: boolean
+  created_by: string | null
+  created_at: string
+}
+
+export const fromGroupRow = (r: GroupRow): Group => ({
+  id: r.id,
+  name: r.name,
+  slug: r.slug,
+  description: r.description ?? undefined,
+  isPrivate: r.is_private,
+  createdBy: r.created_by ?? undefined,
+  createdAt: r.created_at,
+})
+
+export interface GroupMemberRow {
+  group_id: string
+  player_id: string
+  is_admin: boolean
+  added_by: string | null
+  added_at: string
+}
+
+export const fromGroupMemberRow = (r: GroupMemberRow): GroupMember => ({
+  groupId: r.group_id,
+  playerId: r.player_id,
+  isAdmin: r.is_admin,
+  addedBy: r.added_by ?? undefined,
+  addedAt: r.added_at,
 })
 
 export const toMatchRow = (m: Match): MatchRow => ({

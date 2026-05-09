@@ -1324,3 +1324,360 @@ begin
   begin alter publication supabase_realtime add table public.challenges; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.club_admins; exception when duplicate_object then null; end;
 end $$;
+
+-- ===========================================================================
+-- Clubs registry: a curated table of clubs that exists independently of
+-- players. Lets the global admin add a club page (with city/country) before
+-- any members join, and remove stale entries from the index. The actual
+-- club membership for a player still lives on `players.club` as a string —
+-- removing a row here does NOT touch player records.
+-- ===========================================================================
+create table if not exists public.clubs (
+  slug text primary key,
+  name text not null,
+  city text,
+  country text,
+  description text,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.clubs enable row level security;
+
+drop policy if exists "public read clubs" on public.clubs;
+create policy "public read clubs" on public.clubs for select using (true);
+
+drop policy if exists "global admin write clubs" on public.clubs;
+create policy "global admin write clubs" on public.clubs
+  for all to authenticated
+  using (public.is_admin(auth.uid()))
+  with check (public.is_admin(auth.uid()));
+
+-- create_club: admin-only. Slug derived from name; idempotent on conflict.
+create or replace function public.create_club(
+  p_name text,
+  p_city text default null,
+  p_country text default null,
+  p_description text default null
+) returns public.clubs
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  s text := public.club_slug(p_name);
+  c public.clubs;
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  if s is null or s = '' then
+    raise exception 'club name required';
+  end if;
+  insert into public.clubs (slug, name, city, country, description, created_by)
+  values (s, trim(p_name),
+          nullif(trim(coalesce(p_city, '')), ''),
+          nullif(trim(coalesce(p_country, '')), ''),
+          nullif(trim(coalesce(p_description, '')), ''),
+          auth.uid())
+  on conflict (slug) do update
+    set name = excluded.name,
+        city = coalesce(excluded.city, public.clubs.city),
+        country = coalesce(excluded.country, public.clubs.country),
+        description = coalesce(excluded.description, public.clubs.description)
+  returning * into c;
+  return c;
+end;
+$$;
+grant execute on function public.create_club(text, text, text, text) to authenticated;
+
+-- delete_club: admin-only. Removes the registry row only — does not touch
+-- player records. The club page will still load if any players still claim
+-- the same name (slug match), it just disappears from the directory.
+create or replace function public.delete_club(p_slug text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  delete from public.clubs where slug = p_slug;
+  return true;
+end;
+$$;
+grant execute on function public.delete_club(text) to authenticated;
+
+do $$
+begin
+  begin alter publication supabase_realtime add table public.clubs; exception when duplicate_object then null; end;
+end $$;
+
+-- ===========================================================================
+-- Groups: ad-hoc rosters of players (think WhatsApp/Telegram playing groups).
+-- A player can be in many groups but only one club. Anyone signed in can
+-- create a group (becomes its admin); admins add members and other admins.
+-- Public groups are visible to anyone; private groups only to members.
+-- ===========================================================================
+create table if not exists public.groups (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  slug text generated always as (public.club_slug(name)) stored,
+  description text,
+  is_private boolean not null default false,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists groups_slug_unique on public.groups (slug);
+create index if not exists groups_created_by_idx on public.groups (created_by);
+
+create table if not exists public.group_members (
+  group_id uuid not null references public.groups(id) on delete cascade,
+  player_id uuid not null references public.players(id) on delete cascade,
+  is_admin boolean not null default false,
+  added_by uuid references auth.users(id) on delete set null,
+  added_at timestamptz not null default now(),
+  primary key (group_id, player_id)
+);
+
+create index if not exists group_members_player_idx on public.group_members (player_id);
+create index if not exists group_members_group_idx on public.group_members (group_id);
+
+alter table public.groups enable row level security;
+alter table public.group_members enable row level security;
+
+-- is_group_admin(uid, group_id): true when the user owns a player who is an
+-- admin of the group, OR is the global admin.
+create or replace function public.is_group_admin(uid uuid, gid uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    public.is_admin(uid)
+    or exists (
+      select 1
+      from public.group_members gm
+      join public.players p on p.id = gm.player_id
+      where gm.group_id = gid and gm.is_admin and p.user_id = uid
+    );
+$$;
+
+-- is_group_member(uid, group_id): true when the user owns a player in the group.
+create or replace function public.is_group_member(uid uuid, gid uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.group_members gm
+    join public.players p on p.id = gm.player_id
+    where gm.group_id = gid and p.user_id = uid
+  );
+$$;
+
+-- groups RLS: public groups visible to anyone; private groups only to members
+-- and admins. Inserts go via RPC (create_group) so we can validate auth.
+drop policy if exists "read groups" on public.groups;
+create policy "read groups" on public.groups
+  for select using (
+    not is_private
+    or public.is_admin(auth.uid())
+    or public.is_group_member(auth.uid(), id)
+  );
+
+drop policy if exists "group admin write groups" on public.groups;
+create policy "group admin write groups" on public.groups
+  for update to authenticated
+  using (public.is_group_admin(auth.uid(), id))
+  with check (public.is_group_admin(auth.uid(), id));
+
+drop policy if exists "group admin delete groups" on public.groups;
+create policy "group admin delete groups" on public.groups
+  for delete to authenticated
+  using (public.is_group_admin(auth.uid(), id));
+
+-- group_members RLS: same visibility as parent group; only group admins
+-- can add/remove. Inserts also go via RPC so we can guarantee invariants.
+drop policy if exists "read group_members" on public.group_members;
+create policy "read group_members" on public.group_members
+  for select using (
+    exists (
+      select 1 from public.groups g
+      where g.id = group_members.group_id
+        and (
+          not g.is_private
+          or public.is_admin(auth.uid())
+          or public.is_group_member(auth.uid(), g.id)
+        )
+    )
+  );
+
+drop policy if exists "group admin write members" on public.group_members;
+create policy "group admin write members" on public.group_members
+  for all to authenticated
+  using (public.is_group_admin(auth.uid(), group_id))
+  with check (public.is_group_admin(auth.uid(), group_id));
+
+-- create_group: any signed-in user with a linked player can start one. They
+-- become its admin automatically. Slug uniqueness enforced by index.
+create or replace function public.create_group(
+  p_name text,
+  p_description text default null,
+  p_is_private boolean default false
+) returns public.groups
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  pl_id uuid;
+  g public.groups;
+begin
+  if uid is null then
+    raise exception 'not authenticated';
+  end if;
+  if coalesce(trim(p_name), '') = '' then
+    raise exception 'group name required';
+  end if;
+  select id into pl_id from public.players where user_id = uid limit 1;
+  if pl_id is null then
+    raise exception 'no player linked to your account';
+  end if;
+
+  insert into public.groups (name, description, is_private, created_by)
+  values (trim(p_name),
+          nullif(trim(coalesce(p_description, '')), ''),
+          coalesce(p_is_private, false),
+          uid)
+  returning * into g;
+
+  insert into public.group_members (group_id, player_id, is_admin, added_by)
+  values (g.id, pl_id, true, uid);
+
+  return g;
+end;
+$$;
+grant execute on function public.create_group(text, text, boolean) to authenticated;
+
+-- update_group: admins edit name/description/visibility.
+create or replace function public.update_group(
+  p_id uuid,
+  p_name text,
+  p_description text,
+  p_is_private boolean
+) returns public.groups
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  g public.groups;
+begin
+  if not public.is_group_admin(auth.uid(), p_id) then
+    raise exception 'group admin only';
+  end if;
+  update public.groups
+     set name = coalesce(nullif(trim(coalesce(p_name, '')), ''), name),
+         description = nullif(trim(coalesce(p_description, '')), ''),
+         is_private = coalesce(p_is_private, is_private)
+   where id = p_id
+   returning * into g;
+  return g;
+end;
+$$;
+grant execute on function public.update_group(uuid, text, text, boolean) to authenticated;
+
+-- delete_group: admins can dissolve. Cascade removes members.
+create or replace function public.delete_group(p_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_group_admin(auth.uid(), p_id) then
+    raise exception 'group admin only';
+  end if;
+  delete from public.groups where id = p_id;
+  return true;
+end;
+$$;
+grant execute on function public.delete_group(uuid) to authenticated;
+
+-- add_group_member: admins add a player. Idempotent — re-adding a member
+-- promotes/demotes their is_admin flag.
+create or replace function public.add_group_member(
+  p_group uuid,
+  p_player uuid,
+  p_is_admin boolean default false
+) returns public.group_members
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  gm public.group_members;
+begin
+  if not public.is_group_admin(auth.uid(), p_group) then
+    raise exception 'group admin only';
+  end if;
+  if not exists (select 1 from public.players where id = p_player) then
+    raise exception 'player not found';
+  end if;
+  insert into public.group_members (group_id, player_id, is_admin, added_by)
+  values (p_group, p_player, coalesce(p_is_admin, false), auth.uid())
+  on conflict (group_id, player_id) do update
+    set is_admin = excluded.is_admin
+  returning * into gm;
+  return gm;
+end;
+$$;
+grant execute on function public.add_group_member(uuid, uuid, boolean) to authenticated;
+
+-- remove_group_member: admins remove a player. Refuses to remove the last
+-- admin so a group always has at least one steward.
+create or replace function public.remove_group_member(p_group uuid, p_player uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  remaining_admins int;
+  was_admin boolean;
+begin
+  if not public.is_group_admin(auth.uid(), p_group) then
+    raise exception 'group admin only';
+  end if;
+  select is_admin into was_admin from public.group_members
+   where group_id = p_group and player_id = p_player;
+  if was_admin then
+    select count(*) into remaining_admins
+      from public.group_members
+     where group_id = p_group and is_admin and player_id <> p_player;
+    if remaining_admins = 0 then
+      raise exception 'cannot remove the last admin';
+    end if;
+  end if;
+  delete from public.group_members
+   where group_id = p_group and player_id = p_player;
+  return true;
+end;
+$$;
+grant execute on function public.remove_group_member(uuid, uuid) to authenticated;
+
+do $$
+begin
+  begin alter publication supabase_realtime add table public.groups; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.group_members; exception when duplicate_object then null; end;
+end $$;

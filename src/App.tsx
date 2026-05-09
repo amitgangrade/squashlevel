@@ -12,6 +12,8 @@ import { PlayerProfilePage } from './pages/PlayerProfile'
 import { PendingMatchesPage } from './pages/PendingMatches'
 import { ClubsPage } from './pages/Clubs'
 import { ClubProfilePage } from './pages/ClubProfile'
+import { GroupsPage } from './pages/Groups'
+import { GroupProfilePage } from './pages/GroupProfile'
 import { ChallengesPage } from './pages/Challenges'
 
 export default function App() {
@@ -29,6 +31,8 @@ export default function App() {
             <Route path="/players/:id" element={<PlayerProfilePage />} />
             <Route path="/clubs" element={<ClubsPage />} />
             <Route path="/clubs/:slug" element={<ClubProfilePage />} />
+            <Route path="/groups" element={<GroupsPage />} />
+            <Route path="/groups/:slug" element={<GroupProfilePage />} />
             <Route path="/challenges" element={<ChallengesPage />} />
             <Route path="/matches/pending" element={<PendingMatchesPage />} />
             <Route path="/settings" element={<SettingsPage />} />

@@ -1,6 +1,11 @@
-import type { ClubAdmin } from '../../types'
+import type { Club, ClubAdmin } from '../../types'
 import { supabase } from './client'
-import { fromClubAdminRow, type ClubAdminRow } from './mappers'
+import {
+  fromClubAdminRow,
+  fromClubRow,
+  type ClubAdminRow,
+  type ClubRow,
+} from './mappers'
 
 /**
  * Slugify a club name into a URL-safe key. MUST match the SQL `club_slug()`
@@ -104,4 +109,64 @@ export async function fetchMyClubAdminSlugs(userId: string): Promise<string[]> {
     .eq('user_id', userId)
   if (error) throw error
   return (data as Array<{ club_slug: string }>).map((r) => r.club_slug)
+}
+
+// ---------------------------------------------------------------------------
+// Curated clubs registry: the global admin can add/remove club entries that
+// exist independently of player rows (e.g. before any members join).
+// ---------------------------------------------------------------------------
+export async function listClubs(): Promise<Club[]> {
+  const sb = supabase!
+  const { data, error } = await sb.from('clubs').select('*').order('name')
+  if (error) throw error
+  return (data as ClubRow[]).map(fromClubRow)
+}
+
+export async function createClub(input: {
+  name: string
+  city?: string
+  country?: string
+  description?: string
+}): Promise<Club> {
+  const sb = supabase!
+  const { data, error } = await sb.rpc('create_club', {
+    p_name: input.name,
+    p_city: input.city ?? null,
+    p_country: input.country ?? null,
+    p_description: input.description ?? null,
+  })
+  if (error) throw error
+  return fromClubRow(data as ClubRow)
+}
+
+export async function deleteClub(slug: string): Promise<void> {
+  const sb = supabase!
+  const { error } = await sb.rpc('delete_club', { p_slug: slug })
+  if (error) throw error
+}
+
+/**
+ * Merge a curated clubs list with clubs derived from player.club strings.
+ * The registry is the authoritative source for name/description/city/country
+ * but member counts always come from the player roster.
+ */
+export function mergeClubs(
+  registered: Club[],
+  derived: ClubSummary[],
+): ClubSummary[] {
+  const bySlug = new Map<string, ClubSummary>()
+  for (const d of derived) bySlug.set(d.slug, d)
+  for (const c of registered) {
+    const existing = bySlug.get(c.slug)
+    bySlug.set(c.slug, {
+      slug: c.slug,
+      name: c.name,
+      members: existing?.members ?? 0,
+      city: c.city ?? existing?.city,
+      country: c.country ?? existing?.country,
+    })
+  }
+  return [...bySlug.values()].sort(
+    (a, b) => b.members - a.members || a.name.localeCompare(b.name),
+  )
 }

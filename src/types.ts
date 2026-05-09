@@ -172,3 +172,31 @@ export interface ClubAdmin {
   email: string
   grantedAt: string
 }
+
+export interface Club {
+  slug: string
+  name: string
+  city?: string
+  country?: string
+  description?: string
+  createdBy?: string
+  createdAt: string
+}
+
+export interface Group {
+  id: string
+  name: string
+  slug: string
+  description?: string
+  isPrivate: boolean
+  createdBy?: string
+  createdAt: string
+}
+
+export interface GroupMember {
+  groupId: string
+  playerId: string
+  isAdmin: boolean
+  addedBy?: string
+  addedAt: string
+}
