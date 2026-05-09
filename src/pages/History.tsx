@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
-import { MATCH_STATUS_LABEL, MATCH_TYPE_LABEL, type Player } from '../types'
+import { MATCH_STATUS_LABEL, MATCH_TYPE_LABEL, type Player, type Match } from '../types'
 import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
 import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
@@ -68,7 +68,7 @@ export function HistoryPage() {
 
       {err && <div className="text-sm text-red-600">{err}</div>}
 
-      <Pagination current={page} pageSize={PAGE_SIZE} total={totalRows} onChange={setPage} />
+      <Pagination page={page} pageSize={PAGE_SIZE} total={totalRows} onPage={setPage} />
 
       {visibleRows.length === 0 ? (
         <div className="card text-center text-slate-500">No matches found.</div>
@@ -120,7 +120,7 @@ export function HistoryPage() {
                       <StatusBadge status={status} autoConfirmed={!!m.autoConfirmed} />
                     </div>
                     <div className="text-xs text-slate-500 mt-1">
-                      {fmtDate(m.date)} · {MATCH_TYPE_LABEL[m.type]}
+                      {fmtDate(m.date)} · {MATCH_TYPE_LABEL[m.type as keyof typeof MATCH_TYPE_LABEL]}
                       {m.venue && <> · <span>{m.venue}</span></>}
                     </div>
                     <div className="mt-1">
@@ -187,11 +187,11 @@ export function HistoryPage() {
           })}
         </div>
       )}
-      {rows.length > 0 && (
+      {totalRows > 0 && (
         <Pagination
           page={page}
           pageSize={PAGE_SIZE}
-          total={rows.length}
+          total={totalRows}
           onPage={setPage}
           noun="matches"
         />

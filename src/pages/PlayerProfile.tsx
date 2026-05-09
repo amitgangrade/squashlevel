@@ -21,7 +21,7 @@ import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ChallengeButton } from '../components/ChallengeButton'
 import { ShareButton } from '../components/ShareButton'
 import { UnrankedTag } from '../components/UnrankedTag'
-import { DOMINANT_HAND_LABEL, GENDER_LABEL } from '../types'
+import { DOMINANT_HAND_LABEL, GENDER_LABEL, type Match } from '../types'
 
 export function PlayerProfilePage() {
   const { id } = useParams<{ id: string }>()

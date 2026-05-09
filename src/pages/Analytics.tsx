@@ -13,13 +13,13 @@ import {
   YAxis,
 } from 'recharts'
 import { fmtDate, fmtLevel } from '../lib/format'
-import { gamesWonBy, pointsRatio, winnerSide } from '../lib/rating/levels'
+import { gamesWonBy, winnerSide } from '../lib/rating/levels'
 import { totalPoints } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
 import { PlayerSearch } from '../components/PlayerSearch'
 import { PlayerAvatar, playerSubtitle } from '../components/PlayerAvatar'
 import { PlayerLink } from '../components/PlayerLinks'
-import type { Player } from '../types'
+import type { Player, Match } from '../types'
 
 const PALETTE = ['#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#ec4899', '#6366f1', '#84cc16']
 
