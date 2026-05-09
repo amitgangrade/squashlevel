@@ -261,10 +261,15 @@ export const toMatchRow = (m: Match): MatchRow => ({
   type: m.type,
   venue: m.venue ?? null,
   notes: m.notes ?? null,
-  status: m.status ?? null,
+  // Mirror the DB defaults for NOT NULL columns. Sending null here would
+  // override the column default and trip the NOT NULL constraint — the
+  // matches_before_insert trigger only flips status for admins / self-loss
+  // recorders, so a non-admin logging a win would otherwise hit:
+  //   "null value in column 'status' of relation 'matches' violates not-null"
+  status: m.status ?? 'pending',
   confirmed_at: m.confirmedAt ?? null,
   disputed_at: m.disputedAt ?? null,
-  auto_confirmed: m.autoConfirmed ?? null,
+  auto_confirmed: m.autoConfirmed ?? false,
   unranked: m.unranked ?? false,
   created_by: m.createdBy ?? null,
   created_at: m.createdAt ?? new Date().toISOString(),

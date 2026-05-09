@@ -13,7 +13,7 @@ import {
 import { useStore } from '../state/store'
 import { fmtDate, fmtDelta, fmtLevel, playerAge } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
-import { gamesWonBy, winnerSide } from '../lib/rating/levels'
+import { actualPerformance, expectedPerformance, gamesWonBy, winnerSide } from '../lib/rating/levels'
 import { GameScores } from '../components/MatchScores'
 import { Pagination } from '../components/Pagination'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -21,7 +21,7 @@ import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ChallengeButton } from '../components/ChallengeButton'
 import { ShareButton } from '../components/ShareButton'
 import { UnrankedTag } from '../components/UnrankedTag'
-import { DOMINANT_HAND_LABEL, GENDER_LABEL, MATCH_TYPE_LABEL, type Match, type Player } from '../types'
+import { DOMINANT_HAND_LABEL, GENDER_LABEL, MATCH_TYPE_LABEL, type Match, type Player, type Settings } from '../types'
 
 export function PlayerProfilePage() {
   const { id } = useParams<{ id: string }>()
@@ -227,7 +227,7 @@ export function PlayerProfilePage() {
               {stats.matches
                 .slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE)
                 .map((m) => (
-                  <MatchHistoryCard key={m.id} match={m} player={player} players={players} />
+                  <MatchHistoryCard key={m.id} match={m} player={player} players={players} settings={settings} />
                 ))}
             </div>
             <Pagination
@@ -264,10 +264,12 @@ function MatchHistoryCard({
   match: m,
   player,
   players,
+  settings,
 }: {
   match: Match
   player: Player
   players: Player[]
+  settings: Settings
 }) {
   const isA = m.playerAId === player.id
   const me = player
@@ -285,6 +287,21 @@ function MatchHistoryCard({
   const oppBefore = isA ? m.levelBBefore : m.levelABefore
   const oppAfter  = isA ? m.levelBAfter  : m.levelAAfter
   const oppDelta  = isA ? m.deltaB       : m.deltaA
+
+  // Expected vs actual performance, from the profile owner's perspective.
+  // Both helpers return A's share; flip when the owner is B.
+  let perfExpected: number | null = null
+  let perfActual: number | null = null
+  if (!m.unranked && myBefore != null && oppBefore != null) {
+    const expA = expectedPerformance(
+      isA ? myBefore : oppBefore,
+      isA ? oppBefore : myBefore,
+      settings,
+    )
+    const actA = actualPerformance(m.games, settings)
+    perfExpected = isA ? expA : 1 - expA
+    perfActual = isA ? actA : 1 - actA
+  }
 
   return (
     <div className="card space-y-3">
@@ -343,6 +360,12 @@ function MatchHistoryCard({
           {opponent && <PlayerAvatar name={opponent.name} avatarUrl={opponent.avatarUrl} size={36} />}
         </div>
       </div>
+
+      {perfExpected != null && perfActual != null && (
+        <div className="text-xs text-slate-500 border-t border-slate-100 dark:border-slate-800 pt-2">
+          Expected perf: {(perfExpected * 100).toFixed(0)}% · Actual: {(perfActual * 100).toFixed(0)}%
+        </div>
+      )}
     </div>
   )
 }
