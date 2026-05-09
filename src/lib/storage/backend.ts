@@ -60,26 +60,53 @@ const SUPABASE_BATCH = 500   // rows per insert; stays well under the 6 MB REST 
 // Without this, every 500-row insert fires onChange → getAll() → 600 parallel fetches.
 let _importing = false
 
-/** Supabase caps each query at 1 000 rows. This helper paginates to fetch all. */
+/** Supabase caps each query at 1 000 rows. This helper fetches all rows
+ *  by first getting the total count, then firing parallel range requests. */
 async function fetchAll<T>(
   table: string,
   order?: { column: string; ascending: boolean },
 ): Promise<T[]> {
   const PAGE = 1000
-  const all: T[] = []
-  let from = 0
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    let q = supabase!.from(table).select('*').range(from, from + PAGE - 1)
+  const PARALLEL = 6  // concurrent requests to avoid overwhelming the server
+
+  // 1. Get exact row count (head-only, no data transferred).
+  const { count, error: cErr } = await supabase!
+    .from(table)
+    .select('*', { count: 'exact', head: true })
+  if (cErr) throw cErr
+  const total = count ?? 0
+  if (total === 0) return []
+  if (total <= PAGE) {
+    // Fast path: single request.
+    let q = supabase!.from(table).select('*')
     if (order) q = q.order(order.column, { ascending: order.ascending })
     const { data, error } = await q
     if (error) throw error
-    const rows = (data ?? []) as T[]
-    all.push(...rows)
-    if (rows.length < PAGE) break   // last page
-    from += PAGE
+    return (data ?? []) as T[]
   }
-  return all
+
+  // 2. Build page descriptors [{ from, to }, …].
+  const pages: { from: number; to: number }[] = []
+  for (let from = 0; from < total; from += PAGE) {
+    pages.push({ from, to: Math.min(from + PAGE - 1, total - 1) })
+  }
+
+  // 3. Fetch in parallel batches.
+  const results: T[][] = new Array(pages.length)
+  for (let i = 0; i < pages.length; i += PARALLEL) {
+    const batch = pages.slice(i, i + PARALLEL)
+    const batchResults = await Promise.all(
+      batch.map(({ from, to }, bi) => {
+        let q = supabase!.from(table).select('*').range(from, to)
+        if (order) q = q.order(order.column, { ascending: order.ascending })
+        return q.then(({ data, error }) => {
+          if (error) throw error
+          results[i + bi] = (data ?? []) as T[]
+        })
+      }),
+    )
+  }
+  return results.flat()
 }
 
 const cloudBackend: Backend = {
