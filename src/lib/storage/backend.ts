@@ -48,6 +48,14 @@ const localBackend: Backend = {
   wipeAll: local.wipeAll,
 }
 
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
+}
+
+const SUPABASE_BATCH = 500   // rows per insert; stays well under the 6 MB REST limit
+
 const cloudBackend: Backend = {
   mode: 'cloud',
   async getAll() {
@@ -97,12 +105,12 @@ const cloudBackend: Backend = {
     await sb.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     await sb.from('players').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     await sb.from('settings').delete().neq('id', '_never_')
-    if (players.length) {
-      const { error } = await sb.from('players').insert(players.map(toPlayerRow))
+    for (const batch of chunkArray(players.map(toPlayerRow), SUPABASE_BATCH)) {
+      const { error } = await sb.from('players').insert(batch)
       if (error) throw error
     }
-    if (matches.length) {
-      const { error } = await sb.from('matches').insert(matches.map(toMatchRow))
+    for (const batch of chunkArray(matches.map(toMatchRow), SUPABASE_BATCH)) {
+      const { error } = await sb.from('matches').insert(batch)
       if (error) throw error
     }
     const { error } = await sb

@@ -15,6 +15,9 @@ dist-ssr
 # Local Claude Code session state — never commit
 .claude/
 
+# Generated scale-test fixtures (large, regenerate with generate_scale_data.py)
+fixtures/scale-test-*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
