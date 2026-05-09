@@ -283,7 +283,7 @@ export function LeaderboardPage() {
                           <td className="px-3 py-2 text-right text-slate-500">{r.played}</td>
                         </tr>
                       )
-                    })
+                    })}
                   </tbody>
                 </table>
               </div>

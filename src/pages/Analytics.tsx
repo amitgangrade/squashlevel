@@ -270,6 +270,7 @@ export function AnalyticsPage() {
         ) : filteredStats.length === 0 ? (
           <div className="card text-center text-slate-500">No players match "{statsSearch}".</div>
         ) : (
+          <>
           <div className="card p-0 overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500">
@@ -316,6 +317,7 @@ export function AnalyticsPage() {
             onPage={setStatsPage}
             noun="players"
           />
+          </>
         )}
       </section>
 
