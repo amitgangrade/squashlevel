@@ -779,3 +779,548 @@ where pl.user_id = pr.id
     pl.phone is null or pl.country is null or pl.city is null or pl.club is null
     or pl.avatar_url is null or pl.birth_year is null or pl.gender is null or pl.dominant_hand is null
   );
+
+-- ===========================================================================
+-- Clubs: shared groups keyed by a slugged form of `players.club`. We don't
+-- materialize a clubs table — the canonical name lives on the player row and
+-- a club is "discoverable" by virtue of having members. Admins and club
+-- admins can write players/matches scoped to their club.
+-- ===========================================================================
+
+-- Slugify a club name to a stable URL-safe key. Returns null/empty for
+-- empty input. Idempotent so the slug stays the same as casing/spacing
+-- drifts across player rows.
+create or replace function public.club_slug(name text)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when coalesce(trim(name), '') = '' then null
+    else regexp_replace(
+           regexp_replace(lower(trim(name)), '[^a-z0-9]+', '-', 'g'),
+           '(^-+|-+$)', '', 'g'
+         )
+  end;
+$$;
+
+-- Optional materialized index on the slugged club name for cheap membership
+-- queries. We use a generated column so it stays in sync with `club`.
+do $$
+begin
+  alter table public.players
+    add column if not exists club_slug text generated always as (public.club_slug(club)) stored;
+exception
+  when duplicate_column then null;
+  when feature_not_supported then
+    -- Fallback for older Postgres without GENERATED: keep as an index target.
+    null;
+end $$;
+
+create index if not exists players_club_slug_idx on public.players (club_slug);
+
+create table if not exists public.club_admins (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  club_slug text not null,
+  granted_by uuid references auth.users(id) on delete set null,
+  granted_at timestamptz not null default now(),
+  primary key (user_id, club_slug)
+);
+
+create index if not exists club_admins_slug_idx on public.club_admins (club_slug);
+
+alter table public.club_admins enable row level security;
+
+drop policy if exists "public read club_admins" on public.club_admins;
+create policy "public read club_admins" on public.club_admins for select using (true);
+
+drop policy if exists "global admin write club_admins" on public.club_admins;
+create policy "global admin write club_admins" on public.club_admins
+  for all to authenticated
+  using (public.is_admin(auth.uid()))
+  with check (public.is_admin(auth.uid()));
+
+-- is_club_admin(uid, slug): true when the given user is an admin of the
+-- given club slug. Cheap; index-backed.
+create or replace function public.is_club_admin(uid uuid, slug text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.club_admins
+    where user_id = uid and club_slug = slug
+  );
+$$;
+
+-- can_write_player(uid, player_id): the user can edit the given player when
+-- they're a global admin, or they own the player, or they're a club admin
+-- for the player's current club.
+create or replace function public.can_write_player(uid uuid, target_player_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    public.is_admin(uid)
+    or exists (select 1 from public.players where id = target_player_id and user_id = uid)
+    or exists (
+      select 1
+      from public.players p
+      join public.club_admins ca
+        on ca.club_slug = public.club_slug(p.club)
+      where p.id = target_player_id
+        and ca.user_id = uid
+    );
+$$;
+
+-- can_write_match(uid, a, b): same idea for matches — true if the user is
+-- a global admin, OR a club admin for at least one player's club.
+create or replace function public.can_write_match(uid uuid, a uuid, b uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    public.is_admin(uid)
+    or exists (
+      select 1
+      from public.players p
+      join public.club_admins ca on ca.club_slug = public.club_slug(p.club)
+      where p.id in (a, b) and ca.user_id = uid
+    );
+$$;
+
+-- list_club_admins_for_admin(): listing view for the global-admin UI.
+create or replace function public.list_club_admins_for_admin()
+returns table(user_id uuid, club_slug text, full_name text, email text, granted_at timestamptz)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  return query
+    select ca.user_id, ca.club_slug, p.full_name, p.email, ca.granted_at
+    from public.club_admins ca
+    join public.profiles p on p.id = ca.user_id
+    order by ca.club_slug, p.full_name;
+end;
+$$;
+grant execute on function public.list_club_admins_for_admin() to authenticated;
+
+-- set_club_admin(target_user, slug, value): global-admin RPC to grant or
+-- revoke club-admin status.
+create or replace function public.set_club_admin(target_user uuid, slug text, value boolean)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  if slug is null or slug = '' then
+    raise exception 'club slug required';
+  end if;
+  if value then
+    insert into public.club_admins (user_id, club_slug, granted_by)
+    values (target_user, slug, auth.uid())
+    on conflict do nothing;
+  else
+    delete from public.club_admins
+    where user_id = target_user and club_slug = slug;
+  end if;
+  return value;
+end;
+$$;
+grant execute on function public.set_club_admin(uuid, text, boolean) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Players: grant club admins write access to players in their club. The
+-- policy refers to the row's `club` column directly (NEW row at INSERT;
+-- OLD/NEW row at UPDATE) — we don't need `new_…` qualifiers in PG RLS.
+-- ---------------------------------------------------------------------------
+drop policy if exists "self insert player" on public.players;
+create policy "self insert player" on public.players
+  for insert to authenticated
+  with check (
+    public.is_admin(auth.uid())
+    or (user_id is not null and user_id = auth.uid())
+    or (
+      user_id is null
+      and public.is_club_admin(auth.uid(), public.club_slug(club))
+    )
+  );
+
+drop policy if exists "self update player" on public.players;
+create policy "self update player" on public.players
+  for update to authenticated
+  using (
+    public.is_admin(auth.uid())
+    or user_id = auth.uid()
+    or public.is_club_admin(auth.uid(), public.club_slug(club))
+  )
+  with check (
+    public.is_admin(auth.uid())
+    or user_id = auth.uid()
+    or public.is_club_admin(auth.uid(), public.club_slug(club))
+  );
+
+drop policy if exists "admin delete player" on public.players;
+create policy "admin delete player" on public.players
+  for delete to authenticated
+  using (
+    public.is_admin(auth.uid())
+    or public.is_club_admin(auth.uid(), public.club_slug(club))
+  );
+
+-- ---------------------------------------------------------------------------
+-- Matches: club admins can insert/update/delete matches that involve at
+-- least one player from their club.
+-- ---------------------------------------------------------------------------
+drop policy if exists "participant insert match" on public.matches;
+create policy "participant insert match" on public.matches
+  for insert to authenticated
+  with check (
+    public.is_admin(auth.uid())
+    or auth.uid() in (
+      select user_id from public.players where id = player_a_id
+      union
+      select user_id from public.players where id = player_b_id
+    )
+    or public.can_write_match(auth.uid(), player_a_id, player_b_id)
+  );
+
+drop policy if exists "admin update match" on public.matches;
+create policy "admin update match" on public.matches
+  for update to authenticated
+  using (
+    public.is_admin(auth.uid())
+    or public.can_write_match(auth.uid(), player_a_id, player_b_id)
+  )
+  with check (
+    public.is_admin(auth.uid())
+    or public.can_write_match(auth.uid(), player_a_id, player_b_id)
+  );
+
+drop policy if exists "admin delete match" on public.matches;
+create policy "admin delete match" on public.matches
+  for delete to authenticated
+  using (
+    public.is_admin(auth.uid())
+    or public.can_write_match(auth.uid(), player_a_id, player_b_id)
+  );
+
+-- ===========================================================================
+-- Unclaimed-player stub creation: any signed-in user can create an unclaimed
+-- player by name (when logging a match against someone not yet on Boast).
+-- The recorder is captured so we can rate-limit / audit later if abused.
+-- The trigger fills in user_id=null and created_by=auth.uid().
+-- ===========================================================================
+create or replace function public.create_unclaimed_player(
+  p_name text,
+  p_email text default null,
+  p_starting_level numeric default 1000,
+  p_club text default null,
+  p_city text default null,
+  p_country text default null
+) returns public.players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  new_id uuid := gen_random_uuid();
+  pl public.players;
+begin
+  if uid is null then
+    raise exception 'not authenticated';
+  end if;
+  if coalesce(trim(p_name), '') = '' then
+    raise exception 'name required';
+  end if;
+  -- If an existing claimed-or-unclaimed player has the same email, prefer
+  -- returning it over creating a duplicate stub.
+  if p_email is not null and trim(p_email) <> '' then
+    select * into pl from public.players
+     where email is not null and lower(email) = lower(trim(p_email))
+     order by created_at asc
+     limit 1;
+    if pl.id is not null then
+      return pl;
+    end if;
+  end if;
+
+  insert into public.players (
+    id, name, starting_level, email, user_id, created_at, created_by,
+    club, city, country
+  ) values (
+    new_id,
+    trim(p_name),
+    coalesce(p_starting_level, 1000),
+    nullif(trim(coalesce(p_email, '')), ''),
+    null,
+    now(),
+    uid,
+    nullif(trim(coalesce(p_club, '')), ''),
+    nullif(trim(coalesce(p_city, '')), ''),
+    nullif(trim(coalesce(p_country, '')), '')
+  ) returning * into pl;
+
+  return pl;
+end;
+$$;
+grant execute on function public.create_unclaimed_player(text, text, numeric, text, text, text) to authenticated;
+
+-- claim_player_by_id: explicit name-based claim during onboarding. The user
+-- (already authenticated) takes over an unclaimed player row whose name
+-- matched their own at signup. Refuses if the row is already claimed by
+-- someone else, or if the caller already owns a different player.
+create or replace function public.claim_player_by_id(target uuid)
+returns public.players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  pl public.players;
+  mine public.players;
+begin
+  if uid is null then
+    raise exception 'not authenticated';
+  end if;
+  select * into pl from public.players where id = target;
+  if pl.id is null then
+    raise exception 'player not found';
+  end if;
+  if pl.user_id is not null then
+    if pl.user_id = uid then
+      return pl; -- idempotent
+    end if;
+    raise exception 'player already claimed by someone else';
+  end if;
+
+  -- If the user already has a different player, we move their match history
+  -- onto the unclaimed row by deleting the auto-created stub and pointing
+  -- the unclaimed row at them. This is rare (happens when onboarding created
+  -- a fresh row before the user noticed the unclaimed-match suggestion) so
+  -- we err on the side of preserving the older row's history.
+  select * into mine from public.players where user_id = uid limit 1;
+  if mine.id is not null and mine.id <> pl.id then
+    -- Repoint matches and delete the empty stub.
+    update public.matches set player_a_id = pl.id where player_a_id = mine.id;
+    update public.matches set player_b_id = pl.id where player_b_id = mine.id;
+    -- Move profile-driven identity onto the claimed row.
+    update public.players
+       set user_id = uid,
+           name = mine.name,
+           email = mine.email,
+           starting_level = mine.starting_level,
+           phone = coalesce(mine.phone, pl.phone),
+           country = coalesce(mine.country, pl.country),
+           city = coalesce(mine.city, pl.city),
+           club = coalesce(mine.club, pl.club),
+           avatar_url = coalesce(mine.avatar_url, pl.avatar_url),
+           birth_year = coalesce(mine.birth_year, pl.birth_year),
+           gender = coalesce(mine.gender, pl.gender),
+           dominant_hand = coalesce(mine.dominant_hand, pl.dominant_hand)
+     where id = pl.id
+     returning * into pl;
+    delete from public.players where id = mine.id;
+  else
+    update public.players
+       set user_id = uid
+     where id = pl.id
+     returning * into pl;
+  end if;
+
+  return pl;
+end;
+$$;
+grant execute on function public.claim_player_by_id(uuid) to authenticated;
+
+-- ===========================================================================
+-- Challenges: "I want to play X". A signed-in player issues a challenge to
+-- another player; the recipient accepts or declines. Accepting marks it
+-- accepted (UI then takes them to log the match); declining is final.
+-- ===========================================================================
+create table if not exists public.challenges (
+  id uuid primary key default gen_random_uuid(),
+  from_player_id uuid not null references public.players(id) on delete cascade,
+  to_player_id uuid not null references public.players(id) on delete cascade,
+  message text,
+  proposed_date date,
+  venue text,
+  status text not null default 'pending'
+    check (status in ('pending', 'accepted', 'declined', 'cancelled', 'expired')),
+  created_at timestamptz not null default now(),
+  responded_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null
+);
+
+create index if not exists challenges_to_idx on public.challenges (to_player_id, status);
+create index if not exists challenges_from_idx on public.challenges (from_player_id, status);
+
+alter table public.challenges enable row level security;
+
+-- Public read so profile pages can show "X has Y open challenges" if we
+-- want to surface that later. Tighten if it becomes a privacy concern.
+drop policy if exists "public read challenges" on public.challenges;
+create policy "public read challenges" on public.challenges for select using (true);
+
+-- Inserts go via RPC `create_challenge` so we can validate ownership and
+-- rate-limit consistently. No direct insert policy.
+
+drop policy if exists "owner cancel challenge" on public.challenges;
+create policy "owner cancel challenge" on public.challenges
+  for update to authenticated
+  using (
+    -- Sender can cancel; recipient (or RPC) handles accept/decline.
+    public.is_admin(auth.uid())
+    or created_by = auth.uid()
+    or auth.uid() in (
+      select user_id from public.players where id = to_player_id
+    )
+  )
+  with check (true);
+
+drop policy if exists "admin delete challenge" on public.challenges;
+create policy "admin delete challenge" on public.challenges
+  for delete to authenticated
+  using (public.is_admin(auth.uid()));
+
+-- create_challenge: validate that the sender owns the from-player, that
+-- from != to, and that there isn't already a live challenge between them.
+create or replace function public.create_challenge(
+  to_player uuid,
+  msg text default null,
+  proposed date default null,
+  venue_name text default null,
+  from_player uuid default null
+) returns public.challenges
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  fp uuid := from_player;
+  ch public.challenges;
+begin
+  if uid is null then
+    raise exception 'not authenticated';
+  end if;
+
+  if fp is null then
+    select id into fp from public.players where user_id = uid limit 1;
+  else
+    -- Verify the caller owns this player (or is an admin).
+    if not exists (
+      select 1 from public.players where id = fp and (user_id = uid or public.is_admin(uid))
+    ) then
+      raise exception 'cannot challenge as someone else';
+    end if;
+  end if;
+  if fp is null then
+    raise exception 'no player linked to your account';
+  end if;
+  if fp = to_player then
+    raise exception 'cannot challenge yourself';
+  end if;
+  if not exists (select 1 from public.players where id = to_player) then
+    raise exception 'opponent not found';
+  end if;
+
+  -- Block duplicates: existing pending challenge in either direction.
+  if exists (
+    select 1 from public.challenges
+    where status = 'pending'
+      and ((from_player_id = fp and to_player_id = to_player)
+        or (from_player_id = to_player and to_player_id = fp))
+  ) then
+    raise exception 'a pending challenge between these players already exists';
+  end if;
+
+  insert into public.challenges (
+    from_player_id, to_player_id, message, proposed_date, venue, created_by
+  ) values (
+    fp, to_player, nullif(trim(coalesce(msg, '')), ''), proposed,
+    nullif(trim(coalesce(venue_name, '')), ''), uid
+  ) returning * into ch;
+
+  return ch;
+end;
+$$;
+grant execute on function public.create_challenge(uuid, text, date, text, uuid) to authenticated;
+
+-- respond_to_challenge: the recipient (or admin) sets accepted/declined.
+-- Sender can also cancel. Idempotent for terminal statuses.
+create or replace function public.respond_to_challenge(
+  challenge_id uuid,
+  response text  -- 'accepted' | 'declined' | 'cancelled'
+) returns public.challenges
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  ch public.challenges;
+  is_recipient boolean;
+  is_sender boolean;
+begin
+  if uid is null then
+    raise exception 'not authenticated';
+  end if;
+  if response not in ('accepted', 'declined', 'cancelled') then
+    raise exception 'invalid response';
+  end if;
+
+  select * into ch from public.challenges where id = challenge_id;
+  if ch.id is null then
+    raise exception 'challenge not found';
+  end if;
+  if ch.status <> 'pending' then
+    raise exception 'challenge already %', ch.status using errcode = '22000';
+  end if;
+
+  select exists(select 1 from public.players where id = ch.to_player_id and user_id = uid) into is_recipient;
+  select exists(select 1 from public.players where id = ch.from_player_id and user_id = uid) into is_sender;
+
+  if not (is_recipient or is_sender or public.is_admin(uid)) then
+    raise exception 'not allowed';
+  end if;
+  if response = 'cancelled' and not (is_sender or public.is_admin(uid)) then
+    raise exception 'only the sender can cancel';
+  end if;
+  if response in ('accepted', 'declined') and not (is_recipient or public.is_admin(uid)) then
+    raise exception 'only the recipient can accept or decline';
+  end if;
+
+  update public.challenges
+     set status = response, responded_at = now()
+   where id = challenge_id
+   returning * into ch;
+
+  return ch;
+end;
+$$;
+grant execute on function public.respond_to_challenge(uuid, text) to authenticated;
+
+do $$
+begin
+  begin alter publication supabase_realtime add table public.challenges; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.club_admins; exception when duplicate_object then null; end;
+end $$;

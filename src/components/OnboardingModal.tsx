@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
-import { suggestUsername } from '../lib/supabase/profile'
+import {
+  claimUnclaimedPlayer,
+  findUnclaimedNameMatches,
+  suggestUsername,
+} from '../lib/supabase/profile'
 import { COUNTRIES, distinctValues, isValidCityName, normalizeCountry } from '../lib/places'
-import { DOMINANT_HAND_LABEL, GENDER_LABEL, type DominantHand, type Gender } from '../types'
+import { DOMINANT_HAND_LABEL, GENDER_LABEL, type DominantHand, type Gender, type Player } from '../types'
+import { PlayerAvatar } from './PlayerAvatar'
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
@@ -37,6 +42,26 @@ export function OnboardingModal() {
 
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // Unclaimed-name suggestions: when the user types a full name, look for any
+  // existing unclaimed player rows with a matching name. Once they pick one
+  // and submit onboarding, we claim it after createProfileAndPlayer so all
+  // their match history sticks with them.
+  const [suggestions, setSuggestions] = useState<Player[]>([])
+  const [claimId, setClaimId] = useState<string | null>(null)
+  useEffect(() => {
+    const t = fullName.trim()
+    if (t.length < 3) { setSuggestions([]); return }
+    const handle = setTimeout(async () => {
+      try {
+        const list = await findUnclaimedNameMatches(t)
+        setSuggestions(list)
+      } catch {
+        // non-fatal — onboarding still works without suggestions.
+      }
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [fullName])
 
   useEffect(() => {
     if (!avatarFile) return
@@ -96,6 +121,12 @@ export function OnboardingModal() {
         dominantHand: dominantHand || undefined,
         avatarFile,
       })
+      if (claimId) {
+        // Server picks up the rest: matches repointed, stub deleted.
+        try { await claimUnclaimedPlayer(claimId) } catch (claimErr) {
+          console.warn('claim failed', claimErr)
+        }
+      }
     } catch (e) {
       setErr((e as Error).message)
     } finally {
@@ -160,6 +191,42 @@ export function OnboardingModal() {
                 <p className="mt-1 text-xs text-slate-500">
                   Username: <span className="font-mono">@{previewUsername}</span>
                 </p>
+              )}
+              {suggestions.length > 0 && (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-900/20 space-y-2">
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                    {claimId ? 'You picked an existing player — your match history will follow you.' : 'Are any of these you? Pick one to take over their match history.'}
+                  </p>
+                  <ul className="space-y-1">
+                    {suggestions.map((s) => (
+                      <li key={s.id}>
+                        <button
+                          type="button"
+                          onClick={() => setClaimId(claimId === s.id ? null : s.id)}
+                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${claimId === s.id ? 'bg-amber-200 dark:bg-amber-900/60' : 'hover:bg-amber-100 dark:hover:bg-amber-900/30'}`}
+                        >
+                          <PlayerAvatar name={s.name} avatarUrl={s.avatarUrl} size={28} />
+                          <span className="flex-1 min-w-0 truncate font-medium">{s.name}</span>
+                          {[s.club, s.city].filter(Boolean).length > 0 && (
+                            <span className="text-xs text-slate-500 truncate">
+                              {[s.club, s.city].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
+                          {claimId === s.id && <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Selected ✓</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {claimId && (
+                    <button
+                      type="button"
+                      className="text-xs text-amber-800 dark:text-amber-200 underline"
+                      onClick={() => setClaimId(null)}
+                    >
+                      None of these — I'm new to Boast
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             <div>

@@ -140,3 +140,35 @@ export const ExportSchema = z.object({
   settings: SettingsSchema,
 })
 export type ExportData = z.infer<typeof ExportSchema>
+
+export const ChallengeStatus = z.enum(['pending', 'accepted', 'declined', 'cancelled', 'expired'])
+export type ChallengeStatus = z.infer<typeof ChallengeStatus>
+
+export const CHALLENGE_STATUS_LABEL: Record<ChallengeStatus, string> = {
+  pending: 'Pending',
+  accepted: 'Accepted',
+  declined: 'Declined',
+  cancelled: 'Cancelled',
+  expired: 'Expired',
+}
+
+export interface Challenge {
+  id: string
+  fromPlayerId: string
+  toPlayerId: string
+  message?: string
+  proposedDate?: string
+  venue?: string
+  status: ChallengeStatus
+  createdAt: string
+  respondedAt?: string
+  createdBy?: string
+}
+
+export interface ClubAdmin {
+  userId: string
+  clubSlug: string
+  fullName: string
+  email: string
+  grantedAt: string
+}

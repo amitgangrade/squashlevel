@@ -210,6 +210,63 @@ export async function searchPlayers(query: string, limit = 20): Promise<Player[]
   return (data as PlayerRow[]).map(fromPlayerRow)
 }
 
+/**
+ * Create an "unclaimed" stub player on behalf of the current user (used when
+ * logging a match against someone not yet on Boast). The server validates
+ * that the recorder is signed in and dedupes by email when given.
+ */
+export async function createUnclaimedPlayer(args: {
+  name: string
+  email?: string
+  startingLevel?: number
+  club?: string
+  city?: string
+  country?: string
+}): Promise<Player> {
+  const sb = supabase!
+  const { data, error } = await sb.rpc('create_unclaimed_player', {
+    p_name: args.name,
+    p_email: args.email ?? null,
+    p_starting_level: args.startingLevel ?? 1000,
+    p_club: args.club ?? null,
+    p_city: args.city ?? null,
+    p_country: args.country ?? null,
+  })
+  if (error) throw error
+  return fromPlayerRow(data as PlayerRow)
+}
+
+/**
+ * Find unclaimed players whose name looks like the given full name. Used at
+ * onboarding to suggest "is this you?" so a new user can take over their
+ * existing match history instead of starting from scratch.
+ */
+export async function findUnclaimedNameMatches(fullName: string): Promise<Player[]> {
+  const sb = supabase!
+  const q = fullName.trim()
+  if (!q) return []
+  let req = sb.from('players').select('*').is('user_id', null)
+  for (const token of q.split(/\s+/).filter(Boolean)) {
+    req = req.ilike('name', `%${token}%`)
+  }
+  const { data, error } = await req.order('created_at').limit(10)
+  if (error) throw error
+  return (data as PlayerRow[]).map(fromPlayerRow)
+}
+
+/**
+ * Claim an unclaimed player as the current user's player. Only allowed when
+ * the player has no user_id yet; the server enforces this via RLS (only the
+ * profile's own user can update its own player row, and the row must already
+ * be unclaimed → currently this is a server-side RPC for atomicity).
+ */
+export async function claimUnclaimedPlayer(playerId: string): Promise<Player> {
+  const sb = supabase!
+  const { data, error } = await sb.rpc('claim_player_by_id', { target: playerId })
+  if (error) throw error
+  return fromPlayerRow(data as PlayerRow)
+}
+
 /** Admin-only: list every profile so admins can promote/demote others. */
 export async function listAllProfiles(): Promise<Profile[]> {
   const sb = supabase!

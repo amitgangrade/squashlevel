@@ -14,6 +14,12 @@ interface Props {
   excludeId?: string
   placeholder?: string
   autoFocus?: boolean
+  /**
+   * Optional: when the typed query yields no results, render a "+ Add new
+   * opponent" call-to-action that fires this callback with the typed name.
+   * Used by the Log Match flow to create an unclaimed player on the fly.
+   */
+  onCreateUnclaimed?: (name: string) => void
 }
 
 /**
@@ -25,7 +31,7 @@ interface Props {
  * filtering of the locally loaded roster otherwise. Result rows show avatar,
  * country, age and club so admins can pick the right same-named player.
  */
-export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search by name…', autoFocus }: Props) {
+export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search by name…', autoFocus, onCreateUnclaimed }: Props) {
   const { players, recomputed } = useStore()
   const [q, setQ] = useState('')
   const [results, setResults] = useState<Player[]>([])
@@ -148,8 +154,17 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
             </div>
             <div className="flex-1 overflow-y-auto pb-safe">
               {results.length === 0 ? (
-                <div className="p-6 text-center text-sm text-slate-500">
-                  {q.trim() ? 'No matches.' : 'Start typing a name…'}
+                <div className="p-6 text-center text-sm text-slate-500 space-y-2">
+                  <div>{q.trim() ? 'No matches.' : 'Start typing a name…'}</div>
+                  {onCreateUnclaimed && q.trim().length >= 2 && (
+                    <button
+                      type="button"
+                      onClick={() => { onCreateUnclaimed(q.trim()); setOpen(false) }}
+                      className="btn-secondary text-sm"
+                    >
+                      + Add "{q.trim()}" as a new player
+                    </button>
+                  )}
                 </div>
               ) : (
                 <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -242,8 +257,17 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
         </ul>
       )}
       {open && q.trim() && results.length === 0 && (
-        <div className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-500 shadow dark:border-slate-700 dark:bg-slate-900">
-          No matches.
+        <div className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-500 shadow dark:border-slate-700 dark:bg-slate-900 space-y-2">
+          <div>No matches.</div>
+          {onCreateUnclaimed && q.trim().length >= 2 && (
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); onCreateUnclaimed(q.trim()); setOpen(false) }}
+              className="btn-secondary text-sm w-full"
+            >
+              + Add "{q.trim()}" as a new player
+            </button>
+          )}
         </div>
       )}
     </div>

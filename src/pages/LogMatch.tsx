@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { MATCH_TYPE_LABEL, type GameScore, type MatchType, type Player } from '../types'
 import { updateLevels } from '../lib/rating/update'
@@ -7,12 +7,14 @@ import { fmtDelta, fmtLevel, todayIso } from '../lib/format'
 import { PlayerSearch } from '../components/PlayerSearch'
 import { TrashIcon } from '../components/Icons'
 import { supabaseEnabled } from '../lib/supabase/client'
+import { createUnclaimedPlayer } from '../lib/supabase/profile'
 
 const MATCH_TYPES: MatchType[] = ['friendly', 'box', 'league', 'tournament']
 
 export function LogMatchPage() {
-  const { players, recomputed, settings, isAdmin, session, myPlayer, addMatch } = useStore()
+  const { players, recomputed, settings, isAdmin, session, myPlayer, addMatch, refresh } = useStore()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const signedIn = !supabaseEnabled || !!session
   const canLog = !supabaseEnabled || isAdmin || !!myPlayer
@@ -25,10 +27,49 @@ export function LogMatchPage() {
     if (!isAdmin && myPlayer && !playerA) setPlayerA(myPlayer)
   }, [myPlayer, isAdmin, playerA])
 
-  const [date, setDate] = useState(todayIso())
+  const [date, setDate] = useState(searchParams.get('date') || todayIso())
   const [type, setType] = useState<MatchType>('friendly')
-  const [venue, setVenue] = useState('')
+  const [venue, setVenue] = useState(searchParams.get('venue') || '')
   const [notes, setNotes] = useState('')
+
+  // Pre-fill opponent from ?opponent=<id> (e.g. coming from an accepted challenge).
+  useEffect(() => {
+    const oppId = searchParams.get('opponent')
+    if (!oppId || playerB) return
+    const found = players.find((p) => p.id === oppId)
+    if (found) setPlayerB(found)
+  }, [searchParams, players, playerB])
+
+  const [unclaimedDraft, setUnclaimedDraft] = useState<{
+    name: string; email: string; club: string
+  } | null>(null)
+  const [savingUnclaimed, setSavingUnclaimed] = useState(false)
+
+  const onCreateUnclaimed = (name: string) => {
+    setUnclaimedDraft({ name, email: '', club: myPlayer?.club ?? '' })
+  }
+
+  const submitUnclaimed = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!unclaimedDraft) return
+    setSavingUnclaimed(true)
+    try {
+      const created = await createUnclaimedPlayer({
+        name: unclaimedDraft.name,
+        email: unclaimedDraft.email.trim() || undefined,
+        club: unclaimedDraft.club.trim() || undefined,
+      })
+      setPlayerB(created)
+      setUnclaimedDraft(null)
+      // Refresh so the new row shows up everywhere (leaderboard, history, etc).
+      refresh().catch(() => {})
+    } catch (ex) {
+      setError((ex as Error).message)
+    } finally {
+      setSavingUnclaimed(false)
+    }
+  }
+
   const [scores, setScores] = useState<GameScore[]>([
     { a: 0, b: 0 },
     { a: 0, b: 0 },
@@ -121,6 +162,52 @@ export function LogMatchPage() {
   return (
     <div className="space-y-6">
       <h1>Log match</h1>
+      {unclaimedDraft && (
+        <form onSubmit={submitUnclaimed} className="card space-y-3">
+          <div>
+            <div className="font-semibold">Add a new player</div>
+            <p className="text-xs text-slate-500">
+              We'll create a placeholder for <span className="font-medium">{unclaimedDraft.name}</span>.
+              They'll be able to claim this row when they sign up using the same email.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Name</label>
+              <input
+                className="input w-full"
+                value={unclaimedDraft.name}
+                onChange={(e) => setUnclaimedDraft({ ...unclaimedDraft, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label">Email <span className="text-slate-400">(optional)</span></label>
+              <input
+                type="email"
+                className="input w-full"
+                value={unclaimedDraft.email}
+                onChange={(e) => setUnclaimedDraft({ ...unclaimedDraft, email: e.target.value })}
+                placeholder="opponent@email.com"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="label">Club <span className="text-slate-400">(optional)</span></label>
+              <input
+                className="input w-full"
+                value={unclaimedDraft.club}
+                onChange={(e) => setUnclaimedDraft({ ...unclaimedDraft, club: e.target.value })}
+                placeholder="Their home club"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-secondary" onClick={() => setUnclaimedDraft(null)}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={savingUnclaimed || !unclaimedDraft.name.trim()}>
+              {savingUnclaimed ? 'Adding…' : 'Add player'}
+            </button>
+          </div>
+        </form>
+      )}
       <form onSubmit={onSubmit} className="card space-y-4">
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
@@ -150,7 +237,11 @@ export function LogMatchPage() {
               onChange={setPlayerB}
               excludeId={playerA?.id}
               placeholder="Search opponent by name…"
+              onCreateUnclaimed={supabaseEnabled ? onCreateUnclaimed : undefined}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Opponent not on Boast yet? Type their name and pick "Add new player" — they can claim the row when they sign up.
+            </p>
           </div>
           <div>
             <label className="label">Date</label>

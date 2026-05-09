@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 import type { Player } from '../types'
 import { playerAge } from '../lib/format'
+import { clubSlug } from '../lib/supabase/clubs'
 
 /**
  * A player name that links to its public profile page. Falls back to plain
@@ -54,10 +55,14 @@ function FilterChips({
 }) {
   const parts: React.ReactNode[] = []
   if (player.club) {
+    const slug = clubSlug(player.club)
+    // Prefer the club page when we have a real slug; fall back to the
+    // leaderboard filter for clubs whose name doesn't slug cleanly.
+    const to = slug ? `/clubs/${slug}` : `/?club=${encodeURIComponent(player.club)}`
     parts.push(
       <Link
         key="club"
-        to={`/?club=${encodeURIComponent(player.club)}`}
+        to={to}
         className="hover:underline"
         onClick={(e) => e.stopPropagation()}
       >

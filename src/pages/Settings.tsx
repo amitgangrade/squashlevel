@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { downloadExport, restoreFromJson } from '../lib/storage/import-export'
 import { DEFAULT_SETTINGS, type Profile, type Settings } from '../types'
 import { listAllProfiles, setAdminFlag } from '../lib/supabase/profile'
+import { listClubAdminsForAdmin, setClubAdmin, summarizeClubs } from '../lib/supabase/clubs'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { PlayerAvatar } from '../components/PlayerAvatar'
+import type { ClubAdmin } from '../types'
 
 export function SettingsPage() {
   const { settings, isAdmin, updateSettings, resetAll, refresh } = useStore()
@@ -66,6 +68,13 @@ export function SettingsPage() {
         <section>
           <h1 className="mb-3">Admins</h1>
           <AdminManager />
+        </section>
+      )}
+
+      {supabaseEnabled && (
+        <section>
+          <h2 className="mb-3">Club admins</h2>
+          <ClubAdminManager />
         </section>
       )}
 
@@ -164,6 +173,154 @@ function Field({ label, help, children }: { label: string; help?: string; childr
       <label className="label">{label}</label>
       {children}
       {help && <p className="mt-1 text-xs text-slate-500">{help}</p>}
+    </div>
+  )
+}
+
+function ClubAdminManager() {
+  const { players } = useStore()
+  const [profiles, setProfiles] = useState<Profile[] | null>(null)
+  const [grants, setGrants] = useState<ClubAdmin[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null) // userId|slug
+  const [err, setErr] = useState<string | null>(null)
+  const [selectedSlug, setSelectedSlug] = useState<string>('')
+  const [search, setSearch] = useState('')
+
+  const clubs = useMemo(() => summarizeClubs(players), [players])
+
+  useEffect(() => {
+    Promise.all([listAllProfiles(), listClubAdminsForAdmin()])
+      .then(([ps, gs]) => { setProfiles(ps); setGrants(gs) })
+      .catch((e) => setErr((e as Error).message))
+  }, [])
+
+  // Default the picker to the first club so the section feels populated.
+  useEffect(() => {
+    if (!selectedSlug && clubs.length > 0) setSelectedSlug(clubs[0].slug)
+  }, [clubs, selectedSlug])
+
+  if (err && !profiles) return <div className="card text-sm text-red-600">{err}</div>
+  if (profiles === null || grants === null) return <div className="card text-sm text-slate-500">Loading…</div>
+  if (clubs.length === 0) {
+    return <div className="card text-sm text-slate-500">No clubs yet — players need a "Club" set on their profile to form one.</div>
+  }
+
+  const club = clubs.find((c) => c.slug === selectedSlug)
+  const grantedHere = grants.filter((g) => g.clubSlug === selectedSlug)
+  const isGranted = (uid: string) => grantedHere.some((g) => g.userId === uid)
+
+  const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const candidates = profiles
+    .filter((p) => {
+      if (tokens.length === 0) return true
+      const hay = [p.fullName, p.email, p.club, p.username].filter(Boolean).join(' ').toLowerCase()
+      return tokens.every((t) => hay.includes(t))
+    })
+    .slice(0, 20)
+
+  const toggle = async (uid: string, value: boolean) => {
+    if (!selectedSlug) return
+    setBusy(`${uid}|${selectedSlug}`)
+    setErr(null)
+    try {
+      await setClubAdmin(uid, selectedSlug, value)
+      const refreshed = await listClubAdminsForAdmin()
+      setGrants(refreshed)
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="card space-y-3">
+      <p className="text-sm text-slate-500">
+        Club admins can add and edit players in their club, and log/edit matches involving any
+        of their members. They cannot change global settings or promote other admins.
+      </p>
+      <div>
+        <label className="label" htmlFor="club-pick">Club</label>
+        <select
+          id="club-pick"
+          className="input w-full sm:max-w-md"
+          value={selectedSlug}
+          onChange={(e) => setSelectedSlug(e.target.value)}
+        >
+          {clubs.map((c) => (
+            <option key={c.slug} value={c.slug}>
+              {c.name} — {c.members} {c.members === 1 ? 'member' : 'members'}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {grantedHere.length > 0 ? (
+        <div>
+          <p className="text-xs uppercase tracking-wide text-slate-500 mb-1">
+            Current admins for {club?.name}
+          </p>
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {grantedHere.map((g) => {
+              const profile = profiles.find((p) => p.id === g.userId)
+              return (
+                <li key={g.userId} className="flex items-center gap-3 py-2">
+                  <PlayerAvatar name={g.fullName} avatarUrl={profile?.avatarUrl} size={32} />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{g.fullName}</div>
+                    <div className="text-xs text-slate-500 truncate">{g.email}</div>
+                  </div>
+                  <button
+                    className="btn-link-danger"
+                    onClick={() => toggle(g.userId, false)}
+                    disabled={busy === `${g.userId}|${selectedSlug}`}
+                  >
+                    Revoke
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500">No club admins yet for {club?.name}.</p>
+      )}
+
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-500 mt-3 mb-1">Add admin</p>
+        <input
+          type="search"
+          className="input w-full"
+          placeholder="Search registered users…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {search.trim() && (
+          <ul className="mt-2 divide-y divide-slate-100 dark:divide-slate-800 max-h-72 overflow-auto">
+            {candidates.map((p) => (
+              <li key={p.id} className="flex items-center gap-3 py-2">
+                <PlayerAvatar name={p.fullName} avatarUrl={p.avatarUrl} size={28} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{p.fullName}</div>
+                  <div className="text-xs text-slate-500 truncate">{[p.club, p.email].filter(Boolean).join(' · ')}</div>
+                </div>
+                {isGranted(p.id) ? (
+                  <span className="text-xs text-slate-400">already admin</span>
+                ) : (
+                  <button
+                    className="btn-link"
+                    onClick={() => toggle(p.id, true)}
+                    disabled={busy === `${p.id}|${selectedSlug}`}
+                  >
+                    {busy === `${p.id}|${selectedSlug}` ? '…' : 'Make admin'}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {err && <div className="text-sm text-red-600">{err}</div>}
     </div>
   )
 }

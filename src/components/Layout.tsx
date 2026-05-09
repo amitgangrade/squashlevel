@@ -21,6 +21,7 @@ import {
 const desktopNav = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/roster', label: 'Players' },
+  { to: '/clubs', label: 'Clubs' },
   { to: '/log', label: 'Log match' },
   { to: '/history', label: 'History' },
   { to: '/analytics', label: 'Analytics' },
@@ -263,6 +264,8 @@ function MoreSheet({
             label="Confirmations"
             badge={pendingCount > 0 ? pendingCount : undefined}
           />
+          <SheetLink to="/challenges" icon={<UsersIcon className="h-5 w-5" />} label="Challenges" />
+          <SheetLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />} label="Clubs" />
           <SheetLink to="/analytics" icon={<BarChartIcon className="h-5 w-5" />} label="Analytics" />
           {isAdmin && <SheetLink to="/settings" icon={<CogIcon className="h-5 w-5" />} label="Settings" />}
           <li>

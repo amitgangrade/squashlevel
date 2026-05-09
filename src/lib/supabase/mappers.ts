@@ -1,4 +1,4 @@
-import type { Match, Player, Settings } from '../../types'
+import type { Challenge, ChallengeStatus, ClubAdmin, Match, Player, Settings } from '../../types'
 
 export interface PlayerRow {
   id: string
@@ -127,6 +127,48 @@ export const fromMatchRow = (r: MatchRow): Match => ({
   autoConfirmed: r.auto_confirmed ?? undefined,
   createdBy: r.created_by ?? undefined,
   createdAt: r.created_at,
+})
+
+export interface ChallengeRow {
+  id: string
+  from_player_id: string
+  to_player_id: string
+  message: string | null
+  proposed_date: string | null
+  venue: string | null
+  status: ChallengeStatus
+  created_at: string
+  responded_at: string | null
+  created_by: string | null
+}
+
+export const fromChallengeRow = (r: ChallengeRow): Challenge => ({
+  id: r.id,
+  fromPlayerId: r.from_player_id,
+  toPlayerId: r.to_player_id,
+  message: r.message ?? undefined,
+  proposedDate: r.proposed_date ?? undefined,
+  venue: r.venue ?? undefined,
+  status: r.status,
+  createdAt: r.created_at,
+  respondedAt: r.responded_at ?? undefined,
+  createdBy: r.created_by ?? undefined,
+})
+
+export interface ClubAdminRow {
+  user_id: string
+  club_slug: string
+  full_name: string
+  email: string
+  granted_at: string
+}
+
+export const fromClubAdminRow = (r: ClubAdminRow): ClubAdmin => ({
+  userId: r.user_id,
+  clubSlug: r.club_slug,
+  fullName: r.full_name,
+  email: r.email,
+  grantedAt: r.granted_at,
 })
 
 export const toMatchRow = (m: Match): MatchRow => ({

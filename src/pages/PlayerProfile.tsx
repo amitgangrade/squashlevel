@@ -18,6 +18,8 @@ import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
+import { ChallengeButton } from '../components/ChallengeButton'
+import { ShareButton } from '../components/ShareButton'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL } from '../types'
 
 export function PlayerProfilePage() {
@@ -109,9 +111,14 @@ export function PlayerProfilePage() {
                 </span>
               </div>
             </div>
-            {isMe && (
-              <Link to="/profile" className="btn-secondary shrink-0">Edit</Link>
-            )}
+            <div className="flex flex-col gap-2 shrink-0">
+              {isMe ? (
+                <Link to="/profile" className="btn-secondary">Edit</Link>
+              ) : (
+                <ChallengeButton toPlayerId={player.id} toPlayerName={player.name} />
+              )}
+              <ShareButton kind="player" id={player.id} title={`${player.name} on Boast`} />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
