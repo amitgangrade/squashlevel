@@ -695,6 +695,11 @@ returns int
 language plpgsql
 security definer
 set search_path = public
+-- Functions inherit the caller's statement_timeout (8 s on Supabase's
+-- authenticated role) unless we override it here. Bulk UPDATE over a
+-- jsonb_to_recordset of ~thousands of rows can exceed that on a busy DB
+-- — this is admin-only and called rarely, so 5 minutes is plenty.
+set statement_timeout = '300s'
 as $$
 declare
   affected int;
@@ -732,6 +737,7 @@ returns int
 language plpgsql
 security definer
 set search_path = public
+set statement_timeout = '300s'
 as $$
 declare
   affected int;

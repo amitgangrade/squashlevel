@@ -58,8 +58,22 @@ interface StoreCtx {
   fetchRecentMatches: (limit: number, playerIds?: string[]) => Promise<Match[]>
   /** Admin-only. Recomputes levels from scratch over every rated match and
    *  writes the corrected fields back. Use after edits/deletes/disputes that
-   *  the incremental trigger can't handle accurately. */
-  rebuildLevels: () => Promise<{ matchesUpdated: number; playersUpdated: number }>
+   *  the incremental trigger can't handle accurately. State (running flag,
+   *  live status, error) lives in the store so it survives page navigation —
+   *  read `rebuild*` fields below to render UI. Calling while a rebuild is
+   *  already running is a no-op. */
+  rebuildLevels: () => Promise<{ matchesUpdated: number; playersUpdated: number } | null>
+  /** True while a rebuildLevels call is in flight. */
+  rebuildRunning: boolean
+  /** Live progress string, updated as the rebuild advances. Null when idle. */
+  rebuildStatus: string | null
+  /** Last error from rebuildLevels. Sticky — only cleared by dismissRebuildError
+   *  or by starting a new rebuild. Survives navigation. */
+  rebuildError: string | null
+  /** Epoch ms at which the current rebuild started; null when idle. Lets the
+   *  UI render a live elapsed-time counter. */
+  rebuildStartedAt: number | null
+  dismissRebuildError: () => void
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
@@ -74,6 +88,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [myPlayer, setMyPlayer] = useState<Player | null>(null)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [myClubAdminSlugs, setMyClubAdminSlugs] = useState<string[]>([])
+  // Rebuild-levels state: kept in the store rather than the Settings page so
+  // it survives navigation away and back.
+  const [rebuildRunning, setRebuildRunning] = useState(false)
+  const [rebuildStatus, setRebuildStatus] = useState<string | null>(null)
+  const [rebuildError, setRebuildError] = useState<string | null>(null)
+  const [rebuildStartedAt, setRebuildStartedAt] = useState<number | null>(null)
 
   useEffect(() => {
     if (!supabaseEnabled) {
@@ -433,12 +453,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     fetchRecentMatches: backend.fetchRecentMatches.bind(backend),
     rebuildLevels: async () => {
       requireAdmin()
-      const r = await backend.rebuildLevels()
-      // Pick up the corrected players (current_level / matches_played) for the
-      // current session — saves the user from having to refresh.
-      await refresh()
-      return r
+      // Concurrent-rebuild guard: a second click (e.g. after navigating away
+      // and coming back) is a silent no-op — the in-flight one keeps running.
+      if (rebuildRunning) return null
+      setRebuildRunning(true)
+      setRebuildError(null)
+      setRebuildStatus('Starting…')
+      setRebuildStartedAt(Date.now())
+      try {
+        const r = await backend.rebuildLevels((m) => setRebuildStatus(m))
+        setRebuildStatus('Refreshing local store…')
+        await refresh()
+        setRebuildStatus(null)
+        return r
+      } catch (err) {
+        const e = err as { message?: string; details?: string; hint?: string; code?: string }
+        const parts = [e.message, e.details, e.hint, e.code ? `code ${e.code}` : null].filter(Boolean)
+        let detail = parts.join(' — ')
+        if (!detail) {
+          try { detail = JSON.stringify(err, Object.getOwnPropertyNames(err as object)) } catch { detail = String(err) }
+        }
+        setRebuildError(detail || 'unknown error')
+        setRebuildStatus(null)
+        console.error('rebuildLevels failed', err)
+        throw err
+      } finally {
+        setRebuildRunning(false)
+        setRebuildStartedAt(null)
+      }
     },
+    rebuildRunning,
+    rebuildStatus,
+    rebuildError,
+    rebuildStartedAt,
+    dismissRebuildError: () => setRebuildError(null),
   }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

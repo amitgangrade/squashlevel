@@ -29,8 +29,10 @@ export interface Backend {
   fetchRecentMatches(limit: number, playerIds?: string[]): Promise<Match[]>
   /** Re-runs the rating algorithm over every rated match in date order, then
    *  bulk-writes the corrected level fields onto matches and players. Admin-only.
-   *  Used to correct drift after edits/deletes/disputes. */
-  rebuildLevels(): Promise<{ matchesUpdated: number; playersUpdated: number }>
+   *  Used to correct drift after edits/deletes/disputes.
+   *  `onProgress` is called whenever a phase advances (counts, RPC batches),
+   *  so the caller can render live status. */
+  rebuildLevels(onProgress?: (msg: string) => void): Promise<{ matchesUpdated: number; playersUpdated: number }>
 }
 
 const localBackend: Backend = {
@@ -69,12 +71,20 @@ const localBackend: Backend = {
     all.sort((a, b) => b.date.localeCompare(a.date))
     return all.slice(0, limit)
   },
-  async rebuildLevels() {
+  async rebuildLevels(onProgress) {
+    onProgress?.('Loading data…')
     const players = await local.getAllPlayers()
     const matches = await local.getAllMatches()
     const settings = await local.getSettings()
+    onProgress?.(`Computing levels for ${matches.length.toLocaleString()} matches…`)
     const result = recomputeAll(players, matches, settings)
-    for (const m of result.matches) await local.putMatch(m)
+    let done = 0
+    for (const m of result.matches) {
+      await local.putMatch(m)
+      done++
+      if (done % 50 === 0) onProgress?.(`Writing match updates… ${done.toLocaleString()} / ${result.matches.length.toLocaleString()}`)
+    }
+    onProgress?.('Done.')
     return { matchesUpdated: result.matches.length, playersUpdated: players.length }
   },
 }
@@ -97,30 +107,45 @@ let _importing = false
  *  gets quadratic past a few thousand rows. Cursor on (date, id) is O(1) per
  *  page provided matches_date_idx exists (it does). Pages are deliberately
  *  small so each query finishes well under the timeout even on a busy DB. */
-async function fetchAllMatchesByCursor(): Promise<MatchRow[]> {
+async function fetchAllMatchesByCursor(onProgress?: (loaded: number) => void): Promise<MatchRow[]> {
   const PAGE = 500
+  const ATTEMPTS = 5
   const all: MatchRow[] = []
   let lastDate: string | null = null
   let lastId: string | null = null
+  const isNetErr = (e: unknown) => e instanceof TypeError && /failed to fetch|network|aborted/i.test(e.message)
   // Hard ceiling on iterations as a paranoia stop in case something keeps
   // returning the same row (shouldn't happen with strict (date,id) cursor).
   for (let iter = 0; iter < 100_000; iter++) {
-    let q = supabase!
-      .from('matches')
-      .select('*')
-      .order('date', { ascending: true })
-      .order('id', { ascending: true })
-      .limit(PAGE)
-    if (lastDate !== null && lastId !== null) {
-      // (date, id) > (lastDate, lastId)
-      q = q.or(`date.gt.${lastDate},and(date.eq.${lastDate},id.gt.${lastId})`)
+    let attempt = 0
+    let pageData: MatchRow[] | null = null
+    while (attempt < ATTEMPTS) {
+      attempt++
+      try {
+        let q = supabase!
+          .from('matches')
+          .select('*')
+          .order('date', { ascending: true })
+          .order('id', { ascending: true })
+          .limit(PAGE)
+        if (lastDate !== null && lastId !== null) {
+          q = q.or(`date.gt.${lastDate},and(date.eq.${lastDate},id.gt.${lastId})`)
+        }
+        const { data, error } = await q
+        if (error) throw error
+        pageData = (data ?? []) as MatchRow[]
+        break
+      } catch (e) {
+        if (attempt >= ATTEMPTS || !isNetErr(e)) throw e
+        const delay = Math.min(1000 * 2 ** (attempt - 1), 8000) + Math.floor(Math.random() * 250)
+        await new Promise((r) => setTimeout(r, delay))
+      }
     }
-    const { data, error } = await q
-    if (error) throw error
-    if (!data || data.length === 0) break
-    all.push(...(data as MatchRow[]))
-    if (data.length < PAGE) break
-    const last = data[data.length - 1] as MatchRow
+    if (!pageData || pageData.length === 0) break
+    all.push(...pageData)
+    onProgress?.(all.length)
+    if (pageData.length < PAGE) break
+    const last = pageData[pageData.length - 1]
     lastDate = last.date
     lastId = last.id
   }
@@ -300,12 +325,13 @@ const cloudBackend: Backend = {
     if (error) throw error
     return (data as MatchRow[]).map(fromMatchRow)
   },
-  async rebuildLevels() {
+  async rebuildLevels(onProgress) {
     // Admin-only. Loads everything, runs the canonical rating algorithm, and
     // bulk-writes corrected level fields via two Postgres RPCs that accept
     // a JSON array and do the UPDATE in a single SQL statement. ~5–10 sec on
     // 300K matches; replaces the previous per-row UPDATE which was 30+ min.
     const sb = supabase!
+    const report = (msg: string) => { try { onProgress?.(msg) } catch { /* ignore */ } }
     // Wrap each phase so callers can pinpoint which step failed; bare 500s
     // from PostgREST often have empty error bodies that decode to {}.
     const phase = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
@@ -320,13 +346,15 @@ const cloudBackend: Backend = {
         throw wrapped
       }
     }
+    report('Loading players, matches and settings…')
     const [players, matchRows, sRes] = await Promise.all([
       phase('fetchAll players', () => fetchAll<PlayerRow>('players')),
-      phase('fetchAll matches (cursor)', () => fetchAllMatchesByCursor()),
+      phase('fetchAll matches (cursor)', () => fetchAllMatchesByCursor((n) => report(`Fetching matches… ${n.toLocaleString()} loaded`))),
       phase('fetch settings', () => sb.from('settings').select('*').eq('id', 'app').maybeSingle()),
     ])
     if (sRes.error) throw sRes.error
     const settings = (sRes.data as SettingsRow | null)?.data ?? DEFAULT_SETTINGS
+    report(`Loaded ${players.length.toLocaleString()} players and ${matchRows.length.toLocaleString()} matches. Computing levels…`)
     const playerObjs = players.map(fromPlayerRow)
     const matchObjs = matchRows.map(fromMatchRow)
     // Filter to the rated set used by recomputeAll (mirrors the store).
@@ -356,32 +384,72 @@ const cloudBackend: Backend = {
       }
     })
 
-    // ~200 B/row × 5000 ≈ 1 MB; stays well clear of the 6 MB body limit.
-    const RPC_BATCH = 5000
+    // ~200 B/row × 1500 ≈ 300 KB; well under the 6 MB body limit and small
+    // enough that each bulk UPDATE finishes comfortably under the function's
+    // statement_timeout even on a loaded DB.
+    const RPC_BATCH = 1500
     const RPC_PARALLEL = 4
 
-    const runBatches = async <T>(rows: T[], rpc: 'apply_match_level_updates' | 'apply_player_level_updates') => {
+    // Network blips on long-running rebuilds (proxy idle timeouts, transient
+    // DNS/TLS hiccups) surface as TypeError: Failed to fetch. Each RPC batch
+    // is idempotent — same input produces same DB state — so retry safely.
+    const ATTEMPTS = 5
+    const isRetryable = (e: unknown): boolean => {
+      if (e instanceof TypeError) return /failed to fetch|network|aborted/i.test(e.message)
+      const err = e as { message?: string; code?: string; status?: number }
+      // Retry on PostgREST 5xx and Postgres connection-related codes.
+      if (typeof err?.status === 'number' && err.status >= 500) return true
+      if (err?.code && /^08/.test(String(err.code))) return true // SQLSTATE class 08 — connection exception
+      return false
+    }
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+    const callRpcWithRetry = async <U>(rpcName: 'apply_match_level_updates' | 'apply_player_level_updates', batch: U[], idx: number) => {
+      let lastErr: unknown
+      for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+        try {
+          const { data, error } = await sb.rpc(rpcName, { updates: batch })
+          if (error) throw error
+          return Number(data ?? 0)
+        } catch (e) {
+          lastErr = e
+          if (attempt === ATTEMPTS || !isRetryable(e)) throw e
+          const delay = Math.min(1000 * 2 ** (attempt - 1), 8000) + Math.floor(Math.random() * 250)
+          report(`Batch ${idx} hit a transient error, retrying in ${(delay / 1000).toFixed(1)}s (attempt ${attempt + 1}/${ATTEMPTS})…`)
+          await sleep(delay)
+        }
+      }
+      throw lastErr
+    }
+
+    const runBatches = async <T>(
+      rows: T[],
+      rpc: 'apply_match_level_updates' | 'apply_player_level_updates',
+      noun: string,
+    ) => {
       let updated = 0
       const batches: T[][] = []
       for (let i = 0; i < rows.length; i += RPC_BATCH) batches.push(rows.slice(i, i + RPC_BATCH))
+      const total = rows.length
+      report(`Applying ${noun} updates… 0 / ${total.toLocaleString()}`)
       for (let bi = 0; bi < batches.length; bi += RPC_PARALLEL) {
         const slice = batches.slice(bi, bi + RPC_PARALLEL)
         await phase(`${rpc} batches ${bi}-${bi + slice.length - 1}`, () =>
           Promise.all(
-            slice.map((batch) =>
-              sb.rpc(rpc, { updates: batch }).then(({ data, error }) => {
-                if (error) throw error
-                updated += Number(data ?? 0)
-              }),
+            slice.map((batch, sliceIdx) =>
+              callRpcWithRetry(rpc, batch, bi + sliceIdx).then((n) => { updated += n }),
             ),
           ),
         )
+        const pct = total > 0 ? Math.round((updated / total) * 100) : 100
+        report(`Applying ${noun} updates… ${updated.toLocaleString()} / ${total.toLocaleString()} (${pct}%)`)
       }
       return updated
     }
 
-    const matchesUpdated = await runBatches(matchUpdates, 'apply_match_level_updates')
-    const playersUpdated = await runBatches(playerUpdates, 'apply_player_level_updates')
+    const matchesUpdated = await runBatches(matchUpdates, 'apply_match_level_updates', 'match')
+    const playersUpdated = await runBatches(playerUpdates, 'apply_player_level_updates', 'player')
+    report('Done.')
     return { matchesUpdated, playersUpdated }
   },
 }

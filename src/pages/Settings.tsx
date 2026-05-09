@@ -9,12 +9,24 @@ import { PlayerAvatar } from '../components/PlayerAvatar'
 import type { ClubAdmin } from '../types'
 
 export function SettingsPage() {
-  const { settings, isAdmin, updateSettings, resetAll, refresh, rebuildLevels } = useStore()
+  const {
+    settings, isAdmin, updateSettings, resetAll, refresh,
+    rebuildLevels, rebuildRunning, rebuildStatus, rebuildError, rebuildStartedAt, dismissRebuildError,
+  } = useStore()
   const [draft, setDraft] = useState<Settings>(settings)
   const [msg, setMsg] = useState('')
   const [importing, setImporting] = useState(false)
-  const [rebuilding, setRebuilding] = useState(false)
+  const [, forceTick] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Tick once a second while rebuilding so the elapsed-time counter stays
+  // live. Driven by store state, so it picks back up correctly if the user
+  // navigates away and returns mid-rebuild.
+  useEffect(() => {
+    if (!rebuildRunning) return
+    const t = setInterval(() => forceTick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [rebuildRunning])
 
   const save = async () => {
     await updateSettings(draft)
@@ -55,29 +67,23 @@ export function SettingsPage() {
   }
 
   const onRebuild = async () => {
+    if (rebuildRunning) return
     if (!window.confirm('Recompute every player\'s level and match count from match history? This may take a while on large datasets.')) return
-    setRebuilding(true)
-    setMsg('Rebuilding levels…')
     try {
       const r = await rebuildLevels()
-      setMsg(`Rebuild complete: ${r.matchesUpdated} matches, ${r.playersUpdated} players updated.`)
-    } catch (err) {
-      // Supabase PostgrestError carries .message + .details + .hint; some
-      // 500s come back with empty error bodies, in which case fall back to
-      // JSON.stringify so we see *something*.
-      const e = err as { message?: string; details?: string; hint?: string; code?: string }
-      const parts = [e.message, e.details, e.hint, e.code ? `code ${e.code}` : null].filter(Boolean)
-      let detail = parts.join(' — ')
-      if (!detail) {
-        try { detail = JSON.stringify(err, Object.getOwnPropertyNames(err as object)) } catch { detail = String(err) }
+      // r is null only if a guard rejected the call (already running) — else
+      // we have a fresh result to surface. Error path is handled by the store
+      // setting rebuildError; nothing to do here.
+      if (r) {
+        setMsg(`Rebuild complete: ${r.matchesUpdated.toLocaleString()} matches, ${r.playersUpdated.toLocaleString()} players updated.`)
+        setTimeout(() => setMsg(''), 8000)
       }
-      setMsg('Rebuild failed: ' + (detail || 'unknown error'))
-      console.error('rebuildLevels failed', err)
-    } finally {
-      setRebuilding(false)
-      setTimeout(() => setMsg(''), 8000)
+    } catch {
+      // Already captured into rebuildError by the store; no extra UI work here.
     }
   }
+
+  const elapsedLabel = rebuildStartedAt ? `${Math.floor((Date.now() - rebuildStartedAt) / 1000)}s` : ''
 
   const num = (val: string, fallback: number) => {
     const n = Number(val)
@@ -179,16 +185,49 @@ export function SettingsPage() {
 
       <section>
         <h2 className="mb-3">Maintenance</h2>
-        <div className="card space-y-2 max-w-lg">
+        <div className="card space-y-3 max-w-lg">
           <p className="text-sm text-slate-500">
             Recompute every player's current level and match count by replaying all confirmed matches.
             Use this after editing or deleting old matches, or after a dispute that flipped a confirmed match — incremental updates can drift in those cases.
           </p>
-          <div className="flex gap-2 flex-wrap">
-            <button className="btn-secondary" onClick={onRebuild} disabled={rebuilding}>
-              {rebuilding ? 'Rebuilding…' : 'Rebuild levels'}
+          <div className="flex gap-2 flex-wrap items-center">
+            <button className="btn-secondary" onClick={onRebuild} disabled={rebuildRunning}>
+              {rebuildRunning ? 'Rebuilding…' : 'Rebuild levels'}
             </button>
+            {rebuildRunning && (
+              <span className="text-xs text-slate-500">elapsed {elapsedLabel}</span>
+            )}
           </div>
+
+          {rebuildStatus && (
+            <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3">
+              <div className="flex items-center gap-2">
+                <Spinner />
+                <div className="text-sm text-slate-700 dark:text-slate-200 truncate">{rebuildStatus}</div>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                Safe to navigate to other pages — rebuild keeps running in the background.
+              </div>
+            </div>
+          )}
+
+          {rebuildError && (
+            <div className="rounded border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-900/20 p-3">
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-red-700 dark:text-red-300">Rebuild failed</div>
+                  <pre className="mt-1 text-xs whitespace-pre-wrap break-words text-red-800 dark:text-red-200">{rebuildError}</pre>
+                </div>
+                <button
+                  onClick={dismissRebuildError}
+                  aria-label="Dismiss error"
+                  className="text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 rounded px-2 py-0.5 leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
@@ -211,6 +250,15 @@ export function SettingsPage() {
 
       {msg && <div className="fixed bottom-4 right-4 card text-sm">{msg}</div>}
     </div>
+  )
+}
+
+function Spinner() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-slate-300 border-t-brand-600 animate-spin dark:border-slate-700 dark:border-t-brand-400"
+    />
   )
 }
 
