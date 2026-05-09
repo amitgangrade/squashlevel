@@ -81,7 +81,8 @@ export function GroupsPage() {
       </div>
       <p className="text-sm text-slate-500">
         Groups are casual circles of players who play often — your WhatsApp/Telegram squash crew.
-        Anyone can start a group; members are added by an admin.
+        Anyone can start a group and automatically becomes its admin; admins add members and can
+        promote other members to admin too.
       </p>
 
       {isAdmin && groups.some((g) => g.isPrivate && !roles.has(g.id)) && (
