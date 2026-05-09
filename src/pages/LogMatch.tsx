@@ -134,7 +134,7 @@ export function LogMatchPage() {
       })
       // Haptic feedback (Chrome Android etc; iOS Safari ignores it gracefully).
       if ('vibrate' in navigator) navigator.vibrate(40)
-      navigate('/history')
+      navigate('/')
     } catch (e) {
       setError((e as Error).message)
     }

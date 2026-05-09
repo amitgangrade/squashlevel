@@ -66,6 +66,11 @@ alter table public.players add column if not exists birth_year smallint;
 alter table public.players add column if not exists gender text;
 alter table public.players add column if not exists dominant_hand text;
 
+-- Server-truth current rating + match count, maintained by the matches trigger.
+-- NULL current_level means "use starting_level" (untouched player).
+alter table public.players add column if not exists current_level numeric;
+alter table public.players add column if not exists matches_played integer not null default 0;
+
 -- Trigram index for fast ilike search at scale (tens of thousands of players).
 create extension if not exists pg_trgm;
 create index if not exists players_name_trgm_idx on public.players using gin (name gin_trgm_ops);
@@ -95,6 +100,20 @@ alter table public.matches add column if not exists venue text;
 -- When true, the match is recorded for posterity but excluded from rating
 -- calculations (e.g. friendly knockabouts both players agreed not to count).
 alter table public.matches add column if not exists unranked boolean not null default false;
+
+-- Server-truth level snapshots. The client computes these via updateLevels()
+-- before insert (so we don't have to port the rating math to plpgsql); the
+-- AFTER trigger below pushes the *_after values to players.current_level when
+-- the match becomes part of the rated set. The "Rebuild levels" admin action
+-- corrects drift after edits/deletes.
+alter table public.matches add column if not exists level_a_before numeric;
+alter table public.matches add column if not exists level_a_after  numeric;
+alter table public.matches add column if not exists level_b_before numeric;
+alter table public.matches add column if not exists level_b_after  numeric;
+alter table public.matches add column if not exists delta_a        numeric;
+alter table public.matches add column if not exists delta_b        numeric;
+alter table public.matches add column if not exists provisional_a  boolean;
+alter table public.matches add column if not exists provisional_b  boolean;
 
 -- Backfill existing matches as already confirmed (preserves leaderboard).
 update public.matches set status = 'confirmed', confirmed_at = coalesce(confirmed_at, created_at)
@@ -462,6 +481,124 @@ drop trigger if exists matches_before_insert on public.matches;
 create trigger matches_before_insert
   before insert on public.matches
   for each row execute function public.matches_before_insert();
+
+-- ---------------------------------------------------------------------------
+-- matches_after_levels: maintain players.current_level + matches_played from
+-- the *_after fields stored on each match. Math runs on the client; this
+-- trigger only does simple bookkeeping.
+--
+-- INSERT path:
+--   When a match arrives confirmed and ranked, push level_a_after/level_b_after
+--   to players.current_level and bump matches_played.
+--
+-- UPDATE path (status flips):
+--   pending  -> confirmed: same as insert (apply deltas).
+--   confirmed -> disputed: revert (subtract deltas, decrement count).
+--   disputed -> confirmed: re-apply.
+-- These reverts are accurate only when nothing newer has been rated for the
+-- same players. After edits/deletes that violate that, run the admin
+-- "Rebuild levels" action to recompute from scratch.
+--
+-- DELETE path:
+--   Revert if the match was rated. Same caveat about subsequent matches.
+--
+-- Unranked matches: never affect current_level or matches_played.
+-- ---------------------------------------------------------------------------
+create or replace function public.matches_after_levels()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  was_rated boolean;
+  is_rated  boolean;
+begin
+  if tg_op = 'INSERT' then
+    is_rated := (new.status = 'confirmed') and not coalesce(new.unranked, false);
+    if is_rated and new.level_a_after is not null then
+      update public.players
+         set current_level = new.level_a_after,
+             matches_played = matches_played + 1
+       where id = new.player_a_id;
+    end if;
+    if is_rated and new.level_b_after is not null then
+      update public.players
+         set current_level = new.level_b_after,
+             matches_played = matches_played + 1
+       where id = new.player_b_id;
+    end if;
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    was_rated := (old.status = 'confirmed') and not coalesce(old.unranked, false);
+    is_rated  := (new.status = 'confirmed') and not coalesce(new.unranked, false);
+
+    -- Becoming rated: apply.
+    if not was_rated and is_rated then
+      if new.level_a_after is not null then
+        update public.players
+           set current_level = new.level_a_after,
+               matches_played = matches_played + 1
+         where id = new.player_a_id;
+      end if;
+      if new.level_b_after is not null then
+        update public.players
+           set current_level = new.level_b_after,
+               matches_played = matches_played + 1
+         where id = new.player_b_id;
+      end if;
+    -- Becoming unrated: revert.
+    elsif was_rated and not is_rated then
+      if old.level_a_after is not null and old.level_a_before is not null then
+        update public.players
+           set current_level = old.level_a_before,
+               matches_played = greatest(matches_played - 1, 0)
+         where id = old.player_a_id;
+      end if;
+      if old.level_b_after is not null and old.level_b_before is not null then
+        update public.players
+           set current_level = old.level_b_before,
+               matches_played = greatest(matches_played - 1, 0)
+         where id = old.player_b_id;
+      end if;
+    end if;
+    return new;
+  end if;
+
+  if tg_op = 'DELETE' then
+    was_rated := (old.status = 'confirmed') and not coalesce(old.unranked, false);
+    if was_rated then
+      if old.level_a_after is not null and old.level_a_before is not null then
+        update public.players
+           set current_level = old.level_a_before,
+               matches_played = greatest(matches_played - 1, 0)
+         where id = old.player_a_id;
+      end if;
+      if old.level_b_after is not null and old.level_b_before is not null then
+        update public.players
+           set current_level = old.level_b_before,
+               matches_played = greatest(matches_played - 1, 0)
+         where id = old.player_b_id;
+      end if;
+    end if;
+    return old;
+  end if;
+
+  return null;
+end;
+$$;
+
+drop trigger if exists matches_after_levels on public.matches;
+create trigger matches_after_levels
+  after insert or update or delete on public.matches
+  for each row execute function public.matches_after_levels();
+
+-- Backfill on first migration: any existing rows where players.current_level
+-- is still NULL should fall back to starting_level on read. Frontend handles
+-- the fallback, so nothing to do here; run the admin "Rebuild levels" action
+-- once after deploying this migration to seed accurate values.
 
 -- confirm_match: the opponent (NOT the recorder) marks a pending match as
 -- confirmed or disputed. Throws on misuse so the client surfaces clear errors.

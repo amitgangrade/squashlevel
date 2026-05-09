@@ -9,10 +9,11 @@ import { PlayerAvatar } from '../components/PlayerAvatar'
 import type { ClubAdmin } from '../types'
 
 export function SettingsPage() {
-  const { settings, isAdmin, updateSettings, resetAll, refresh } = useStore()
+  const { settings, isAdmin, updateSettings, resetAll, refresh, rebuildLevels } = useStore()
   const [draft, setDraft] = useState<Settings>(settings)
   const [msg, setMsg] = useState('')
   const [importing, setImporting] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const save = async () => {
@@ -51,6 +52,27 @@ export function SettingsPage() {
     setDraft(DEFAULT_SETTINGS)
     setMsg('All data cleared.')
     setTimeout(() => setMsg(''), 2500)
+  }
+
+  const onRebuild = async () => {
+    if (!window.confirm('Recompute every player\'s level and match count from match history? This may take a while on large datasets.')) return
+    setRebuilding(true)
+    setMsg('Rebuilding levels…')
+    try {
+      const r = await rebuildLevels()
+      setMsg(`Rebuild complete: ${r.matchesUpdated} matches, ${r.playersUpdated} players updated.`)
+    } catch (err) {
+      // Supabase PostgrestError carries .message + .details + .hint — surface
+      // them all so a 400 from a missing column or constraint is debuggable
+      // without diving into the network tab.
+      const e = err as { message?: string; details?: string; hint?: string; code?: string }
+      const parts = [e.message, e.details, e.hint, e.code ? `code ${e.code}` : null].filter(Boolean)
+      setMsg('Rebuild failed: ' + (parts.join(' — ') || 'unknown error'))
+      console.error('rebuildLevels failed', err)
+    } finally {
+      setRebuilding(false)
+      setTimeout(() => setMsg(''), 8000)
+    }
   }
 
   const num = (val: string, fallback: number) => {
@@ -147,6 +169,21 @@ export function SettingsPage() {
           <div className="flex gap-2">
             <button className="btn-primary" onClick={save}>Save</button>
             <button className="btn-secondary" onClick={() => setDraft(DEFAULT_SETTINGS)}>Reset to defaults</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-3">Maintenance</h2>
+        <div className="card space-y-2 max-w-lg">
+          <p className="text-sm text-slate-500">
+            Recompute every player's current level and match count by replaying all confirmed matches.
+            Use this after editing or deleting old matches, or after a dispute that flipped a confirmed match — incremental updates can drift in those cases.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <button className="btn-secondary" onClick={onRebuild} disabled={rebuilding}>
+              {rebuilding ? 'Rebuilding…' : 'Rebuild levels'}
+            </button>
           </div>
         </div>
       </section>

@@ -3,16 +3,12 @@ import { Pagination } from '../components/Pagination'
 import { Link, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
-import type { Match } from '../types'
-import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
+import { fmtLevel, playerAge } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
-import { summarizeMatch } from '../lib/match-summary'
-import { GameScores } from '../components/MatchScores'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonRow } from '../components/Skeleton'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
-import { UnrankedTag } from '../components/UnrankedTag'
 
 const AUTO_CONFIRM_KICK_KEY = 'sl_auto_confirm_kicked_at'
 const AUTO_CONFIRM_KICK_INTERVAL_MS = 60 * 60 * 1000 // 1h
@@ -26,7 +22,7 @@ const FILTER_LABEL: Record<FilterKey, string> = {
 }
 
 export function LeaderboardPage() {
-  const { players, matches, recomputed, settings, isAdmin, session, myPlayer, loading, refresh, pendingForMe, runAutoConfirmAged, fetchRecentMatches } = useStore()
+  const { players, recomputed, settings, isAdmin, session, myPlayer, loading, refresh, pendingForMe, runAutoConfirmAged } = useStore()
   const signedIn = !!session
   const canLogMatch = signedIn && (isAdmin || !!myPlayer)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -43,7 +39,7 @@ export function LeaderboardPage() {
 
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
-  const PAGE_SIZE = 100
+  const PAGE_SIZE = 50
 
   const filters = useMemo(() => {
     const out: Partial<Record<FilterKey, string>> = {}
@@ -69,17 +65,23 @@ export function LeaderboardPage() {
     () =>
       players
         .map((p) => {
+          // Prefer server-truth fields on Player (cloud); fall back to the
+          // in-memory recompute (local mode where matches are fully loaded).
           const s = recomputed.states.get(p.id)
-          const level = s?.currentLevel ?? p.startingLevel
-          const ranking = s ? movingAverage(s.history, settings.movingAverageWindow) : level
+          const level = p.currentLevel ?? s?.currentLevel ?? p.startingLevel
+          const played = p.matchesPlayed ?? s?.matchesPlayed ?? 0
+          // moving-average ranking still requires per-match history — only
+          // available from the in-memory recompute. When matches aren't loaded
+          // we sort by the current level itself.
+          const ranking = s && s.history.length > 1 ? movingAverage(s.history, settings.movingAverageWindow) : level
           return {
             id: p.id,
             name: p.name,
             player: p,
             level,
             ranking,
-            played: s?.matchesPlayed ?? 0,
-            provisional: (s?.matchesPlayed ?? 0) < settings.provisionalThreshold,
+            played,
+            provisional: played < settings.provisionalThreshold,
           }
         })
         .sort((a, b) => b.ranking - a.ranking),
@@ -113,10 +115,6 @@ export function LeaderboardPage() {
     [rows, page, PAGE_SIZE],
   )
 
-  const [recent, setRecent] = useState<Match[]>([])
-  useEffect(() => {
-    fetchRecentMatches(5).then(setRecent).catch(console.error)
-  }, [fetchRecentMatches])
   const activeFilters = FILTER_KEYS.filter((k) => filters[k])
 
   return (
@@ -236,7 +234,7 @@ export function LeaderboardPage() {
                           <PlayerMetaLinks player={r.player} />
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
-                          {r.played} {r.played === 1 ? 'match' : 'matches'} · 4-match avg {fmtLevel(r.ranking)}
+                          {r.played} {r.played === 1 ? 'match' : 'matches'}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
@@ -255,14 +253,18 @@ export function LeaderboardPage() {
                     <tr>
                       <th className="px-3 py-2 text-left">#</th>
                       <th className="px-3 py-2 text-left">Player</th>
-                      <th className="px-3 py-2 text-right">Level</th>
-                      <th className="px-3 py-2 text-right">4-match avg</th>
+                      <th className="px-3 py-2 text-left">Club</th>
+                      <th className="px-3 py-2 text-left">Country</th>
+                      <th className="px-3 py-2 text-left">City</th>
+                      <th className="px-3 py-2 text-right">Age</th>
                       <th className="px-3 py-2 text-right">Matches</th>
+                      <th className="px-3 py-2 text-right">Level</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleRows.map((r, i) => {
                       const rank = page * PAGE_SIZE + i + 1
+                      const age = playerAge(r.player.birthYear)
                       return (
                         <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
                           <td className="px-3 py-2 text-slate-400">{rank}</td>
@@ -276,15 +278,27 @@ export function LeaderboardPage() {
                                   <PlayerLink id={r.id} name={r.name} />
                                   {r.provisional && <span className="ml-2 tag">P</span>}
                                 </div>
-                                <div className="truncate">
-                                  <PlayerMetaLinks player={r.player} />
-                                </div>
                               </div>
                             </div>
                           </td>
-                          <td className="px-3 py-2 text-right font-semibold">{fmtLevel(r.level)}</td>
-                          <td className="px-3 py-2 text-right">{fmtLevel(r.ranking)}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-300 truncate max-w-[12rem]">
+                            {r.player.club ? (
+                              <Link to={`/?club=${encodeURIComponent(r.player.club)}`} className="hover:underline">{r.player.club}</Link>
+                            ) : ''}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-300 truncate max-w-[10rem]">
+                            {r.player.country ? (
+                              <Link to={`/?country=${encodeURIComponent(r.player.country)}`} className="hover:underline">{r.player.country}</Link>
+                            ) : ''}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-300 truncate max-w-[10rem]">
+                            {r.player.city ? (
+                              <Link to={`/?city=${encodeURIComponent(r.player.city)}`} className="hover:underline">{r.player.city}</Link>
+                            ) : ''}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-500">{age ?? ''}</td>
                           <td className="px-3 py-2 text-right text-slate-500">{r.played}</td>
+                          <td className="px-3 py-2 text-right font-semibold">{fmtLevel(r.level)}</td>
                         </tr>
                       )
                     })}
@@ -299,78 +313,6 @@ export function LeaderboardPage() {
                 noun="players"
               />
             </>
-          )}
-        </section>
-
-        <section>
-          <div className="flex items-center justify-between mb-2">
-            <h2>Recent matches</h2>
-            {matches.length > 0 && <Link to="/history" className="text-sm text-brand-600 active:text-brand-700">View all →</Link>}
-          </div>
-          {loading && recent.length === 0 ? (
-            <div className="space-y-2">
-              <SkeletonRow />
-              <SkeletonRow />
-            </div>
-          ) : recent.length === 0 ? (
-            <div className="card text-center text-slate-500">No matches logged yet.</div>
-          ) : (
-            <div className="space-y-2">
-              {recent.map((m) => {
-                const s = summarizeMatch(m, players)
-                const aIsWinner = !s.isDraw && s.winnerId === m.playerAId
-                const bIsWinner = !s.isDraw && s.winnerId === m.playerBId
-                const a = players.find((p) => p.id === m.playerAId)
-                const b = players.find((p) => p.id === m.playerBId)
-                return (
-                  <div key={m.id} className="card space-y-2">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <PlayerLink
-                        id={m.playerAId}
-                        name={s.aName}
-                        className={clsx('font-semibold', aIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
-                      />
-                      <span className="font-mono">
-                        <span className={aIsWinner ? 'font-bold' : ''}>{s.aGames}</span>
-                        <span className="text-slate-400 mx-1">–</span>
-                        <span className={bIsWinner ? 'font-bold' : ''}>{s.bGames}</span>
-                      </span>
-                      <PlayerLink
-                        id={m.playerBId}
-                        name={s.bName}
-                        className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
-                      />
-                      {m.unranked && <UnrankedTag />}
-                    </div>
-                    {(a || b) && (
-                      <div className="grid sm:grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
-                        {a && <div className="truncate"><span className="text-slate-400">{s.aName}: </span><PlayerMetaLinks player={a} /></div>}
-                        {b && <div className="truncate"><span className="text-slate-400">{s.bName}: </span><PlayerMetaLinks player={b} /></div>}
-                      </div>
-                    )}
-                    <div className="text-xs text-slate-500">
-                      {fmtDate(m.date)} · {m.type}
-                      {m.venue && <> · {m.venue}</>}
-                    </div>
-                    <div className="text-xs">
-                      <GameScores games={m.games} />
-                    </div>
-                    {!m.unranked && (
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
-                        <span>
-                          <PlayerLink id={m.playerAId} name={s.aName} className="text-slate-500" />{' '}
-                          <span className={(m.deltaA ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaA)}</span>
-                        </span>
-                        <span>
-                          <PlayerLink id={m.playerBId} name={s.bName} className="text-slate-500" />{' '}
-                          <span className={(m.deltaB ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaB)}</span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
           )}
         </section>
       </div>

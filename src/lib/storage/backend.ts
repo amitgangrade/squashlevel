@@ -9,6 +9,7 @@ import {
   type PlayerRow,
   type SettingsRow,
 } from '../supabase/mappers'
+import { recomputeAll } from '../rating/recompute'
 import * as local from './db'
 
 export interface Backend {
@@ -26,6 +27,10 @@ export interface Backend {
   subscribe?(onChange: () => void): () => void
   fetchMatchesPage(page: number, pageSize: number, playerId?: string): Promise<{ data: Match[]; count: number }>
   fetchRecentMatches(limit: number, playerIds?: string[]): Promise<Match[]>
+  /** Re-runs the rating algorithm over every rated match in date order, then
+   *  bulk-writes the corrected level fields onto matches and players. Admin-only.
+   *  Used to correct drift after edits/deletes/disputes. */
+  rebuildLevels(): Promise<{ matchesUpdated: number; playersUpdated: number }>
 }
 
 const localBackend: Backend = {
@@ -63,7 +68,15 @@ const localBackend: Backend = {
     }
     all.sort((a, b) => b.date.localeCompare(a.date))
     return all.slice(0, limit)
-  }
+  },
+  async rebuildLevels() {
+    const players = await local.getAllPlayers()
+    const matches = await local.getAllMatches()
+    const settings = await local.getSettings()
+    const result = recomputeAll(players, matches, settings)
+    for (const m of result.matches) await local.putMatch(m)
+    return { matchesUpdated: result.matches.length, playersUpdated: players.length }
+  },
 }
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -250,7 +263,87 @@ const cloudBackend: Backend = {
     const { data, error } = await q.order('date', { ascending: false }).limit(limit)
     if (error) throw error
     return (data as MatchRow[]).map(fromMatchRow)
-  }
+  },
+  async rebuildLevels() {
+    // Admin-only. Loads everything, runs the canonical rating algorithm, and
+    // bulk-writes corrected level fields back to matches + players. The
+    // matches AFTER trigger fires for each updated row but updates with
+    // unchanged-status are no-ops on the players table; we explicitly set
+    // current_level / matches_played afterwards from the recompute result.
+    const sb = supabase!
+    const [players, matchRows, sRes] = await Promise.all([
+      fetchAll<PlayerRow>('players'),
+      fetchAll<MatchRow>('matches', { column: 'date', ascending: true }),
+      sb.from('settings').select('*').eq('id', 'app').maybeSingle(),
+    ])
+    if (sRes.error) throw sRes.error
+    const settings = (sRes.data as SettingsRow | null)?.data ?? DEFAULT_SETTINGS
+    const playerObjs = players.map(fromPlayerRow)
+    const matchObjs = matchRows.map(fromMatchRow)
+    // Filter to the rated set used by recomputeAll (mirrors the store).
+    const ratedMatches = matchObjs.filter((m) => !m.status || m.status === 'confirmed')
+    const result = recomputeAll(playerObjs, ratedMatches, settings)
+
+    // Per-row UPDATE — can't use upsert here because that runs INSERT first,
+    // which would trip NOT NULL on date/player_a_id/etc. since our payload
+    // only carries the level fields. Patches in parallel batches.
+    const matchUpdates = result.matches.map((m) => ({
+      id: m.id,
+      patch: {
+        level_a_before: m.levelABefore ?? null,
+        level_a_after:  m.levelAAfter  ?? null,
+        level_b_before: m.levelBBefore ?? null,
+        level_b_after:  m.levelBAfter  ?? null,
+        delta_a: m.deltaA ?? null,
+        delta_b: m.deltaB ?? null,
+        provisional_a: m.provisionalA ?? null,
+        provisional_b: m.provisionalB ?? null,
+      },
+    }))
+    let matchesUpdated = 0
+    const M_PARALLEL = 8
+    for (let i = 0; i < matchUpdates.length; i += M_PARALLEL) {
+      const batch = matchUpdates.slice(i, i + M_PARALLEL)
+      await Promise.all(
+        batch.map((u) =>
+          sb.from('matches').update(u.patch).eq('id', u.id).then(({ error }) => {
+            if (error) throw error
+            matchesUpdated += 1
+          }),
+        ),
+      )
+    }
+
+    // Now reset players' current_level / matches_played from the recompute
+    // states. We update one at a time since there's no bulk patch in REST.
+    let playersUpdated = 0
+    const updates: Array<{ id: string; current_level: number | null; matches_played: number }> = []
+    for (const p of playerObjs) {
+      const s = result.states.get(p.id)
+      updates.push({
+        id: p.id,
+        current_level: s?.currentLevel ?? null,
+        matches_played: s?.matchesPlayed ?? 0,
+      })
+    }
+    // Patch in parallel batches.
+    const PARALLEL = 6
+    for (let i = 0; i < updates.length; i += PARALLEL) {
+      const batch = updates.slice(i, i + PARALLEL)
+      await Promise.all(
+        batch.map((u) =>
+          sb.from('players')
+            .update({ current_level: u.current_level, matches_played: u.matches_played })
+            .eq('id', u.id)
+            .then(({ error }) => {
+              if (error) throw error
+              playersUpdated += 1
+            }),
+        ),
+      )
+    }
+    return { matchesUpdated, playersUpdated }
+  },
 }
 
 export const backend: Backend = supabase ? cloudBackend : localBackend

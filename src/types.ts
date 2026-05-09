@@ -33,6 +33,10 @@ export const PlayerSchema = z.object({
   birthYear: z.number().int().min(1900).max(new Date().getFullYear()).optional(),
   gender: z.enum(['male', 'female']).optional(),
   dominantHand: z.enum(['right', 'left', 'ambi']).optional(),
+  // Server-managed: maintained by the matches trigger. NULL when the player has
+  // not yet played a rated match — frontend should fall back to startingLevel.
+  currentLevel: z.number().optional(),
+  matchesPlayed: z.number().int().nonnegative().optional(),
 })
 export type Player = z.infer<typeof PlayerSchema>
 

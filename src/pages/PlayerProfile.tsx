@@ -73,10 +73,13 @@ export function PlayerProfilePage() {
     )
   }
 
-  const currentLevel = state?.currentLevel ?? player.startingLevel
-  const matchesPlayed = state?.matchesPlayed ?? 0
+  // Prefer server-truth on Player; fall back to in-memory recompute (local mode).
+  const currentLevel = player.currentLevel ?? state?.currentLevel ?? player.startingLevel
+  const matchesPlayed = player.matchesPlayed ?? state?.matchesPlayed ?? playerMatches.length
   const provisional = matchesPlayed < settings.provisionalThreshold
-  const ranking = state ? movingAverage(state.history, settings.movingAverageWindow) : currentLevel
+  const ranking = state && state.history.length > 1
+    ? movingAverage(state.history, settings.movingAverageWindow)
+    : currentLevel
   const isMe = myPlayer?.id === player.id
   const age = playerAge(player.birthYear)
   const recent = stats?.matches.slice(0, 10) ?? []
@@ -84,13 +87,32 @@ export function PlayerProfilePage() {
   // Note: we might want a loading state here if matches takes a second to load
   // But for now it will just show 0 matches until loaded
 
+  // Build the chart from each match's stored *_after value for this player.
+  // Falls back to the in-memory recompute history when matches haven't been
+  // fetched yet (or local mode with no level fields).
   const chartData = useMemo(() => {
-    if (!state) return []
-    return state.history.map((h) => ({
-      date: h.date,
-      level: Math.round(h.level),
-    }))
-  }, [state])
+    if (!player) return []
+    const fromMatches: Array<{ date: string; level: number }> = []
+    const sorted = [...playerMatches].sort((a, b) => a.date.localeCompare(b.date))
+    for (const m of sorted) {
+      if (m.unranked) continue
+      if (m.status && m.status !== 'confirmed') continue
+      const isA = m.playerAId === player.id
+      const after = isA ? m.levelAAfter : m.levelBAfter
+      if (after == null) continue
+      fromMatches.push({ date: m.date, level: Math.round(after) })
+    }
+    if (fromMatches.length > 0) {
+      return [
+        { date: player.createdAt, level: Math.round(player.startingLevel) },
+        ...fromMatches,
+      ]
+    }
+    if (state) {
+      return state.history.map((h) => ({ date: h.date, level: Math.round(h.level) }))
+    }
+    return []
+  }, [player, playerMatches, state])
 
   return (
     <div className="space-y-6">
@@ -180,11 +202,6 @@ export function PlayerProfilePage() {
       <section>
         <div className="flex items-center justify-between mb-2">
           <h2>Recent matches</h2>
-          {stats && stats.total > recent.length && (
-            <Link to="/history" className="text-sm text-brand-600 active:text-brand-700">
-              View all →
-            </Link>
-          )}
         </div>
         {recent.length === 0 ? (
           <div className="card text-center text-slate-500">No matches yet.</div>
@@ -194,7 +211,10 @@ export function PlayerProfilePage() {
               const s = summarizeMatch(m, players)
               const aIsWinner = !s.isDraw && s.winnerId === m.playerAId
               const bIsWinner = !s.isDraw && s.winnerId === m.playerBId
-              const myDelta = m.playerAId === player.id ? m.deltaA : m.deltaB
+              const isA = m.playerAId === player.id
+              const myBefore = isA ? m.levelABefore : m.levelBBefore
+              const myAfter = isA ? m.levelAAfter : m.levelBAfter
+              const myDelta = isA ? m.deltaA : m.deltaB
               return (
                 <div key={m.id} className="card space-y-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -213,19 +233,26 @@ export function PlayerProfilePage() {
                       name={s.bName}
                       className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
                     />
-                    {m.unranked ? (
-                      <span className="ml-auto"><UnrankedTag /></span>
-                    ) : myDelta != null ? (
-                      <span className={clsx('ml-auto text-xs font-semibold', myDelta >= 0 ? 'text-green-600' : 'text-red-600')}>
-                        {fmtDelta(myDelta)}
-                      </span>
-                    ) : null}
+                    {m.unranked && <span className="ml-auto"><UnrankedTag /></span>}
                   </div>
                   <div className="text-xs text-slate-500">
                     {fmtDate(m.date)} · {m.type}
                     {m.venue && <> · {m.venue}</>}
                   </div>
                   <GameScores games={m.games} />
+                  {!m.unranked && myBefore != null && myAfter != null && (
+                    <div className="text-xs flex flex-wrap items-baseline gap-x-1 pt-1">
+                      <span className="text-slate-400">Level</span>
+                      <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">{fmtLevel(myBefore)}</span>
+                      <span className="text-slate-400" aria-hidden>→</span>
+                      <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">{fmtLevel(myAfter)}</span>
+                      {myDelta != null && (
+                        <span className={clsx('font-mono tabular-nums font-semibold', myDelta >= 0 ? 'text-green-600' : 'text-red-600')}>
+                          ({fmtDelta(myDelta)})
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}

@@ -6,6 +6,7 @@ import type { Match, Player, Profile, Settings } from '../types'
 import { DEFAULT_SETTINGS } from '../types'
 import { backend } from '../lib/storage/backend'
 import { recomputeAll, type RecomputeResult } from '../lib/rating/recompute'
+import { updateLevels } from '../lib/rating/update'
 import { supabase, supabaseEnabled } from '../lib/supabase/client'
 import { fromMatchRow, type MatchRow } from '../lib/supabase/mappers'
 import {
@@ -55,6 +56,10 @@ interface StoreCtx {
   resetAll: () => Promise<void>
   fetchMatchesPage: (page: number, pageSize: number, playerId?: string) => Promise<{ data: Match[]; count: number }>
   fetchRecentMatches: (limit: number, playerIds?: string[]) => Promise<Match[]>
+  /** Admin-only. Recomputes levels from scratch over every rated match and
+   *  writes the corrected fields back. Use after edits/deletes/disputes that
+   *  the incremental trigger can't handle accurately. */
+  rebuildLevels: () => Promise<{ matchesUpdated: number; playersUpdated: number }>
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
@@ -251,11 +256,70 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         throw new Error('You can only log matches you played in (or that involve a player from your club).')
       }
     }
-    const draft: Match = { ...data, id: uuid() }
+
+    // Compute the level fields client-side using the latest known levels for
+    // both players. The server's after-trigger pushes these to
+    // players.current_level when the match becomes rated. Unranked matches
+    // get zero deltas / unchanged levels (mirrors recomputeAll's behaviour).
+    const a = players.find((p) => p.id === data.playerAId)
+    const b = players.find((p) => p.id === data.playerBId)
+    const levelA = a?.currentLevel ?? a?.startingLevel
+    const levelB = b?.currentLevel ?? b?.startingLevel
+    const provisionalA = (a?.matchesPlayed ?? 0) < settings.provisionalThreshold
+    const provisionalB = (b?.matchesPlayed ?? 0) < settings.provisionalThreshold
+
+    let enrichment: Pick<
+      Match,
+      'levelABefore' | 'levelAAfter' | 'levelBBefore' | 'levelBAfter' |
+      'deltaA' | 'deltaB' | 'provisionalA' | 'provisionalB'
+    > = {}
+    if (levelA != null && levelB != null) {
+      if (data.unranked) {
+        enrichment = {
+          levelABefore: levelA, levelAAfter: levelA,
+          levelBBefore: levelB, levelBAfter: levelB,
+          deltaA: 0, deltaB: 0,
+          provisionalA, provisionalB,
+        }
+      } else {
+        const upd = updateLevels({
+          levelA, levelB,
+          games: data.games,
+          matchType: data.type,
+          provisionalA, provisionalB,
+          settings,
+        })
+        enrichment = {
+          levelABefore: levelA, levelAAfter: upd.levelAAfter,
+          levelBBefore: levelB, levelBAfter: upd.levelBAfter,
+          deltaA: upd.deltaA, deltaB: upd.deltaB,
+          provisionalA, provisionalB,
+        }
+      }
+    }
+
+    const draft: Match = { ...data, ...enrichment, id: uuid() }
     // The cloud backend returns the canonical row — including any
     // trigger-applied fields like status='confirmed' / auto_confirmed=true.
     const saved = await backend.putMatch(draft)
     setMatches((prev) => [...prev, saved])
+    // Optimistically reflect the level changes locally so leaderboard updates
+    // immediately. The server trigger writes the same values; realtime
+    // subscription will reconcile any discrepancy on next refresh.
+    if (
+      saved.status === 'confirmed' && !saved.unranked &&
+      saved.levelAAfter != null && saved.levelBAfter != null
+    ) {
+      setPlayers((prev) => prev.map((p) => {
+        if (p.id === saved.playerAId) {
+          return { ...p, currentLevel: saved.levelAAfter, matchesPlayed: (p.matchesPlayed ?? 0) + 1 }
+        }
+        if (p.id === saved.playerBId) {
+          return { ...p, currentLevel: saved.levelBAfter, matchesPlayed: (p.matchesPlayed ?? 0) + 1 }
+        }
+        return p
+      }))
+    }
     if (supabaseEnabled) {
       supabase!.functions
         .invoke('send-match-email', { body: { matchId: saved.id } })
@@ -276,6 +340,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!canWriteMatch(target)) throw new Error('Admin only.')
     await backend.deleteMatch(id)
     setMatches((prev) => prev.filter((x) => x.id !== id))
+    // Optimistic revert of the level + match-count effect (mirrors the server
+    // trigger). Drift is possible if subsequent matches have been played by
+    // either participant — the admin "Rebuild levels" action corrects it.
+    if ((target.status ?? null) === 'confirmed' && !target.unranked) {
+      setPlayers((prev) => prev.map((p) => {
+        if (p.id === target.playerAId && target.levelABefore != null) {
+          return {
+            ...p,
+            currentLevel: target.levelABefore,
+            matchesPlayed: Math.max(0, (p.matchesPlayed ?? 0) - 1),
+          }
+        }
+        if (p.id === target.playerBId && target.levelBBefore != null) {
+          return {
+            ...p,
+            currentLevel: target.levelBBefore,
+            matchesPlayed: Math.max(0, (p.matchesPlayed ?? 0) - 1),
+          }
+        }
+        return p
+      }))
+    }
   }
 
   const confirmMatch: StoreCtx['confirmMatch'] = async (id, dispute = false) => {
@@ -345,6 +431,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     resetAll,
     fetchMatchesPage: backend.fetchMatchesPage.bind(backend),
     fetchRecentMatches: backend.fetchRecentMatches.bind(backend),
+    rebuildLevels: async () => {
+      requireAdmin()
+      const r = await backend.rebuildLevels()
+      // Pick up the corrected players (current_level / matches_played) for the
+      // current session — saves the user from having to refresh.
+      await refresh()
+      return r
+    },
   }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

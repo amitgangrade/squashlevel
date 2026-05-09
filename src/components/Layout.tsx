@@ -20,11 +20,9 @@ import {
 
 const desktopNav = [
   { to: '/', label: 'Leaderboard', end: true },
-  { to: '/roster', label: 'Players' },
   { to: '/clubs', label: 'Clubs' },
   { to: '/groups', label: 'Groups' },
   { to: '/log', label: 'Log match' },
-  { to: '/history', label: 'History' },
   { to: '/analytics', label: 'Analytics' },
 ]
 
@@ -132,8 +130,6 @@ export function Layout() {
         <nav className="fixed inset-x-0 bottom-0 z-20 sm:hidden border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 pb-safe">
           <div className="mx-auto flex max-w-5xl items-stretch justify-around">
             <TabLink to="/" end icon={<HomeIcon className="h-5 w-5" />}>Home</TabLink>
-            <TabLink to="/roster" icon={<UsersIcon className="h-5 w-5" />}>Players</TabLink>
-            <TabLink to="/history" icon={<HistoryIcon className="h-5 w-5" />}>History</TabLink>
             <button
               onClick={() => setMoreOpen(true)}
               className="flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[11px] text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 min-h-[56px] relative"

@@ -16,6 +16,8 @@ export interface PlayerRow {
   birth_year: number | null
   gender: 'male' | 'female' | null
   dominant_hand: 'right' | 'left' | 'ambi' | null
+  current_level: number | null
+  matches_played: number | null
 }
 
 export interface ProfileRow {
@@ -52,6 +54,14 @@ export interface MatchRow {
   unranked: boolean | null
   created_by: string | null
   created_at: string
+  level_a_before: number | null
+  level_a_after: number | null
+  level_b_before: number | null
+  level_b_after: number | null
+  delta_a: number | null
+  delta_b: number | null
+  provisional_a: boolean | null
+  provisional_b: boolean | null
 }
 
 export interface SettingsRow {
@@ -75,6 +85,8 @@ export const fromPlayerRow = (r: PlayerRow): Player => ({
   birthYear: r.birth_year ?? undefined,
   gender: r.gender ?? undefined,
   dominantHand: r.dominant_hand ?? undefined,
+  currentLevel: r.current_level != null ? Number(r.current_level) : undefined,
+  matchesPlayed: r.matches_played ?? undefined,
 })
 
 export const toPlayerRow = (p: Player): PlayerRow => ({
@@ -129,6 +141,14 @@ export const fromMatchRow = (r: MatchRow): Match => ({
   unranked: r.unranked ?? undefined,
   createdBy: r.created_by ?? undefined,
   createdAt: r.created_at,
+  levelABefore: r.level_a_before != null ? Number(r.level_a_before) : undefined,
+  levelAAfter:  r.level_a_after  != null ? Number(r.level_a_after)  : undefined,
+  levelBBefore: r.level_b_before != null ? Number(r.level_b_before) : undefined,
+  levelBAfter:  r.level_b_after  != null ? Number(r.level_b_after)  : undefined,
+  deltaA: r.delta_a != null ? Number(r.delta_a) : undefined,
+  deltaB: r.delta_b != null ? Number(r.delta_b) : undefined,
+  provisionalA: r.provisional_a ?? undefined,
+  provisionalB: r.provisional_b ?? undefined,
 })
 
 export interface ChallengeRow {
@@ -245,4 +265,12 @@ export const toMatchRow = (m: Match): MatchRow => ({
   unranked: m.unranked ?? false,
   created_by: m.createdBy ?? null,
   created_at: m.createdAt ?? new Date().toISOString(),
+  level_a_before: m.levelABefore ?? null,
+  level_a_after:  m.levelAAfter  ?? null,
+  level_b_before: m.levelBBefore ?? null,
+  level_b_after:  m.levelBAfter  ?? null,
+  delta_a: m.deltaA ?? null,
+  delta_b: m.deltaB ?? null,
+  provisional_a: m.provisionalA ?? null,
+  provisional_b: m.provisionalB ?? null,
 })
