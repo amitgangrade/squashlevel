@@ -56,6 +56,10 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 
 const SUPABASE_BATCH = 500   // rows per insert; stays well under the 6 MB REST limit
 
+// Set to true during replaceAll to silence Realtime events while batch-inserting.
+// Without this, every 500-row insert fires onChange → getAll() → 600 parallel fetches.
+let _importing = false
+
 const cloudBackend: Backend = {
   mode: 'cloud',
   async getAll() {
@@ -101,22 +105,30 @@ const cloudBackend: Backend = {
     if (error) throw error
   },
   async replaceAll(players, matches, settings) {
-    const sb = supabase!
-    await sb.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    await sb.from('players').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    await sb.from('settings').delete().neq('id', '_never_')
-    for (const batch of chunkArray(players.map(toPlayerRow), SUPABASE_BATCH)) {
-      const { error } = await sb.from('players').insert(batch)
+    _importing = true
+    try {
+      const sb = supabase!
+      await sb.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      await sb.from('players').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      await sb.from('settings').delete().neq('id', '_never_')
+      for (const batch of chunkArray(players.map(toPlayerRow), SUPABASE_BATCH)) {
+        const { error } = await sb.from('players').insert(batch)
+        if (error) throw error
+      }
+      for (const batch of chunkArray(matches.map(toMatchRow), SUPABASE_BATCH)) {
+        const { error } = await sb.from('matches').insert(batch)
+        if (error) throw error
+      }
+      const { error } = await sb
+        .from('settings')
+        .insert({ id: 'app', data: settings, updated_at: new Date().toISOString() })
       if (error) throw error
+    } finally {
+      // Small delay lets any in-flight Realtime events drain before we re-enable
+      // the debounced handler, so stray events from the last batch don't fire.
+      await new Promise((r) => setTimeout(r, 1500))
+      _importing = false
     }
-    for (const batch of chunkArray(matches.map(toMatchRow), SUPABASE_BATCH)) {
-      const { error } = await sb.from('matches').insert(batch)
-      if (error) throw error
-    }
-    const { error } = await sb
-      .from('settings')
-      .insert({ id: 'app', data: settings, updated_at: new Date().toISOString() })
-    if (error) throw error
   },
   async wipeAll() {
     const sb = supabase!
@@ -125,13 +137,23 @@ const cloudBackend: Backend = {
     await sb.from('settings').delete().neq('id', '_never_')
   },
   subscribe(onChange) {
+    // Debounce: collapse rapid-fire events (e.g. back-to-back match inserts) into
+    // one refresh. Also gates on _importing so bulk replaceAll doesn't trigger
+    // hundreds of full-dataset fetches.
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const debounced = () => {
+      if (_importing) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(onChange, 600)
+    }
     const ch = supabase!
       .channel('squashlevel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, onChange)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, onChange)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, onChange)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, debounced)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, debounced)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, debounced)
       .subscribe()
     return () => {
+      if (timer) clearTimeout(timer)
       supabase!.removeChannel(ch)
     }
   },

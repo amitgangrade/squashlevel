@@ -12,6 +12,7 @@ export function SettingsPage() {
   const { settings, isAdmin, updateSettings, resetAll, refresh } = useStore()
   const [draft, setDraft] = useState<Settings>(settings)
   const [msg, setMsg] = useState('')
+  const [importing, setImporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const save = async () => {
@@ -30,12 +31,15 @@ export function SettingsPage() {
     try {
       const text = await f.text()
       if (!window.confirm('This will replace ALL current data. Continue?')) return
+      setImporting(true)
+      setMsg('Importing… this may take several minutes for large files.')
       await restoreFromJson(text)
       await refresh()
       setMsg('Import succeeded.')
     } catch (err) {
       setMsg('Import failed: ' + (err as Error).message)
     } finally {
+      setImporting(false)
       if (fileRef.current) fileRef.current.value = ''
       setTimeout(() => setMsg(''), 3500)
     }
@@ -155,7 +159,9 @@ export function SettingsPage() {
           </p>
           <div className="flex gap-2 flex-wrap">
             <button className="btn-secondary" onClick={onExport}>Export JSON</button>
-            <button className="btn-secondary" onClick={onImportClick}>Import JSON…</button>
+            <button className="btn-secondary" onClick={onImportClick} disabled={importing}>
+              {importing ? 'Importing…' : 'Import JSON…'}
+            </button>
             <button className="btn-danger" onClick={onReset}>Reset all data</button>
           </div>
           <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={onFile} />
