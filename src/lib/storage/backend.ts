@@ -24,6 +24,8 @@ export interface Backend {
   replaceAll(players: Player[], matches: Match[], settings: Settings): Promise<void>
   wipeAll(currentUserId?: string): Promise<void>
   subscribe?(onChange: () => void): () => void
+  fetchMatchesPage(page: number, pageSize: number, playerId?: string): Promise<{ data: Match[]; count: number }>
+  fetchRecentMatches(limit: number, playerIds?: string[]): Promise<Match[]>
 }
 
 const localBackend: Backend = {
@@ -46,6 +48,22 @@ const localBackend: Backend = {
   saveSettings: local.saveSettings,
   replaceAll: local.replaceAll,
   wipeAll: local.wipeAll,
+  async fetchMatchesPage(page, pageSize, playerId) {
+    let all = await local.getAllMatches()
+    if (playerId) {
+      all = all.filter(m => m.playerAId === playerId || m.playerBId === playerId)
+    }
+    all.sort((a, b) => b.date.localeCompare(a.date))
+    return { data: all.slice(page * pageSize, (page + 1) * pageSize), count: all.length }
+  },
+  async fetchRecentMatches(limit, playerIds) {
+    let all = await local.getAllMatches()
+    if (playerIds && playerIds.length > 0) {
+      all = all.filter(m => playerIds.includes(m.playerAId) || playerIds.includes(m.playerBId))
+    }
+    all.sort((a, b) => b.date.localeCompare(a.date))
+    return all.slice(0, limit)
+  }
 }
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -95,7 +113,7 @@ async function fetchAll<T>(
   const results: T[][] = new Array(pages.length)
   for (let i = 0; i < pages.length; i += PARALLEL) {
     const batch = pages.slice(i, i + PARALLEL)
-    const batchResults = await Promise.all(
+    await Promise.all(
       batch.map(({ from, to }, bi) => {
         let q = supabase!.from(table).select('*').range(from, to)
         if (order) q = q.order(order.column, { ascending: order.ascending })
@@ -113,16 +131,15 @@ const cloudBackend: Backend = {
   mode: 'cloud',
   async getAll() {
     const sb = supabase!
-    const [players, matches, sRes] = await Promise.all([
+    const [players, sRes] = await Promise.all([
       fetchAll<PlayerRow>('players'),
-      fetchAll<MatchRow>('matches', { column: 'date', ascending: true }),
       sb.from('settings').select('*').eq('id', 'app').maybeSingle(),
     ])
     if (sRes.error) throw sRes.error
     const settings = (sRes.data as SettingsRow | null)?.data ?? DEFAULT_SETTINGS
     return {
       players: players.map(fromPlayerRow),
-      matches: matches.map(fromMatchRow),
+      matches: [], // Lazy load matches instead of loading all 300K
       settings,
     }
   },
@@ -213,6 +230,27 @@ const cloudBackend: Backend = {
       supabase!.removeChannel(ch)
     }
   },
+  async fetchMatchesPage(page, pageSize, playerId) {
+    let q = supabase!.from('matches').select('*', { count: 'exact' })
+    if (playerId) {
+      q = q.or(`player_a_id.eq.${playerId},player_b_id.eq.${playerId}`)
+    }
+    const from = page * pageSize
+    const to = from + pageSize - 1
+    const { data, count, error } = await q.order('date', { ascending: false }).range(from, to)
+    if (error) throw error
+    return { data: (data as MatchRow[]).map(fromMatchRow), count: count ?? 0 }
+  },
+  async fetchRecentMatches(limit, playerIds) {
+    let q = supabase!.from('matches').select('*')
+    if (playerIds && playerIds.length > 0) {
+      const qs = playerIds.map(id => `player_a_id.eq.${id},player_b_id.eq.${id}`).join(',')
+      q = q.or(qs)
+    }
+    const { data, error } = await q.order('date', { ascending: false }).limit(limit)
+    if (error) throw error
+    return (data as MatchRow[]).map(fromMatchRow)
+  }
 }
 
 export const backend: Backend = supabase ? cloudBackend : localBackend

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import {
@@ -25,14 +25,20 @@ import { DOMINANT_HAND_LABEL, GENDER_LABEL } from '../types'
 
 export function PlayerProfilePage() {
   const { id } = useParams<{ id: string }>()
-  const { players, recomputed, settings, myPlayer } = useStore()
+  const { players, recomputed, settings, myPlayer, fetchRecentMatches } = useStore()
 
   const player = useMemo(() => players.find((p) => p.id === id) ?? null, [players, id])
   const state = id ? recomputed.states.get(id) : undefined
 
+  const [playerMatches, setPlayerMatches] = useState<Match[]>([])
+  useEffect(() => {
+    if (!id) return
+    fetchRecentMatches(10000, [id]).then(setPlayerMatches).catch(console.error)
+  }, [id, fetchRecentMatches])
+
   const stats = useMemo(() => {
     if (!id) return null
-    const ms = recomputed.matches.filter((m) => m.playerAId === id || m.playerBId === id)
+    const ms = playerMatches
     let wins = 0
     let losses = 0
     let gamesFor = 0
@@ -56,7 +62,7 @@ export function PlayerProfilePage() {
       gamesAgainst,
       matches: [...ms].sort((a, b) => b.date.localeCompare(a.date)),
     }
-  }, [id, recomputed.matches])
+  }, [id, playerMatches])
 
   if (!player) {
     return (
@@ -74,6 +80,9 @@ export function PlayerProfilePage() {
   const isMe = myPlayer?.id === player.id
   const age = playerAge(player.birthYear)
   const recent = stats?.matches.slice(0, 10) ?? []
+  
+  // Note: we might want a loading state here if matches takes a second to load
+  // But for now it will just show 0 matches until loaded
 
   const chartData = useMemo(() => {
     if (!state) return []

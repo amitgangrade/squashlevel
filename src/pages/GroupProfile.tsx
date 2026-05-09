@@ -22,13 +22,13 @@ import {
   whatsappShareUrl,
 } from '../lib/supabase/groups'
 import { supabaseEnabled } from '../lib/supabase/client'
-import type { Group, GroupMember, Player } from '../types'
+import type { Group, GroupMember, Player, Match } from '../types'
 
 export function GroupProfilePage() {
   const params = useParams<{ slug: string }>()
   const slug = (params.slug || '').toLowerCase()
   const navigate = useNavigate()
-  const { players, recomputed, settings, session, myPlayer, isAdmin } = useStore()
+  const { players, recomputed, settings, session, myPlayer, isAdmin, fetchRecentMatches } = useStore()
 
   const [group, setGroup] = useState<Group | null>(null)
   const [members, setMembers] = useState<GroupMember[]>([])
@@ -97,19 +97,27 @@ export function GroupProfilePage() {
 
   // Internal matches: both players are members. This is the "group league"
   // view — you only see what happened within the circle.
+  const [groupMatches, setGroupMatches] = useState<Match[]>([])
+  useEffect(() => {
+    if (memberIds.size === 0) {
+      setGroupMatches([])
+      return
+    }
+    fetchRecentMatches(10000, Array.from(memberIds)).then(matches => {
+      setGroupMatches(matches.filter(m => memberIds.has(m.playerAId) && memberIds.has(m.playerBId)))
+    }).catch(console.error)
+  }, [memberIds, fetchRecentMatches])
+
   const recent = useMemo(() => {
-    return recomputed.matches
-      .filter((m) => memberIds.has(m.playerAId) && memberIds.has(m.playerBId))
+    return groupMatches
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 10)
-  }, [recomputed.matches, memberIds])
+  }, [groupMatches])
 
   // Quick stats: most active player + longest current win streak. These aren't
   // sciencey — just fun nudges to bring people back.
   const stats = useMemo(() => {
     if (memberIds.size === 0) return null
-    const groupMatches = recomputed.matches
-      .filter((m) => memberIds.has(m.playerAId) && memberIds.has(m.playerBId))
     if (groupMatches.length === 0) return null
 
     const counts = new Map<string, number>()

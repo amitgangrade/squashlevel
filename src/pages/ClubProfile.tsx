@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
 import { fmtDate, fmtLevel } from '../lib/format'
+import type { Match } from '../types'
 import { movingAverage } from '../lib/rating/recompute'
 import { summarizeMatch } from '../lib/match-summary'
 import { GameScores } from '../components/MatchScores'
@@ -16,7 +17,7 @@ export function ClubProfilePage() {
   const slug = (params.slug || '').toLowerCase()
   const {
     players, recomputed, settings, session, profile, isAdmin, myPlayer,
-    saveProfile, myClubAdminSlugs,
+    saveProfile, myClubAdminSlugs, fetchRecentMatches,
   } = useStore()
 
   const members = useMemo(
@@ -68,12 +69,22 @@ export function ClubProfilePage() {
       .sort((a, b) => b.ranking - a.ranking)
   }, [members, recomputed.states, settings.movingAverageWindow, settings.provisionalThreshold])
 
+  const [clubMatches, setClubMatches] = useState<Match[]>([])
+  useEffect(() => {
+    if (memberIds.size === 0) {
+      setClubMatches([])
+      return
+    }
+    fetchRecentMatches(10000, Array.from(memberIds)).then(matches => {
+      setClubMatches(matches.filter(m => memberIds.has(m.playerAId) || memberIds.has(m.playerBId)))
+    }).catch(console.error)
+  }, [memberIds, fetchRecentMatches])
+
   const recent = useMemo(() => {
-    return recomputed.matches
-      .filter((m) => memberIds.has(m.playerAId) || memberIds.has(m.playerBId))
+    return clubMatches
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 10)
-  }, [recomputed.matches, memberIds])
+  }, [clubMatches])
 
   if (members.length === 0) {
     return (

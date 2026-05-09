@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
@@ -12,27 +12,24 @@ import { PlayerLink } from '../components/PlayerLinks'
 import { UnrankedTag } from '../components/UnrankedTag'
 
 export function HistoryPage() {
-  const { players, matches, recomputed, isAdmin, removeMatch, confirmMatch, session, myPlayer } = useStore()
+  const { players, recomputed, isAdmin, removeMatch, confirmMatch, session, myPlayer, fetchMatchesPage } = useStore()
   const [filterPlayer, setFilterPlayer] = useState<Player | null>(null)
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 100
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
-  const rows = useMemo(() => {
-    // Merge enriched (recomputed) data for confirmed matches with raw matches for
-    // pending/disputed ones, since those don't appear in `recomputed.matches`.
-    const enrichedById = new Map(recomputed.matches.map((m) => [m.id, m] as const))
-    const merged = matches.map((m) => enrichedById.get(m.id) ?? m)
-    const sorted = [...merged].sort((a, b) => b.date.localeCompare(a.date))
-    if (!filterPlayer) return sorted
-    return sorted.filter((m) => m.playerAId === filterPlayer.id || m.playerBId === filterPlayer.id)
-  }, [matches, recomputed.matches, filterPlayer])
+  const [visibleRows, setVisibleRows] = useState<Match[]>([])
+  const [totalRows, setTotalRows] = useState(0)
 
-  const visibleRows = useMemo(
-    () => rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
-    [rows, page, PAGE_SIZE],
-  )
+  useEffect(() => {
+    fetchMatchesPage(page, PAGE_SIZE, filterPlayer?.id).then(({ data, count }) => {
+      // Merge enriched (recomputed) data for confirmed matches if available
+      const enrichedById = new Map(recomputed.matches.map((m) => [m.id, m] as const))
+      setVisibleRows(data.map(m => enrichedById.get(m.id) ?? m))
+      setTotalRows(count)
+    }).catch(console.error)
+  }, [page, filterPlayer, fetchMatchesPage, recomputed.matches])
 
   const remove = async (id: string) => {
     if (!window.confirm('Delete this match? Levels will be recomputed from history.')) return
@@ -57,7 +54,7 @@ export function HistoryPage() {
         <h1>
           Match history{' '}
           <span className="text-base font-normal text-slate-500">
-            ({rows.length.toLocaleString()}{filterPlayer ? ` for ${filterPlayer.name}` : ''})
+            ({totalRows.toLocaleString()}{filterPlayer ? ` for ${filterPlayer.name}` : ''})
           </span>
         </h1>
         <div className="w-full sm:w-72">
@@ -71,7 +68,9 @@ export function HistoryPage() {
 
       {err && <div className="text-sm text-red-600">{err}</div>}
 
-      {rows.length === 0 ? (
+      <Pagination current={page} pageSize={PAGE_SIZE} total={totalRows} onChange={setPage} />
+
+      {visibleRows.length === 0 ? (
         <div className="card text-center text-slate-500">No matches found.</div>
       ) : (
         <div className="space-y-2">

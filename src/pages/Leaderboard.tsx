@@ -3,6 +3,7 @@ import { Pagination } from '../components/Pagination'
 import { Link, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
+import type { Match } from '../types'
 import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
 import { summarizeMatch } from '../lib/match-summary'
@@ -25,7 +26,7 @@ const FILTER_LABEL: Record<FilterKey, string> = {
 }
 
 export function LeaderboardPage() {
-  const { players, matches, recomputed, settings, isAdmin, session, myPlayer, loading, refresh, pendingForMe, runAutoConfirmAged } = useStore()
+  const { players, matches, recomputed, settings, isAdmin, session, myPlayer, loading, refresh, pendingForMe, runAutoConfirmAged, fetchRecentMatches } = useStore()
   const signedIn = !!session
   const canLogMatch = signedIn && (isAdmin || !!myPlayer)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -112,7 +113,10 @@ export function LeaderboardPage() {
     [rows, page, PAGE_SIZE],
   )
 
-  const recent = [...recomputed.matches].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
+  const [recent, setRecent] = useState<Match[]>([])
+  useEffect(() => {
+    fetchRecentMatches(5).then(setRecent).catch(console.error)
+  }, [fetchRecentMatches])
   const activeFilters = FILTER_KEYS.filter((k) => filters[k])
 
   return (

@@ -53,6 +53,8 @@ interface StoreCtx {
   updateSettings: (s: Settings) => Promise<void>
   refresh: () => Promise<void>
   resetAll: () => Promise<void>
+  fetchMatchesPage: (page: number, pageSize: number, playerId?: string) => Promise<{ data: Match[]; count: number }>
+  fetchRecentMatches: (limit: number, playerIds?: string[]) => Promise<Match[]>
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
@@ -341,6 +343,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     updateSettings,
     refresh,
     resetAll,
+    fetchMatchesPage: backend.fetchMatchesPage.bind(backend),
+    fetchRecentMatches: backend.fetchRecentMatches.bind(backend),
   }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

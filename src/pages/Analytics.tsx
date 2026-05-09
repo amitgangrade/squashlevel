@@ -24,7 +24,7 @@ import type { Player } from '../types'
 const PALETTE = ['#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#ec4899', '#6366f1', '#84cc16']
 
 export function AnalyticsPage() {
-  const { players, recomputed, myPlayer } = useStore()
+  const { players, recomputed, myPlayer, fetchRecentMatches } = useStore()
   // Default the chart to just the current user (or empty if none) so a roster
   // with hundreds of players doesn't render a hundred lines on first load.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() =>
@@ -70,35 +70,19 @@ export function AnalyticsPage() {
 
   const perPlayer = useMemo(() => {
     return players.map((p) => {
-      const ms = recomputed.matches.filter((m) => m.playerAId === p.id || m.playerBId === p.id)
-      let wins = 0
-      let losses = 0
-      let pointsFor = 0
-      let pointsAgainst = 0
-      for (const m of ms) {
-        const side = m.playerAId === p.id ? 'a' : 'b'
-        const w = winnerSide(m.games)
-        if (w === side) wins++
-        else if (w !== null) losses++
-        const mine = gamesWonBy(m.games, side)
-        const theirs = m.games.length - mine
-        pointsFor += mine
-        pointsAgainst += theirs
-        const pr = side === 'a' ? pointsRatio(m.games) : 1 - pointsRatio(m.games)
-        pointsFor += pr * 0
-      }
-      const total = wins + losses
+      // With lazy loading, we don't have all matches in memory.
+      // We return -1 to indicate "unknown" for these stats.
       return {
         id: p.id,
         name: p.name,
         player: p,
-        matches: ms.length,
-        wins,
-        losses,
-        winRate: total > 0 ? wins / total : 0,
+        matches: -1,
+        wins: -1,
+        losses: -1,
+        winRate: -1,
       }
     })
-  }, [players, recomputed.matches])
+  }, [players])
 
   const filteredStats = useMemo(() => {
     const tokens = statsSearch.trim().toLowerCase().split(/\s+/).filter(Boolean)
@@ -114,13 +98,17 @@ export function AnalyticsPage() {
     [filteredStats, statsPage, STATS_PAGE_SIZE],
   )
 
+  const [h2hMatches, setH2hMatches] = useState<Match[]>([])
+  useEffect(() => {
+    if (!h2hA || !h2hB || h2hA.id === h2hB.id) return
+    fetchRecentMatches(10000, [h2hA.id]).then(matches => {
+      setH2hMatches(matches.filter(m => m.playerAId === h2hB.id || m.playerBId === h2hB.id))
+    }).catch(console.error)
+  }, [h2hA?.id, h2hB?.id, fetchRecentMatches])
+
   const h2h = useMemo(() => {
     if (!h2hA || !h2hB || h2hA.id === h2hB.id) return null
-    const ms = recomputed.matches.filter(
-      (m) =>
-        (m.playerAId === h2hA.id && m.playerBId === h2hB.id) ||
-        (m.playerAId === h2hB.id && m.playerBId === h2hA.id),
-    )
+    const ms = h2hMatches
     let aMatchWins = 0
     let bMatchWins = 0
     let aGamesWon = 0
@@ -155,7 +143,7 @@ export function AnalyticsPage() {
       pointShareA: totalPts > 0 ? aPoints / totalPts : 0,
       pointShareB: totalPts > 0 ? bPoints / totalPts : 0,
     }
-  }, [h2hA, h2hB, recomputed.matches])
+  }, [h2hA, h2hB, h2hMatches])
 
   const addToChart = (p: Player | null) => {
     if (!p) return
@@ -300,10 +288,10 @@ export function AnalyticsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-right">{r.matches}</td>
-                      <td className="px-3 py-2 text-right text-green-600">{r.wins}</td>
-                      <td className="px-3 py-2 text-right text-red-600">{r.losses}</td>
-                      <td className="px-3 py-2 text-right">{(r.winRate * 100).toFixed(0)}%</td>
+                      <td className="px-3 py-2 text-right">{r.matches === -1 ? '—' : r.matches}</td>
+                      <td className="px-3 py-2 text-right text-green-600">{r.wins === -1 ? '—' : r.wins}</td>
+                      <td className="px-3 py-2 text-right text-red-600">{r.losses === -1 ? '—' : r.losses}</td>
+                      <td className="px-3 py-2 text-right">{r.winRate === -1 ? '—' : `${(r.winRate * 100).toFixed(0)}%`}</td>
                     </tr>
                   )
                 })}
