@@ -62,12 +62,16 @@ export function SettingsPage() {
       const r = await rebuildLevels()
       setMsg(`Rebuild complete: ${r.matchesUpdated} matches, ${r.playersUpdated} players updated.`)
     } catch (err) {
-      // Supabase PostgrestError carries .message + .details + .hint — surface
-      // them all so a 400 from a missing column or constraint is debuggable
-      // without diving into the network tab.
+      // Supabase PostgrestError carries .message + .details + .hint; some
+      // 500s come back with empty error bodies, in which case fall back to
+      // JSON.stringify so we see *something*.
       const e = err as { message?: string; details?: string; hint?: string; code?: string }
       const parts = [e.message, e.details, e.hint, e.code ? `code ${e.code}` : null].filter(Boolean)
-      setMsg('Rebuild failed: ' + (parts.join(' — ') || 'unknown error'))
+      let detail = parts.join(' — ')
+      if (!detail) {
+        try { detail = JSON.stringify(err, Object.getOwnPropertyNames(err as object)) } catch { detail = String(err) }
+      }
+      setMsg('Rebuild failed: ' + (detail || 'unknown error'))
       console.error('rebuildLevels failed', err)
     } finally {
       setRebuilding(false)

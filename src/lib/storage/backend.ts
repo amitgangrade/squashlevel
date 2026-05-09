@@ -270,10 +270,24 @@ const cloudBackend: Backend = {
     // a JSON array and do the UPDATE in a single SQL statement. ~5–10 sec on
     // 300K matches; replaces the previous per-row UPDATE which was 30+ min.
     const sb = supabase!
+    // Wrap each phase so callers can pinpoint which step failed; bare 500s
+    // from PostgREST often have empty error bodies that decode to {}.
+    const phase = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+      try { return await fn() } catch (e) {
+        const err = e as Record<string, unknown>
+        const detail = (err && (err.message || err.details || err.hint || err.code))
+          ? `${err.message ?? ''}${err.details ? ` — ${err.details}` : ''}${err.hint ? ` (hint: ${err.hint})` : ''}${err.code ? ` [code ${err.code}]` : ''}`
+          : (() => { try { return JSON.stringify(err) } catch { return String(err) } })()
+        const wrapped = new Error(`[${label}] ${detail || 'no detail'}`)
+        // Attach the original for upstream consumers that read .message/.details.
+        Object.assign(wrapped, err ?? {})
+        throw wrapped
+      }
+    }
     const [players, matchRows, sRes] = await Promise.all([
-      fetchAll<PlayerRow>('players'),
-      fetchAll<MatchRow>('matches', { column: 'date', ascending: true }),
-      sb.from('settings').select('*').eq('id', 'app').maybeSingle(),
+      phase('fetchAll players', () => fetchAll<PlayerRow>('players')),
+      phase('fetchAll matches', () => fetchAll<MatchRow>('matches', { column: 'date', ascending: true })),
+      phase('fetch settings', () => sb.from('settings').select('*').eq('id', 'app').maybeSingle()),
     ])
     if (sRes.error) throw sRes.error
     const settings = (sRes.data as SettingsRow | null)?.data ?? DEFAULT_SETTINGS
@@ -314,14 +328,16 @@ const cloudBackend: Backend = {
       let updated = 0
       const batches: T[][] = []
       for (let i = 0; i < rows.length; i += RPC_BATCH) batches.push(rows.slice(i, i + RPC_BATCH))
-      for (let i = 0; i < batches.length; i += RPC_PARALLEL) {
-        const slice = batches.slice(i, i + RPC_PARALLEL)
-        await Promise.all(
-          slice.map((batch) =>
-            sb.rpc(rpc, { updates: batch }).then(({ data, error }) => {
-              if (error) throw error
-              updated += Number(data ?? 0)
-            }),
+      for (let bi = 0; bi < batches.length; bi += RPC_PARALLEL) {
+        const slice = batches.slice(bi, bi + RPC_PARALLEL)
+        await phase(`${rpc} batches ${bi}-${bi + slice.length - 1}`, () =>
+          Promise.all(
+            slice.map((batch) =>
+              sb.rpc(rpc, { updates: batch }).then(({ data, error }) => {
+                if (error) throw error
+                updated += Number(data ?? 0)
+              }),
+            ),
           ),
         )
       }
