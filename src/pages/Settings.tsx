@@ -34,23 +34,58 @@ export function SettingsPage() {
     setTimeout(() => setMsg(''), 2500)
   }
 
-  const onExport = () => downloadExport()
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState<{ message: string; percent: number | null }>({
+    message: '', percent: null,
+  })
+  // Sticky export error. Cleared only when the user dismisses it or starts a
+  // new export — never auto-fades, since a long-running export ending in
+  // failure shouldn't disappear before the user notices.
+  const [exportError, setExportError] = useState<string | null>(null)
 
+  const onExport = async () => {
+    if (exporting) return
+    setExporting(true)
+    setExportError(null)
+    setExportProgress({ message: 'Starting export…', percent: 0 })
+    try {
+      await downloadExport((event) => {
+        setExportProgress({ message: event.message, percent: event.percent })
+      })
+      setExportProgress({ message: 'Export downloaded.', percent: 100 })
+      setTimeout(() => setExportProgress({ message: '', percent: null }), 3000)
+    } catch (err) {
+      console.error('export failed', err)
+      setExportError((err as Error).message || String(err))
+      setExportProgress({ message: '', percent: null })
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const [importError, setImportError] = useState<string | null>(null)
   const onImportClick = () => fileRef.current?.click()
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
+    setImportError(null)
     try {
       const text = await f.text()
-      if (!window.confirm('This will replace ALL current data. Continue?')) return
+      if (!window.confirm(
+        'This will replace ALL current data: players, matches, settings, ' +
+        'challenges, clubs, club admin grants, groups, and group memberships. ' +
+        'Profiles will be restored from the snapshot. Continue?',
+      )) return
       setImporting(true)
       setMsg('Importing… this may take several minutes for large files.')
       await restoreFromJson(text)
       await refresh()
       setMsg('Import succeeded.')
     } catch (err) {
-      setMsg('Import failed: ' + (err as Error).message)
+      console.error('import failed', err)
+      setImportError((err as Error).message || String(err))
+      setMsg('')
     } finally {
       setImporting(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -228,15 +263,76 @@ export function SettingsPage() {
         <h2 className="mb-3">Backup & restore</h2>
         <div className="card space-y-2 max-w-lg">
           <p className="text-sm text-slate-500">
-            Download a JSON backup of all your players, matches and settings. Import replaces everything.
+            Download a full JSON snapshot of every table — players, matches, settings,
+            profiles, challenges, clubs, club admin grants, groups, and group memberships.
+            Import replaces all of these from the file. Avatar images live in Supabase
+            Storage and are not part of the snapshot (their URLs keep working as long as
+            the bucket is intact).
           </p>
           <div className="flex gap-2 flex-wrap">
-            <button className="btn-secondary" onClick={onExport}>Export JSON</button>
+            <button className="btn-secondary" onClick={onExport} disabled={exporting}>
+              {exporting ? 'Exporting…' : 'Export JSON'}
+            </button>
             <button className="btn-secondary" onClick={onImportClick} disabled={importing}>
               {importing ? 'Importing…' : 'Import JSON…'}
             </button>
           </div>
           <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={onFile} />
+
+          {exportProgress.message && (
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                <span>{exportProgress.message}</span>
+                {exportProgress.percent != null && (
+                  <span className="font-mono tabular-nums">{exportProgress.percent}%</span>
+                )}
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden dark:bg-slate-800">
+                <div
+                  className="h-full bg-brand-500 transition-[width] duration-200 ease-out"
+                  style={{ width: exportProgress.percent != null ? `${exportProgress.percent}%` : '15%' }}
+                />
+              </div>
+            </div>
+          )}
+
+          {exportError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-200">
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0 break-words">
+                  <div className="font-semibold">Export failed</div>
+                  <div className="mt-0.5 text-xs">{exportError}</div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  onClick={() => setExportError(null)}
+                  className="shrink-0 rounded px-1.5 text-red-600 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-900/40"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
+          {importError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-200">
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0 break-words">
+                  <div className="font-semibold">Import failed</div>
+                  <div className="mt-0.5 text-xs">{importError}</div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  onClick={() => setImportError(null)}
+                  className="shrink-0 rounded px-1.5 text-red-600 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-900/40"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

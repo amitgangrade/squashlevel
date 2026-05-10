@@ -110,6 +110,24 @@ export const toPlayerRow = (p: Player): PlayerRow => ({
   dominant_hand: p.dominantHand ?? null,
 })
 
+export const toProfileRow = (p: import('../../types').Profile): ProfileRow => ({
+  id: p.id,
+  full_name: p.fullName,
+  username: p.username,
+  email: p.email,
+  phone: p.phone ?? null,
+  country: p.country ?? null,
+  city: p.city ?? null,
+  club: p.club ?? null,
+  avatar_url: p.avatarUrl ?? null,
+  birth_year: p.birthYear ?? null,
+  gender: p.gender ?? null,
+  dominant_hand: p.dominantHand ?? null,
+  starting_level: p.startingLevel,
+  is_admin: p.isAdmin,
+  created_at: p.createdAt,
+})
+
 export const fromProfileRow = (r: ProfileRow): import('../../types').Profile => ({
   id: r.id,
   fullName: r.full_name,
@@ -180,6 +198,19 @@ export const fromChallengeRow = (r: ChallengeRow): Challenge => ({
   createdBy: r.created_by ?? undefined,
 })
 
+export const toChallengeRow = (c: Challenge): ChallengeRow => ({
+  id: c.id,
+  from_player_id: c.fromPlayerId,
+  to_player_id: c.toPlayerId,
+  message: c.message ?? null,
+  proposed_date: c.proposedDate ?? null,
+  venue: c.venue ?? null,
+  status: c.status,
+  created_at: c.createdAt,
+  responded_at: c.respondedAt ?? null,
+  created_by: c.createdBy ?? null,
+})
+
 export interface ClubAdminRow {
   user_id: string
   club_slug: string
@@ -194,6 +225,23 @@ export const fromClubAdminRow = (r: ClubAdminRow): ClubAdmin => ({
   fullName: r.full_name,
   email: r.email,
   grantedAt: r.granted_at,
+})
+
+// Insert payload for club_admins. The full_name/email columns aren't on the
+// real club_admins table — list_club_admins_for_admin joins them in. So
+// the insert payload only includes (user_id, club_slug, granted_at).
+export interface ClubAdminInsertRow {
+  user_id: string
+  club_slug: string
+  granted_at: string
+  granted_by: string | null
+}
+
+export const toClubAdminInsertRow = (a: ClubAdmin): ClubAdminInsertRow => ({
+  user_id: a.userId,
+  club_slug: a.clubSlug,
+  granted_at: a.grantedAt,
+  granted_by: null,
 })
 
 export interface ClubRow {
@@ -216,6 +264,16 @@ export const fromClubRow = (r: ClubRow): Club => ({
   createdAt: r.created_at,
 })
 
+export const toClubRow = (c: Club): ClubRow => ({
+  slug: c.slug,
+  name: c.name,
+  city: c.city ?? null,
+  country: c.country ?? null,
+  description: c.description ?? null,
+  created_by: c.createdBy ?? null,
+  created_at: c.createdAt,
+})
+
 export interface GroupRow {
   id: string
   name: string
@@ -236,6 +294,16 @@ export const fromGroupRow = (r: GroupRow): Group => ({
   createdAt: r.created_at,
 })
 
+export const toGroupRow = (g: Group): GroupRow => ({
+  id: g.id,
+  name: g.name,
+  slug: g.slug,
+  description: g.description ?? null,
+  is_private: g.isPrivate,
+  created_by: g.createdBy ?? null,
+  created_at: g.createdAt,
+})
+
 export interface GroupMemberRow {
   group_id: string
   player_id: string
@@ -250,6 +318,14 @@ export const fromGroupMemberRow = (r: GroupMemberRow): GroupMember => ({
   isAdmin: r.is_admin,
   addedBy: r.added_by ?? undefined,
   addedAt: r.added_at,
+})
+
+export const toGroupMemberRow = (m: GroupMember): GroupMemberRow => ({
+  group_id: m.groupId,
+  player_id: m.playerId,
+  is_admin: m.isAdmin,
+  added_by: m.addedBy ?? null,
+  added_at: m.addedAt,
 })
 
 export const toMatchRow = (m: Match): MatchRow => ({

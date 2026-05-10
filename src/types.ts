@@ -137,12 +137,74 @@ export const DEFAULT_SETTINGS: Settings = {
   movingAverageWindow: 4,
 }
 
+// Zod schemas for the auxiliary tables we now include in the full backup.
+// Keep these in sync with the TS interfaces below.
+export const ChallengeSchema = z.object({
+  id: z.string(),
+  fromPlayerId: z.string(),
+  toPlayerId: z.string(),
+  message: z.string().optional(),
+  proposedDate: z.string().optional(),
+  venue: z.string().optional(),
+  status: z.enum(['pending', 'accepted', 'declined', 'cancelled', 'expired']),
+  createdAt: z.string(),
+  respondedAt: z.string().optional(),
+  createdBy: z.string().optional(),
+})
+
+export const ClubSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  city: z.string().optional(),
+  country: z.string().optional(),
+  description: z.string().optional(),
+  createdBy: z.string().optional(),
+  createdAt: z.string(),
+})
+
+export const ClubAdminSchema = z.object({
+  userId: z.string(),
+  clubSlug: z.string(),
+  fullName: z.string(),
+  email: z.string(),
+  grantedAt: z.string(),
+})
+
+export const GroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string().optional(),
+  isPrivate: z.boolean(),
+  createdBy: z.string().optional(),
+  createdAt: z.string(),
+})
+
+export const GroupMemberSchema = z.object({
+  groupId: z.string(),
+  playerId: z.string(),
+  isAdmin: z.boolean(),
+  addedBy: z.string().optional(),
+  addedAt: z.string(),
+})
+
+// Export shape. v1 = original (players + matches + settings only). v2 adds
+// the auxiliary tables so the export round-trips faithfully. The auxiliary
+// arrays are optional on the schema so v1 files still parse — v1 import
+// just leaves the auxiliary tables alone.
 export const ExportSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   exportedAt: z.string(),
   players: z.array(PlayerSchema),
   matches: z.array(MatchSchema),
   settings: SettingsSchema,
+  // v2 additions — all optional so v1 still validates.
+  profiles: z.array(ProfileSchema).optional(),
+  challenges: z.array(ChallengeSchema).optional(),
+  clubs: z.array(ClubSchema).optional(),
+  clubAdmins: z.array(ClubAdminSchema).optional(),
+  groups: z.array(GroupSchema).optional(),
+  groupMembers: z.array(GroupMemberSchema).optional(),
 })
 export type ExportData = z.infer<typeof ExportSchema>
 

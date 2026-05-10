@@ -1,16 +1,72 @@
-import { DEFAULT_SETTINGS, type Match, type Player, type Settings } from '../../types'
+import {
+  DEFAULT_SETTINGS,
+  type Challenge,
+  type Club,
+  type ClubAdmin,
+  type Group,
+  type GroupMember,
+  type Match,
+  type Player,
+  type Profile,
+  type Settings,
+} from '../../types'
 import { supabase } from '../supabase/client'
 import {
+  fromChallengeRow,
+  fromClubAdminRow,
+  fromClubRow,
+  fromGroupMemberRow,
+  fromGroupRow,
   fromMatchRow,
   fromPlayerRow,
+  fromProfileRow,
+  toChallengeRow,
+  toClubAdminInsertRow,
+  toClubRow,
+  toGroupMemberRow,
+  toGroupRow,
   toMatchRow,
   toPlayerRow,
+  toProfileRow,
+  type ChallengeRow,
+  type ClubAdminRow,
+  type ClubRow,
+  type GroupMemberRow,
+  type GroupRow,
   type MatchRow,
   type PlayerRow,
+  type ProfileRow,
   type SettingsRow,
 } from '../supabase/mappers'
 import { recomputeAll } from '../rating/recompute'
 import * as local from './db'
+
+/**
+ * Progress event fired by getEverything as it walks through each table.
+ * `percent` is null while the total is unknown (e.g. before the matches
+ * count comes back); otherwise 0-100.
+ */
+export interface ExportProgress {
+  message: string
+  percent: number | null
+}
+
+/**
+ * Snapshot of every table that the backup/restore flow round-trips. Cloud
+ * backend's getEverything returns this; replaceEverything writes it back.
+ * Local backend stubs aux fields to empty arrays.
+ */
+export interface FullBackup {
+  players: Player[]
+  matches: Match[]
+  settings: Settings
+  profiles: Profile[]
+  challenges: Challenge[]
+  clubs: Club[]
+  clubAdmins: ClubAdmin[]
+  groups: Group[]
+  groupMembers: GroupMember[]
+}
 
 export interface Backend {
   mode: 'local' | 'cloud'
@@ -23,6 +79,15 @@ export interface Backend {
   deleteMatch(id: string): Promise<void>
   saveSettings(s: Settings): Promise<void>
   replaceAll(players: Player[], matches: Match[], settings: Settings): Promise<void>
+  /** Fetch every table that participates in the full backup (cloud only —
+   *  local mode returns players/matches/settings and empty aux arrays).
+   *  `onProgress` fires repeatedly as work advances so the UI can render a
+   *  progress bar. */
+  getEverything(onProgress?: (event: ExportProgress) => void): Promise<FullBackup>
+  /** Wipe and re-insert every table in the full backup. Profiles are upserted
+   *  rather than deleted (they're tied to auth.users which we don't manage),
+   *  so any signed-in user keeps their session. */
+  replaceEverything(data: FullBackup): Promise<void>
   wipeAll(currentUserId?: string): Promise<void>
   subscribe?(onChange: () => void): () => void
   fetchMatchesPage(page: number, pageSize: number, playerId?: string): Promise<{ data: Match[]; count: number }>
@@ -54,6 +119,24 @@ const localBackend: Backend = {
   deleteMatch: local.deleteMatch,
   saveSettings: local.saveSettings,
   replaceAll: local.replaceAll,
+  // Local mode has no auxiliary tables — those are cloud-only constructs.
+  // Round-trip the players/matches/settings; aux arrays are empty.
+  async getEverything(onProgress) {
+    onProgress?.({ message: 'Loading local data…', percent: 0 })
+    const [players, matches, settings] = await Promise.all([
+      local.getAllPlayers(),
+      local.getAllMatches(),
+      local.getSettings(),
+    ])
+    onProgress?.({ message: 'Done.', percent: 100 })
+    return {
+      players, matches, settings,
+      profiles: [], challenges: [], clubs: [], clubAdmins: [], groups: [], groupMembers: [],
+    }
+  },
+  async replaceEverything(data) {
+    await local.replaceAll(data.players, data.matches, data.settings)
+  },
   wipeAll: local.wipeAll,
   async fetchMatchesPage(page, pageSize, playerId) {
     let all = await local.getAllMatches()
@@ -102,10 +185,14 @@ const SUPABASE_BATCH = 500   // rows per insert; stays well under the 6 MB REST 
 let _importing = false
 
 /** Supabase caps each query at 1 000 rows. This helper fetches all rows
- *  by first getting the total count, then firing parallel range requests. */
+ *  by first getting the total count, then firing parallel range requests.
+ *  Optional `onProgress(done, total)` is called as each page lands so
+ *  long-running fetches (e.g. exporting 300K matches) can show a real
+ *  progress bar in the UI. */
 async function fetchAll<T>(
   table: string,
   order?: { column: string; ascending: boolean },
+  onProgress?: (rowsDone: number, totalRows: number) => void,
 ): Promise<T[]> {
   const PAGE = 1000
   const PARALLEL = 6  // concurrent requests to avoid overwhelming the server
@@ -116,14 +203,19 @@ async function fetchAll<T>(
     .select('*', { count: 'exact', head: true })
   if (cErr) throw cErr
   const total = count ?? 0
-  if (total === 0) return []
+  if (total === 0) {
+    onProgress?.(0, 0)
+    return []
+  }
   if (total <= PAGE) {
     // Fast path: single request.
     let q = supabase!.from(table).select('*')
     if (order) q = q.order(order.column, { ascending: order.ascending })
     const { data, error } = await q
     if (error) throw error
-    return (data ?? []) as T[]
+    const rows = (data ?? []) as T[]
+    onProgress?.(rows.length, total)
+    return rows
   }
 
   // 2. Build page descriptors [{ from, to }, …].
@@ -134,6 +226,7 @@ async function fetchAll<T>(
 
   // 3. Fetch in parallel batches.
   const results: T[][] = new Array(pages.length)
+  let rowsDone = 0
   for (let i = 0; i < pages.length; i += PARALLEL) {
     const batch = pages.slice(i, i + PARALLEL)
     await Promise.all(
@@ -142,7 +235,10 @@ async function fetchAll<T>(
         if (order) q = q.order(order.column, { ascending: order.ascending })
         return q.then(({ data, error }) => {
           if (error) throw error
-          results[i + bi] = (data ?? []) as T[]
+          const chunk = (data ?? []) as T[]
+          results[i + bi] = chunk
+          rowsDone += chunk.length
+          onProgress?.(rowsDone, total)
         })
       }),
     )
@@ -215,6 +311,196 @@ const cloudBackend: Backend = {
     } finally {
       // Small delay lets any in-flight Realtime events drain before we re-enable
       // the debounced handler, so stray events from the last batch don't fire.
+      await new Promise((r) => setTimeout(r, 1500))
+      _importing = false
+    }
+  },
+  async getEverything(onProgress) {
+    const sb = supabase!
+    const report = (event: ExportProgress) => { try { onProgress?.(event) } catch {} }
+
+    // Budget: small tables get the first 15% of the bar; matches occupy
+    // 15-95%; final mapping/serialise gets the last 5%.
+    const SMALL_TABLES_END = 15
+    const MATCHES_END = 95
+
+    // Fetch the small tables in parallel — they're fast.
+    report({ message: 'Fetching players, profiles, settings, clubs, challenges, group memberships…', percent: 1 })
+    const [players, profiles, sRes, clubs, clubAdmins, groups, groupMembers, challenges] = await Promise.all([
+      fetchAll<PlayerRow>('players'),
+      fetchAll<ProfileRow>('profiles'),
+      sb.from('settings').select('*').eq('id', 'app').maybeSingle(),
+      fetchAll<ClubRow>('clubs'),
+      // club_admins doesn't include join columns by default — full_name and
+      // email are absent on the bare row. We fill them in from the matched
+      // profile so the export contains complete data for re-rendering.
+      fetchAll<{ user_id: string; club_slug: string; granted_at: string; granted_by: string | null }>('club_admins'),
+      fetchAll<GroupRow>('groups'),
+      fetchAll<GroupMemberRow>('group_members'),
+      fetchAll<ChallengeRow>('challenges'),
+    ])
+    if (sRes.error) throw sRes.error
+    const settings = (sRes.data as SettingsRow | null)?.data ?? DEFAULT_SETTINGS
+    report({ message: 'Small tables loaded.', percent: SMALL_TABLES_END })
+
+    // Matches is the heavy one (100K+ rows for established projects). Fetch
+    // separately with a per-page progress callback so the bar advances
+    // smoothly while the long fetch is running.
+    const { count: matchCount } = await sb.from('matches').select('*', { count: 'exact', head: true })
+    const matches = await fetchAll<MatchRow>('matches', undefined, (rowsDone, totalRows) => {
+      const fraction = totalRows > 0 ? rowsDone / totalRows : 1
+      const percent = SMALL_TABLES_END + Math.round(fraction * (MATCHES_END - SMALL_TABLES_END))
+      report({
+        message: totalRows > 0
+          ? `Fetching matches… ${rowsDone.toLocaleString()} / ${totalRows.toLocaleString()}`
+          : 'Fetching matches…',
+        percent,
+      })
+    })
+    if (matchCount === 0) {
+      report({ message: 'No matches to fetch.', percent: MATCHES_END })
+    }
+    report({ message: 'Building backup file…', percent: MATCHES_END + 2 })
+
+    const profilesMapped = profiles.map(fromProfileRow)
+    const profileById = new Map(profilesMapped.map((p) => [p.id, p]))
+
+    const result: FullBackup = {
+      players: players.map(fromPlayerRow),
+      matches: matches.map(fromMatchRow),
+      settings,
+      profiles: profilesMapped,
+      challenges: challenges.map(fromChallengeRow),
+      clubs: clubs.map(fromClubRow),
+      clubAdmins: clubAdmins.map((r) => fromClubAdminRow({
+        user_id: r.user_id,
+        club_slug: r.club_slug,
+        granted_at: r.granted_at,
+        // Fill from profile if available so the export self-describes.
+        full_name: profileById.get(r.user_id)?.fullName ?? '',
+        email: profileById.get(r.user_id)?.email ?? '',
+      } as ClubAdminRow)),
+      groups: groups.map(fromGroupRow),
+      groupMembers: groupMembers.map(fromGroupMemberRow),
+    }
+    report({ message: 'Done.', percent: 100 })
+    return result
+  },
+  /**
+   * Wipe and re-insert every backed-up table. Order matters:
+   *
+   *   Delete (children → parents, FK-safe even without cascade):
+   *     matches → group_members → groups → challenges → club_admins
+   *     → players → clubs → settings
+   *
+   *   Insert (parents → children):
+   *     settings → clubs → players → profiles (upsert) → club_admins
+   *     → groups → group_members → challenges
+   *
+   * Profiles are upserted (not deleted) because they FK to auth.users which
+   * we don't manage — deleting them risks signing the current user out.
+   * Inserting players BEFORE profiles guarantees the
+   * `ensure_player_for_profile` trigger on profile insert sees an existing
+   * player row for that user_id and no-ops.
+   */
+  async replaceEverything(data) {
+    _importing = true
+    try {
+      const sb = supabase!
+      const NEVER_UUID = '00000000-0000-0000-0000-000000000000'
+
+      // ---- Delete in child→parent order ---------------------------------
+      const tablesToWipe: Array<{ table: string; pk: string; sentinel: string }> = [
+        { table: 'matches',         pk: 'id',         sentinel: NEVER_UUID },
+        { table: 'group_members',   pk: 'player_id',  sentinel: NEVER_UUID },
+        { table: 'groups',          pk: 'id',         sentinel: NEVER_UUID },
+        { table: 'challenges',      pk: 'id',         sentinel: NEVER_UUID },
+        { table: 'club_admins',     pk: 'user_id',    sentinel: NEVER_UUID },
+        { table: 'players',         pk: 'id',         sentinel: NEVER_UUID },
+        { table: 'clubs',           pk: 'slug',       sentinel: '__never__' },
+        { table: 'settings',        pk: 'id',         sentinel: '_never_' },
+      ]
+      for (const { table, pk, sentinel } of tablesToWipe) {
+        const { error } = await sb.from(table).delete().neq(pk, sentinel)
+        if (error) throw new Error(`wipe ${table}: ${error.message}`)
+      }
+
+      // ---- Insert in parent→child order ---------------------------------
+      // 1. settings
+      {
+        const { error } = await sb
+          .from('settings')
+          .insert({ id: 'app', data: data.settings, updated_at: new Date().toISOString() })
+        if (error) throw new Error(`insert settings: ${error.message}`)
+      }
+
+      // 2. clubs
+      if (data.clubs.length > 0) {
+        for (const batch of chunkArray(data.clubs.map(toClubRow), SUPABASE_BATCH)) {
+          const { error } = await sb.from('clubs').insert(batch)
+          if (error) throw new Error(`insert clubs: ${error.message}`)
+        }
+      }
+
+      // 3. players
+      for (const batch of chunkArray(data.players.map(toPlayerRow), SUPABASE_BATCH)) {
+        const { error } = await sb.from('players').insert(batch)
+        if (error) throw new Error(`insert players: ${error.message}`)
+      }
+
+      // 4. profiles — UPSERT to restore snapshot fields without disturbing the
+      //    current user's auth.users row. The ensure_player_for_profile trigger
+      //    sees players already exist (step 3) and no-ops on insert path; the
+      //    sync_player_from_profile trigger fires on the update path and
+      //    overwrites player identity fields with profile values, which is
+      //    fine because both came from the same backup.
+      if (data.profiles.length > 0) {
+        for (const batch of chunkArray(data.profiles.map(toProfileRow), SUPABASE_BATCH)) {
+          const { error } = await sb.from('profiles').upsert(batch, { onConflict: 'id' })
+          if (error) throw new Error(`upsert profiles: ${error.message}`)
+        }
+      }
+
+      // 5. club_admins
+      if (data.clubAdmins.length > 0) {
+        for (const batch of chunkArray(data.clubAdmins.map(toClubAdminInsertRow), SUPABASE_BATCH)) {
+          const { error } = await sb.from('club_admins').insert(batch)
+          if (error) throw new Error(`insert club_admins: ${error.message}`)
+        }
+      }
+
+      // 6. groups
+      if (data.groups.length > 0) {
+        for (const batch of chunkArray(data.groups.map(toGroupRow), SUPABASE_BATCH)) {
+          const { error } = await sb.from('groups').insert(batch)
+          if (error) throw new Error(`insert groups: ${error.message}`)
+        }
+      }
+
+      // 7. group_members
+      if (data.groupMembers.length > 0) {
+        for (const batch of chunkArray(data.groupMembers.map(toGroupMemberRow), SUPABASE_BATCH)) {
+          const { error } = await sb.from('group_members').insert(batch)
+          if (error) throw new Error(`insert group_members: ${error.message}`)
+        }
+      }
+
+      // 8. matches — must come AFTER players so player FKs resolve.
+      for (const batch of chunkArray(data.matches.map(toMatchRow), SUPABASE_BATCH)) {
+        const { error } = await sb.from('matches').insert(batch)
+        if (error) throw new Error(`insert matches: ${error.message}`)
+      }
+
+      // 9. challenges — last, so player FKs resolve.
+      if (data.challenges.length > 0) {
+        for (const batch of chunkArray(data.challenges.map(toChallengeRow), SUPABASE_BATCH)) {
+          const { error } = await sb.from('challenges').insert(batch)
+          if (error) throw new Error(`insert challenges: ${error.message}`)
+        }
+      }
+    } finally {
+      // Small delay lets any in-flight Realtime events drain before we
+      // re-enable the debounced handler.
       await new Promise((r) => setTimeout(r, 1500))
       _importing = false
     }
