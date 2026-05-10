@@ -22,7 +22,7 @@ const FILTER_LABEL: Record<FilterKey, string> = {
 }
 
 export function LeaderboardPage() {
-  const { players, recomputed, settings, isAdmin, session, myPlayer, loading, refresh, pendingForMe, runAutoConfirmAged } = useStore()
+  const { players, recomputed, settings, isAdmin, session, myPlayer, loading, refresh, pendingForMe, runAutoConfirmAged, playerUrl } = useStore()
   const signedIn = !!session
   const canLogMatch = signedIn && (isAdmin || !!myPlayer)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -122,7 +122,7 @@ export function LeaderboardPage() {
       <div className="space-y-6">
         {pendingForMe.length > 0 && (
           <Link
-            to="/matches/pending"
+            to="/activity"
             className="card flex items-center gap-3 ring-1 ring-amber-300 dark:ring-amber-900/60 hover:bg-amber-50 dark:hover:bg-amber-900/10"
           >
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-800 font-semibold dark:bg-amber-900/40 dark:text-amber-200">
@@ -221,7 +221,7 @@ export function LeaderboardPage() {
                       )}
                     >
                       <div className="w-6 text-center text-sm font-semibold text-slate-400 shrink-0">{rank}</div>
-                      <Link to={`/players/${r.id}`} aria-label={`View ${r.name}'s profile`}>
+                      <Link to={playerUrl(r.id)} aria-label={`View ${r.name}'s profile`}>
                         <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={36} />
                       </Link>
                       <div className="flex-1 min-w-0">
@@ -270,7 +270,7 @@ export function LeaderboardPage() {
                           <td className="px-3 py-2 text-slate-400">{rank}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-3 min-w-0">
-                              <Link to={`/players/${r.id}`} aria-label={`View ${r.name}'s profile`}>
+                              <Link to={playerUrl(r.id)} aria-label={`View ${r.name}'s profile`}>
                                 <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={28} />
                               </Link>
                               <div className="min-w-0">

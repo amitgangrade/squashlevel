@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import clsx from 'clsx'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   CartesianGrid,
   Line,
@@ -11,24 +10,74 @@ import {
   YAxis,
 } from 'recharts'
 import { useStore } from '../state/store'
-import { fmtDate, fmtDelta, fmtLevel, playerAge } from '../lib/format'
+import { fmtDate, fmtLevel, playerAge } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
-import { actualPerformance, expectedPerformance, gamesWonBy, winnerSide } from '../lib/rating/levels'
-import { GameScores } from '../components/MatchScores'
+import { gamesWonBy, winnerSide } from '../lib/rating/levels'
+import { MatchCard } from '../components/MatchCard'
 import { Pagination } from '../components/Pagination'
 import { PlayerAvatar } from '../components/PlayerAvatar'
-import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
+import { PlayerMetaLinks } from '../components/PlayerLinks'
+import { PlayerSearch } from '../components/PlayerSearch'
 import { ChallengeButton } from '../components/ChallengeButton'
 import { ShareButton } from '../components/ShareButton'
-import { UnrankedTag } from '../components/UnrankedTag'
-import { DOMINANT_HAND_LABEL, GENDER_LABEL, MATCH_TYPE_LABEL, type Match, type Player, type Settings } from '../types'
+import { DOMINANT_HAND_LABEL, GENDER_LABEL, type Match, type Player } from '../types'
+
+// Up to MAX_COMPARE other players can be overlaid on the level chart.
+// Matches the colour palette length below — adding more colours implicitly
+// raises the cap.
+const MAX_COMPARE = 10
+// Visually distinct palette for the compared series. The profile owner is
+// always rendered in the brand purple regardless of these.
+const COMPARE_COLORS = [
+  '#0ea5e9', // sky
+  '#16a34a', // green
+  '#f59e0b', // amber
+  '#dc2626', // red
+  '#0891b2', // cyan
+  '#9333ea', // violet
+  '#be185d', // pink
+  '#65a30d', // lime
+  '#ea580c', // orange
+  '#475569', // slate
+] as const
+
+interface Series {
+  id: string
+  name: string
+  color: string
+  /** Sorted ascending by date. First entry is always the player's createdAt
+   *  at startingLevel — anchors the line at their join date. */
+  points: Array<{ date: string; level: number }>
+}
 
 export function PlayerProfilePage() {
-  const { id } = useParams<{ id: string }>()
-  const { players, recomputed, settings, myPlayer, fetchRecentMatches } = useStore()
+  // The route param is /players/:id, but ":id" can be either a UUID (legacy
+  // bookmarks, unclaimed players) or a username (new human-readable form).
+  // findPlayerByRouteParam resolves both transparently.
+  const { id: routeParam } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const { players, recomputed, settings, myPlayer, fetchRecentMatches, findPlayerByRouteParam, playerUrl } = useStore()
 
-  const player = useMemo(() => players.find((p) => p.id === id) ?? null, [players, id])
+  const player = useMemo(
+    () => (routeParam ? findPlayerByRouteParam(routeParam) : null),
+    [routeParam, findPlayerByRouteParam],
+  )
+  const id = player?.id
   const state = id ? recomputed.states.get(id) : undefined
+
+  // Canonicalize the URL: when the user lands here via the UUID form (legacy
+  // bookmark, link built before usernames loaded, paste from history) and we
+  // now know a username for them, replace the URL in-place so the address
+  // bar reflects the readable form. Replace (not push) so back-button still
+  // returns to wherever they came from.
+  useEffect(() => {
+    if (!player || !routeParam) return
+    const canonical = playerUrl(player.id)
+    const wanted = canonical.replace(/^\/players\//, '')
+    if (wanted !== routeParam) {
+      navigate(canonical, { replace: true })
+    }
+  }, [player, routeParam, playerUrl, navigate])
 
   const [playerMatches, setPlayerMatches] = useState<Match[]>([])
   useEffect(() => {
@@ -41,6 +90,37 @@ export function PlayerProfilePage() {
   const HISTORY_PAGE_SIZE = 100
   const [historyPage, setHistoryPage] = useState(0)
   useEffect(() => { setHistoryPage(0) }, [id])
+
+  // Head-to-head: a single opponent the user wants to drill into. Lives
+  // separately from the comparison chart selection — they answer different
+  // questions ("how do our levels stack up over time" vs "what's our
+  // record against each other"). Reset when the viewed profile changes.
+  const [h2hOpponentId, setH2hOpponentId] = useState<string | null>(null)
+  useEffect(() => { setH2hOpponentId(null) }, [id])
+
+  // Comparison: up to MAX_COMPARE other players overlaid on the level chart.
+  // Clear the selection when the profile we're viewing changes — comparing
+  // Alice's chart to Bob, then visiting Bob's profile, shouldn't carry the
+  // comparison list over.
+  const [comparedIds, setComparedIds] = useState<string[]>([])
+  const [comparedMatches, setComparedMatches] = useState<Map<string, Match[]>>(new Map())
+  useEffect(() => { setComparedIds([]); setComparedMatches(new Map()) }, [id])
+
+  // Fetch matches for any newly added compared player. Cached in
+  // comparedMatches so removing then re-adding is free.
+  useEffect(() => {
+    for (const cid of comparedIds) {
+      if (comparedMatches.has(cid)) continue
+      fetchRecentMatches(10000, [cid]).then((ms) => {
+        setComparedMatches((prev) => {
+          if (prev.has(cid)) return prev
+          const next = new Map(prev)
+          next.set(cid, ms)
+          return next
+        })
+      }).catch(console.error)
+    }
+  }, [comparedIds, comparedMatches, fetchRecentMatches])
 
   const stats = useMemo(() => {
     if (!id) return null
@@ -70,6 +150,70 @@ export function PlayerProfilePage() {
     }
   }, [id, playerMatches])
 
+  // Distinct opponents the profile owner has played at least once. Drives
+  // the H2H picker so it only offers people there's actually data for.
+  const pastOpponentIds = useMemo(() => {
+    if (!id) return new Set<string>()
+    const ids = new Set<string>()
+    for (const m of playerMatches) {
+      if (m.playerAId === id && m.playerBId) ids.add(m.playerBId)
+      else if (m.playerBId === id && m.playerAId) ids.add(m.playerAId)
+    }
+    return ids
+  }, [id, playerMatches])
+
+  // Head-to-head record vs the selected opponent, computed from the same
+  // playerMatches we already loaded. Keeps the heavy lifting out of effects.
+  const h2h = useMemo(() => {
+    if (!id || !h2hOpponentId) return null
+    const opp = players.find((p) => p.id === h2hOpponentId) ?? null
+    if (!opp) return null
+    const matchesVs = playerMatches
+      .filter((m) =>
+        (m.playerAId === id && m.playerBId === h2hOpponentId) ||
+        (m.playerBId === id && m.playerAId === h2hOpponentId),
+      )
+      .sort((a, b) => b.date.localeCompare(a.date))
+    let wins = 0
+    let losses = 0
+    let draws = 0
+    let setsFor = 0
+    let setsAgainst = 0
+    let pointsFor = 0
+    let pointsAgainst = 0
+    for (const m of matchesVs) {
+      const ownerSide: 'a' | 'b' = m.playerAId === id ? 'a' : 'b'
+      const w = winnerSide(m.games)
+      if (w === ownerSide) wins++
+      else if (w === null) draws++
+      else losses++
+      const ownerSets = gamesWonBy(m.games, ownerSide)
+      const oppSets = m.games.length - ownerSets
+      setsFor += ownerSets
+      setsAgainst += oppSets
+      for (const g of m.games) {
+        const my = ownerSide === 'a' ? g.a : g.b
+        const their = ownerSide === 'a' ? g.b : g.a
+        pointsFor += my
+        pointsAgainst += their
+      }
+    }
+    const total = matchesVs.length
+    return {
+      opponent: opp,
+      matches: matchesVs,
+      total,
+      wins,
+      losses,
+      draws,
+      setsFor,
+      setsAgainst,
+      pointsFor,
+      pointsAgainst,
+      winRate: wins + losses > 0 ? wins / (wins + losses) : 0,
+    }
+  }, [id, h2hOpponentId, playerMatches, players])
+
   if (!player) {
     return (
       <div className="card text-center text-slate-500 space-y-2">
@@ -98,32 +242,42 @@ export function PlayerProfilePage() {
   const isMe = myPlayer?.id === player.id
   const age = playerAge(player.birthYear)
 
-  // Build the chart from each match's stored *_after value for this player.
-  // Falls back to the in-memory recompute history when matches haven't been
-  // fetched yet (or local mode with no level fields).
-  const chartData = useMemo(() => {
+  // Build the per-player series for the chart. Owner is always first; compared
+  // players follow in selection order so colours stay stable as the user adds
+  // and removes.
+  const serieses = useMemo<Series[]>(() => {
     if (!player) return []
-    const fromMatches: Array<{ date: string; level: number }> = []
-    const sorted = [...playerMatches].sort((a, b) => a.date.localeCompare(b.date))
-    for (const m of sorted) {
-      if (m.unranked) continue
-      if (m.status && m.status !== 'confirmed') continue
-      const isA = m.playerAId === player.id
-      const after = isA ? m.levelAAfter : m.levelBAfter
-      if (after == null) continue
-      fromMatches.push({ date: m.date, level: Math.round(after) })
-    }
-    if (fromMatches.length > 0) {
-      return [
-        { date: player.createdAt, level: Math.round(player.startingLevel) },
-        ...fromMatches,
-      ]
-    }
-    if (state) {
-      return state.history.map((h) => ({ date: h.date, level: Math.round(h.level) }))
-    }
-    return []
-  }, [player, playerMatches, state])
+    const out: Series[] = []
+    out.push({
+      id: player.id,
+      name: player.name,
+      color: '#7c3aed',
+      points: levelHistory(player, playerMatches, state),
+    })
+    comparedIds.forEach((cid, i) => {
+      const cp = players.find((p) => p.id === cid)
+      if (!cp) return
+      const cm = comparedMatches.get(cid)
+      // Skip until matches are fetched — line will appear once data loads.
+      if (!cm) return
+      out.push({
+        id: cid,
+        name: cp.name,
+        color: COMPARE_COLORS[i % COMPARE_COLORS.length],
+        points: levelHistory(cp, cm, undefined),
+      })
+    })
+    return out
+  }, [player, playerMatches, state, comparedIds, comparedMatches, players])
+
+  // Wide-format chart data: one row per unique date, columns per player. Each
+  // player's value is forward-filled — it stays at their last-seen level until
+  // their next match. Before a player's createdAt, value is null so Recharts
+  // doesn't draw a line where they didn't exist.
+  const chartData = useMemo(() => buildWideChartData(serieses), [serieses])
+
+  const ownerSeriesPoints = serieses[0]?.points ?? []
+  const hasOwnerHistory = ownerSeriesPoints.length > 1
 
   return (
     <div className="space-y-6">
@@ -177,10 +331,15 @@ export function PlayerProfilePage() {
         </div>
       </section>
 
-      {chartData.length > 1 && (
+      {hasOwnerHistory && (
         <section>
-          <h2 className="mb-2">Level over time</h2>
-          <div className="card">
+          <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
+            <h2 className="!mb-0">Level over time</h2>
+            <span className="text-xs text-slate-500">
+              {comparedIds.length}/{MAX_COMPARE} compared
+            </span>
+          </div>
+          <div className="card space-y-3">
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 5, right: 16, bottom: 0, left: 0 }}>
@@ -189,26 +348,103 @@ export function PlayerProfilePage() {
                   <YAxis fontSize={12} domain={['auto', 'auto']} />
                   <Tooltip
                     labelFormatter={(l) => fmtDate(String(l))}
-                    formatter={(v) => [fmtLevel(Number(v)), 'Level']}
+                    formatter={(v, key) => {
+                      const s = serieses.find((x) => x.id === key)
+                      return [fmtLevel(Number(v)), s?.name ?? String(key)]
+                    }}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="level"
-                    stroke="#7c3aed"
-                    strokeWidth={2}
-                    dot={{ r: 2 }}
-                    activeDot={{ r: 4 }}
-                  />
+                  {serieses.map((s) => (
+                    <Line
+                      key={s.id}
+                      type="monotone"
+                      dataKey={s.id}
+                      name={s.name}
+                      stroke={s.color}
+                      strokeWidth={s.id === player.id ? 2.5 : 1.5}
+                      dot={false}
+                      activeDot={{ r: 4 }}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                  ))}
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-2 text-xs text-slate-500">
+
+            {/* Legend chips. Owner is always present. Compared players show
+                an × for removal. */}
+            <div className="flex flex-wrap gap-2">
+              {serieses.map((s) => (
+                <span
+                  key={s.id}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs dark:border-slate-700 dark:bg-slate-900/40"
+                >
+                  <span className="h-2 w-2 rounded-full" style={{ background: s.color }} aria-hidden />
+                  <span className="font-medium">{s.name}</span>
+                  {s.id !== player.id && (
+                    <button
+                      type="button"
+                      onClick={() => setComparedIds((ids) => ids.filter((x) => x !== s.id))}
+                      aria-label={`Remove ${s.name} from comparison`}
+                      className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+
+            {/* Compare picker. Hidden when full. */}
+            {comparedIds.length < MAX_COMPARE && (
+              <CompareSearch
+                ownerId={player.id}
+                excludedIds={comparedIds}
+                onAdd={(p) => setComparedIds((ids) => (ids.includes(p.id) ? ids : [...ids, p.id]))}
+              />
+            )}
+
+            <div className="text-xs text-slate-500">
               From {fmtLevel(player.startingLevel)} on {fmtDate(player.createdAt)}{' '}
               → {fmtLevel(currentLevel)} now ({matchesPlayed} {matchesPlayed === 1 ? 'match' : 'matches'})
             </div>
           </div>
         </section>
       )}
+
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
+          <h2 className="!mb-0">Head to Head</h2>
+          {h2h && (
+            <button
+              type="button"
+              className="text-xs text-slate-500 hover:underline"
+              onClick={() => setH2hOpponentId(null)}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="card space-y-3">
+          {!h2h ? (
+            <H2HSearch
+              ownerId={player.id}
+              opponentIds={pastOpponentIds}
+              onPick={(p) => setH2hOpponentId(p.id)}
+            />
+          ) : (
+            <H2HSummary owner={player} h2h={h2h} />
+          )}
+        </div>
+
+        {h2h && h2h.matches.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {h2h.matches.map((m) => (
+              <MatchCard key={m.id} match={m} players={players} settings={settings} viewerId={player.id} />
+            ))}
+          </div>
+        )}
+      </section>
 
       <section>
         <div className="flex items-center justify-between mb-2">
@@ -227,7 +463,7 @@ export function PlayerProfilePage() {
               {stats.matches
                 .slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE)
                 .map((m) => (
-                  <MatchHistoryCard key={m.id} match={m} player={player} players={players} settings={settings} />
+                  <MatchCard key={m.id} match={m} players={players} settings={settings} viewerId={player.id} />
                 ))}
             </div>
             <Pagination
@@ -255,158 +491,217 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 /**
- * Match card on the profile page. Always renders the profile owner on the
- * left regardless of whether they were playerA or playerB in the match — this
- * makes a long list scannable without the eye having to figure out which side
- * is "me" each time. Win/Loss/Drew is called out as a coloured badge.
+ * Single-shot opponent picker for the head-to-head section. Restricted to
+ * past opponents — searching for someone the owner hasn't played would only
+ * show an empty H2H, which isn't useful.
  */
-function MatchHistoryCard({
-  match: m,
-  player,
-  players,
-  settings,
+function H2HSearch({
+  ownerId,
+  opponentIds,
+  onPick,
 }: {
-  match: Match
-  player: Player
-  players: Player[]
-  settings: Settings
+  ownerId: string
+  opponentIds: Set<string>
+  onPick: (p: Player) => void
 }) {
-  const isA = m.playerAId === player.id
-  const me = player
-  const oppId = isA ? m.playerBId : m.playerAId
-  const opponent = players.find((p) => p.id === oppId) ?? null
-  const oppName = opponent?.name ?? 'Unknown'
-  const myGames = gamesWonBy(m.games, isA ? 'a' : 'b')
-  const oppGames = gamesWonBy(m.games, isA ? 'b' : 'a')
-  const winner = winnerSide(m.games)
-  const drew = winner === null
-  const won = !drew && winner === (isA ? 'a' : 'b')
-  const myBefore = isA ? m.levelABefore : m.levelBBefore
-  const myAfter  = isA ? m.levelAAfter  : m.levelBAfter
-  const myDelta  = isA ? m.deltaA       : m.deltaB
-  const oppBefore = isA ? m.levelBBefore : m.levelABefore
-  const oppAfter  = isA ? m.levelBAfter  : m.levelAAfter
-  const oppDelta  = isA ? m.deltaB       : m.deltaA
-
-  // Expected vs actual performance, from the profile owner's perspective.
-  // Both helpers return A's share; flip when the owner is B.
-  let perfExpected: number | null = null
-  let perfActual: number | null = null
-  if (!m.unranked && myBefore != null && oppBefore != null) {
-    const expA = expectedPerformance(
-      isA ? myBefore : oppBefore,
-      isA ? oppBefore : myBefore,
-      settings,
+  if (opponentIds.size === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No past opponents yet — head-to-head will appear once this player has logged a match.
+      </p>
     )
-    const actA = actualPerformance(m.games, settings)
-    perfExpected = isA ? expA : 1 - expA
-    perfActual = isA ? actA : 1 - actA
+  }
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-slate-500">
+        Pick a past opponent to see the head-to-head record.
+      </p>
+      <PlayerSearch
+        value={null}
+        onChange={(p) => {
+          if (!p || p.id === ownerId) return
+          onPick(p)
+        }}
+        excludeId={ownerId}
+        placeholder={`Search past opponents (${opponentIds.size})…`}
+        restrictToIds={opponentIds}
+      />
+    </div>
+  )
+}
+
+interface H2HData {
+  opponent: Player
+  matches: Match[]
+  total: number
+  wins: number
+  losses: number
+  draws: number
+  setsFor: number
+  setsAgainst: number
+  pointsFor: number
+  pointsAgainst: number
+  winRate: number
+}
+
+/**
+ * Summary stats card for a head-to-head matchup. Shown above the filtered
+ * match list once the user has picked an opponent.
+ */
+function H2HSummary({
+  owner,
+  h2h,
+}: {
+  owner: Player
+  h2h: H2HData
+}) {
+  const { opponent, total, wins, losses, draws, setsFor, setsAgainst, pointsFor, pointsAgainst, winRate } = h2h
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <PlayerAvatar name={owner.name} avatarUrl={owner.avatarUrl} size={40} />
+        <div className="text-center font-mono text-2xl flex-1">
+          <span className={wins > losses ? 'font-bold text-green-700 dark:text-green-400' : ''}>{wins}</span>
+          <span className="text-slate-400 mx-2">–</span>
+          <span className={losses > wins ? 'font-bold text-green-700 dark:text-green-400' : ''}>{losses}</span>
+          {draws > 0 && (
+            <span className="text-sm text-slate-500 ml-2">({draws} drew)</span>
+          )}
+        </div>
+        <PlayerAvatar name={opponent.name} avatarUrl={opponent.avatarUrl} size={40} />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+        <Stat label="Matches" value={String(total)} />
+        <Stat
+          label="Win rate"
+          value={wins + losses > 0 ? `${(winRate * 100).toFixed(0)}%` : '—'}
+          sub={`${owner.name.split(' ')[0]} vs ${opponent.name.split(' ')[0]}`}
+        />
+        <Stat label="Sets" value={`${setsFor}–${setsAgainst}`} />
+        <Stat label="Points" value={`${pointsFor.toLocaleString()}–${pointsAgainst.toLocaleString()}`} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Wraps PlayerSearch to behave as a recurring "add player" picker — picking a
+ * player fires onAdd and the search clears for the next selection. Excludes
+ * the profile owner and any already-compared players from results.
+ */
+function CompareSearch({
+  ownerId,
+  excludedIds,
+  onAdd,
+}: {
+  ownerId: string
+  excludedIds: string[]
+  onAdd: (p: Player) => void
+}) {
+  const [tick, setTick] = useState(0) // remount key — resets PlayerSearch's internal q state cleanly
+  return (
+    <PlayerSearch
+      key={tick}
+      value={null}
+      onChange={(p) => {
+        if (!p) return
+        if (p.id === ownerId) return
+        if (excludedIds.includes(p.id)) return
+        onAdd(p)
+        setTick((n) => n + 1)
+      }}
+      excludeId={ownerId}
+      placeholder="Compare with another player…"
+    />
+  )
+}
+
+/**
+ * Build a player's level history as a sorted list of {date, level} points.
+ *
+ * Returned points are always sorted ascending — buildWideChartData's
+ * forward-fill cursor depends on this. Critically: when admin-imported
+ * matches predate the player's createdAt (a player whose roster was loaded
+ * before they signed up), we anchor at the earliest match's stored
+ * `level_X_before` rather than at createdAt, since claiming "this player was
+ * at startingLevel on date X" would draw a misleading flat segment.
+ */
+function levelHistory(
+  p: Player,
+  matches: Match[],
+  state: { history: Array<{ date: string; level: number }> } | undefined,
+): Series['points'] {
+  const filtered = [...matches]
+    .filter((m) => !m.unranked && (!m.status || m.status === 'confirmed'))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  const fromMatches: Series['points'] = []
+  for (const m of filtered) {
+    const isA = m.playerAId === p.id
+    const after = isA ? m.levelAAfter : m.levelBAfter
+    if (after == null) continue
+    fromMatches.push({ date: m.date, level: Math.round(after) })
   }
 
-  return (
-    <div className="card space-y-3">
-      {/* Top row: just date / type / venue. The result badge sits with the
-          profile owner below so the eye groups Won/Lost with the right name. */}
-      <div className="text-xs text-slate-500">
-        {fmtDate(m.date)} · {MATCH_TYPE_LABEL[m.type]}
-        {m.venue && <> · {m.venue}</>}
-      </div>
+  if (fromMatches.length > 0) {
+    // Pick the best anchor point — a {date, level} that should appear
+    // *before* the first stored "after" point so the chart starts at the
+    // right level, not jumping in mid-air.
+    const earliest = filtered[0]
+    const earliestIsA = earliest.playerAId === p.id
+    const earliestBefore = earliestIsA ? earliest.levelABefore : earliest.levelBBefore
+    const createdAt = (p.createdAt || '').slice(0, 10)
+    let anchor: { date: string; level: number } | null = null
 
-      {/* Score row: profile owner on the left, overall + per-game score in
-          the centre (always from the owner's perspective), opponent on right. */}
-      <div className="flex items-start gap-3">
-        <div className="flex items-start gap-2 flex-1 min-w-0">
-          <PlayerAvatar name={me.name} avatarUrl={me.avatarUrl} size={36} />
-          <div className="min-w-0 space-y-1">
-            <div className="font-semibold truncate text-slate-900 dark:text-slate-100">
-              {me.name}
-            </div>
-            <LevelChange before={myBefore} after={myAfter} delta={myDelta} unranked={m.unranked} />
-            <div>
-              {m.unranked ? (
-                <UnrankedTag />
-              ) : drew ? (
-                <ResultBadge variant="draw">Drew</ResultBadge>
-              ) : won ? (
-                <ResultBadge variant="win">Won</ResultBadge>
-              ) : (
-                <ResultBadge variant="loss">Lost</ResultBadge>
-              )}
-            </div>
-          </div>
-        </div>
+    if (earliestBefore != null) {
+      // Most accurate: the level the player was at right before their first
+      // recorded match. Always positioned at the earliest match's date.
+      anchor = { date: earliest.date, level: Math.round(earliestBefore) }
+    } else if (createdAt && createdAt <= fromMatches[0].date) {
+      // Fall back to createdAt only when it's actually before the matches.
+      anchor = { date: createdAt, level: Math.round(p.startingLevel) }
+    } else {
+      // Last resort: claim startingLevel at the earliest match date — better
+      // than dropping the anchor entirely (chart would start mid-line).
+      anchor = { date: fromMatches[0].date, level: Math.round(p.startingLevel) }
+    }
 
-        <div className="shrink-0 text-center space-y-1">
-          <div className="font-mono text-lg leading-none">
-            <span className={clsx(won && 'font-bold')}>{myGames}</span>
-            <span className="text-slate-400 mx-1.5">–</span>
-            <span className={clsx(!won && !drew && 'font-bold')}>{oppGames}</span>
-          </div>
-          {/* Per-game scores in profile owner's perspective. Larger text and
-              no per-game colouring — the Won/Lost badge already conveys the
-              result, so dressing each "11" in green is redundant noise. */}
-          <div className="flex justify-center">
-            <GameScores games={m.games} viewerSide={isA ? 'a' : 'b'} size="sm" colorize={false} />
-          </div>
-        </div>
+    // Prepend, then re-sort defensively in case the anchor's date collides
+    // with the first match's date (edge case but cheap to handle).
+    return [anchor, ...fromMatches].sort((a, b) => a.date.localeCompare(b.date))
+  }
 
-        <div className="flex items-start gap-2 flex-1 min-w-0 justify-end">
-          <div className="min-w-0 text-right">
-            <div className="font-medium truncate text-slate-600 dark:text-slate-400">
-              <PlayerLink id={oppId} name={oppName} />
-            </div>
-            <LevelChange before={oppBefore} after={oppAfter} delta={oppDelta} unranked={m.unranked} align="right" />
-          </div>
-          {opponent && <PlayerAvatar name={opponent.name} avatarUrl={opponent.avatarUrl} size={36} />}
-        </div>
-      </div>
+  if (state) {
+    return state.history.map((h) => ({ date: h.date, level: Math.round(h.level) }))
+  }
 
-      {perfExpected != null && perfActual != null && (
-        <div className="text-xs text-slate-500 border-t border-slate-100 dark:border-slate-800 pt-2">
-          Expected perf: {(perfExpected * 100).toFixed(0)}% · Actual: {(perfActual * 100).toFixed(0)}%
-        </div>
-      )}
-    </div>
-  )
+  const createdAt = (p.createdAt || '').slice(0, 10)
+  return createdAt ? [{ date: createdAt, level: Math.round(p.startingLevel) }] : []
 }
 
-function ResultBadge({ variant, children }: { variant: 'win' | 'loss' | 'draw'; children: React.ReactNode }) {
-  const cls = variant === 'win'
-    ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
-    : variant === 'loss'
-    ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'
-    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-  return (
-    <span className={clsx('inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider', cls)}>
-      {children}
-    </span>
-  )
-}
-
-function LevelChange({
-  before,
-  after,
-  delta,
-  unranked,
-  align,
-}: {
-  before?: number
-  after?: number
-  delta?: number
-  unranked?: boolean
-  align?: 'right'
-}) {
-  if (unranked) return null
-  if (before == null || after == null) return null
-  const up = (delta ?? 0) >= 0
-  return (
-    <div className={clsx('text-xs font-mono tabular-nums text-slate-500 truncate', align === 'right' && 'text-right')}>
-      {fmtLevel(before)} <span className="text-slate-400" aria-hidden>→</span> {fmtLevel(after)}
-      {delta != null && (
-        <span className={clsx('ml-1 font-semibold', up ? 'text-green-600' : 'text-red-600')}>
-          {fmtDelta(delta)}
-        </span>
-      )}
-    </div>
-  )
+/**
+ * Forward-fill multiple series into a single wide table for Recharts. Each
+ * row represents a unique date in the union of all series, with one column
+ * per series. A series's value at a date is its last-seen level — null if
+ * the series hadn't started yet (so Recharts won't draw before their
+ * createdAt).
+ */
+function buildWideChartData(serieses: Series[]): Array<Record<string, string | number | null>> {
+  if (serieses.length === 0) return []
+  const allDates = Array.from(
+    new Set(serieses.flatMap((s) => s.points.map((p) => p.date))),
+  ).sort()
+  const cursors = serieses.map(() => 0)
+  const lastVals: (number | null)[] = serieses.map(() => null)
+  return allDates.map((d) => {
+    const row: Record<string, string | number | null> = { date: d }
+    serieses.forEach((s, i) => {
+      while (cursors[i] < s.points.length && s.points[cursors[i]].date <= d) {
+        lastVals[i] = s.points[cursors[i]].level
+        cursors[i] += 1
+      }
+      row[s.id] = lastVals[i]
+    })
+    return row
+  })
 }

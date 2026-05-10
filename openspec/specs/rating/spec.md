@@ -1,0 +1,137 @@
+# rating Specification
+
+## Purpose
+TBD - created by archiving change seed-domain-specs. Update Purpose after archive.
+## Requirements
+### Requirement: Level scale and starting level
+
+A player's level SHALL be a positive number (`> 0`). New players SHALL start at a configurable `starting_level` (default `1000`). After any update, levels MUST be clamped to a minimum of `1`.
+
+#### Scenario: Default starting level
+- **WHEN** a new player row is inserted without an explicit `starting_level`
+- **THEN** `starting_level = 1000`
+
+#### Scenario: Floor clamp after a heavy loss
+- **WHEN** a level update would drop a player's level below 1
+- **THEN** the resulting level is set to exactly 1
+
+---
+
+### Requirement: Expected performance is a sigmoid blend of points and games ratios
+
+For two players A and B with levels `lA, lB` and configurable settings, expected performance SHALL be defined as:
+
+```
+expectedPointsRatio = sigmoid(lA / lB, settings.pointsExponent)
+expectedGamesRatio  = sigmoid(lA / lB, settings.gamesExponent)
+expectedPerformance = settings.pointsWeight * expectedPointsRatio
+                    + (1 - settings.pointsWeight) * expectedGamesRatio
+```
+
+where `sigmoid(r, n) = r^n / (r^n + 1)`. The `pointsExponent` and `gamesExponent` SHALL be positive; `pointsWeight ∈ [0, 1]`. Defaults: `pointsExponent = 2`, `gamesExponent = 5`, `pointsWeight = 0.5`.
+
+#### Scenario: Equal levels
+- **WHEN** `lA = lB`
+- **THEN** `expectedPerformance = 0.5` regardless of exponents (because `1^n = 1` and `1/(1+1) = 0.5`)
+
+#### Scenario: Higher exponent makes games ratio more decisive
+- **WHEN** `lA / lB = 1.2` and `gamesExponent` is increased from 5 to 10
+- **THEN** `expectedGamesRatio` rises further toward 1.0 (the higher exponent makes the dominant player expected to take MORE of the games)
+
+---
+
+### Requirement: Actual performance mirrors expected performance
+
+Given a match's `games`, `actualPerformance` SHALL be defined as:
+
+```
+pointsRatio(games) = sum(g.a) / sum(g.a + g.b)         // 0.5 if total = 0
+gamesRatio(games)  = (#games where a > b) / (#decisive games)   // 0.5 if no decisive game
+actualPerformance  = settings.pointsWeight * pointsRatio + (1 - settings.pointsWeight) * gamesRatio
+```
+
+Tied games (`g.a === g.b`) SHALL NOT count toward `gamesRatio`'s denominator. When all games are tied, `gamesRatio` defaults to `0.5`.
+
+#### Scenario: Clean 3-0 sweep
+- **WHEN** `games = [{a:11,b:0},{a:11,b:0},{a:11,b:0}]`
+- **THEN** `pointsRatio = 1.0`, `gamesRatio = 1.0`, `actualPerformance = 1.0`
+
+#### Scenario: All ties (degenerate)
+- **WHEN** every game has `a === b`
+- **THEN** `gamesRatio = 0.5`, `pointsRatio` reflects total points, `actualPerformance` blends them
+
+---
+
+### Requirement: Level update formula
+
+After a match between A (level `lA`) and B (level `lB`), the post-match levels SHALL be computed as:
+
+```
+delta  = actualPerformance - expectedPerformance
+weight = MATCH_TYPE_WEIGHT[matchType]   // friendly 0.7, box 1.0, league 1.3, tournament 1.6
+change = settings.dampingK * weight * delta
+lA'    = clamp_min_1( lA * (1 + change) )
+lB'    = clamp_min_1( lB * (1 - change) )
+```
+
+Default `dampingK = 0.12`. The update SHALL be **multiplicative on level**, not additive — large changes scale with the player's current level. Players SHALL move in opposite directions by equal proportional amounts before the floor clamp.
+
+#### Scenario: Match-type weight scales the delta
+- **WHEN** the same scoreline is logged as a `tournament` versus a `friendly`
+- **THEN** the absolute level change in the tournament case is `1.6 / 0.7 ≈ 2.29×` the friendly case (before clamping)
+
+#### Scenario: Damping parameter halves changes
+- **WHEN** `dampingK` is reduced from 0.12 to 0.06 with all else equal
+- **THEN** every level change is exactly halved (before clamping)
+
+---
+
+### Requirement: Provisional players
+
+A player SHALL be considered **provisional** until they have played `settings.provisionalThreshold` (default 5) confirmed matches. When exactly one of the two players is provisional, the non-provisional player's level MUST NOT change for that match — only the provisional player's level updates. This protects established players from rating noise while a newcomer's level is still finding its true value.
+
+When both players are provisional, both levels update normally.
+
+#### Scenario: Provisional newcomer plays an established player
+- **WHEN** A has `matchesPlayed < provisionalThreshold` and B has `matchesPlayed >= provisionalThreshold`
+- **THEN** after the match A's level updates per the formula but B's level is unchanged
+
+#### Scenario: Both provisional
+- **WHEN** both players have `matchesPlayed < provisionalThreshold`
+- **THEN** both levels update normally
+
+#### Scenario: Provisional threshold reached mid-recompute
+- **WHEN** during `recomputeAll`, player A crosses `provisionalThreshold` after match #5
+- **THEN** match #5 is processed with A still treated as provisional (the count is read BEFORE the update); match #6 sees A as non-provisional
+
+---
+
+### Requirement: Full recomputation is the source of truth
+
+The canonical level for any player at any point in time SHALL be derived by `recomputeAll(players, matches, settings)`, which:
+
+1. Initializes every player at their `startingLevel`.
+2. Sorts matches by `(date, id)` ascending — date primary, id as a stable tiebreaker.
+3. For each match, reads pre-match levels and provisional flags, computes the update, writes `levelABefore/levelBBefore/levelAAfter/levelBAfter/deltaA/deltaB/provisionalA/provisionalB` onto the enriched match, advances each player's `currentLevel` and `matchesPlayed`, and pushes a history entry.
+4. Treats `unranked` matches as zero-impact pass-throughs (see `match-recording`).
+
+The function MUST be deterministic for a given `(players, matches, settings)` triple. Persisted level fields on `matches` (if any) are derived caches — the recompute output is authoritative and SHALL be re-derived rather than trusted from storage.
+
+#### Scenario: Reordering matches by date
+- **WHEN** `recomputeAll` runs over a set of matches whose insertion order differs from chronological order
+- **THEN** results match the chronological-order computation; insertion order does not affect outcomes
+
+#### Scenario: A player has no matches
+- **WHEN** a player exists but has played zero matches
+- **THEN** their resulting `currentLevel` equals their `startingLevel` and their history has exactly one entry (the `'start'` marker)
+
+---
+
+### Requirement: Moving-average smoothing for display
+
+The `movingAverage(history, window)` helper SHALL return the simple mean of the last `window` level entries (or all of them if there are fewer than `window`). Default `movingAverageWindow = 4`. This is a display-time smoothing aid and MUST NOT be used as input to the level-update formula.
+
+#### Scenario: Smoothing the leaderboard's headline number
+- **WHEN** the UI renders a player's "trend level" using `movingAverage(history, 4)`
+- **THEN** the displayed number is the mean of the player's last four post-match levels (or all entries if fewer than four)
+

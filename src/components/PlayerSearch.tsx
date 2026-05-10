@@ -20,6 +20,13 @@ interface Props {
    * Used by the Log Match flow to create an unclaimed player on the fly.
    */
   onCreateUnclaimed?: (name: string) => void
+  /**
+   * Optional whitelist of player IDs the search is restricted to. When set,
+   * server-side search results are filtered down to this set, and the local
+   * fallback only considers these players. Used by the head-to-head picker
+   * to limit choices to past opponents.
+   */
+  restrictToIds?: ReadonlySet<string>
 }
 
 /**
@@ -31,7 +38,7 @@ interface Props {
  * filtering of the locally loaded roster otherwise. Result rows show avatar,
  * country, age and club so admins can pick the right same-named player.
  */
-export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search by name…', autoFocus, onCreateUnclaimed }: Props) {
+export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search by name…', autoFocus, onCreateUnclaimed, restrictToIds }: Props) {
   const { players, recomputed } = useStore()
   const [q, setQ] = useState('')
   const [results, setResults] = useState<Player[]>([])
@@ -53,7 +60,19 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
   useEffect(() => {
     if (!open) return
     const t = setTimeout(async () => {
-      if (supabaseEnabled) {
+      // restrictToIds narrows the search to a known set (e.g. past opponents
+      // in head-to-head). With restriction we do a local-only search since
+      // the server doesn't know the set; we have all players in memory
+      // anyway because the restriction implies a small bounded set.
+      if (restrictToIds) {
+        const ql = q.trim().toLowerCase()
+        const tokens = ql.split(/\s+/).filter(Boolean)
+        const filtered = players
+          .filter((p) => p.id !== excludeId && restrictToIds.has(p.id))
+          .filter((p) => tokens.length === 0 || tokens.every((t) => p.name.toLowerCase().includes(t)))
+          .slice(0, 25)
+        setResults(filtered)
+      } else if (supabaseEnabled) {
         try {
           const r = await searchPlayers(q, 25)
           setResults(r.filter((p) => p.id !== excludeId))
@@ -72,7 +91,7 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
       setHighlight(0)
     }, 150)
     return () => clearTimeout(t)
-  }, [q, open, players, excludeId])
+  }, [q, open, players, excludeId, restrictToIds])
 
   useEffect(() => {
     if (isMobile) return

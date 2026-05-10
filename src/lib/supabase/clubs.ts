@@ -97,6 +97,22 @@ export async function setClubAdmin(
 }
 
 /**
+ * Public: list the auth user IDs of everyone who admins a given club.
+ * Backed by the public-read RLS policy on club_admins, so any signed-in user
+ * can call it. Returns just user_ids — callers map those to player rows
+ * locally via players.user_id.
+ */
+export async function listClubAdminUserIds(slug: string): Promise<string[]> {
+  const sb = supabase!
+  const { data, error } = await sb
+    .from('club_admins')
+    .select('user_id')
+    .eq('club_slug', slug)
+  if (error) throw error
+  return (data as Array<{ user_id: string }>).map((r) => r.user_id)
+}
+
+/**
  * Fetch the slugs of clubs the *current* user administers. Cheap; fetched
  * once after sign-in and stored on the store so write-permission checks
  * don't need an extra round-trip.

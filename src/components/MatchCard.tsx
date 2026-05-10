@@ -1,0 +1,246 @@
+import type { ReactNode } from 'react'
+import clsx from 'clsx'
+import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
+import { actualPerformance, expectedPerformance, gamesWonBy, winnerSide } from '../lib/rating/levels'
+import { MATCH_TYPE_LABEL, type Match, type Player, type Settings } from '../types'
+import { GameScores } from './MatchScores'
+import { PlayerAvatar } from './PlayerAvatar'
+import { PlayerLink, PlayerMetaLinks } from './PlayerLinks'
+import { UnrankedTag } from './UnrankedTag'
+
+/**
+ * Canonical match card. Used everywhere we list matches (player profile, club
+ * profile, group profile, history, activity). Keeping every list visually
+ * consistent removes a class of "this page styles its matches differently"
+ * drift, and means future tweaks to match presentation only need to land in
+ * one place.
+ *
+ * Layout:
+ *   [date · type · venue]                       [optional status pill]
+ *   [avatar  name]            score        [opp name  avatar]
+ *   [before→after Δ]       per-game scores       [before→after Δ]
+ *   [Won/Lost badge — only when viewerId is set]
+ *   ─────────────────────────────────────────────────────────────
+ *   Expected perf: X% · Actual: Y%   (only when level data exists)
+ *   [optional hint line]
+ *   [optional action row — Confirm/Dispute/Delete buttons, etc.]
+ *
+ * When `viewerId` is provided, that player is forced onto the LEFT side and
+ * gets a Won/Lost/Drew badge. This makes long lists on a profile page easy to
+ * scan — your eye doesn't have to figure out "which side am I" each card.
+ *
+ * When `viewerId` is omitted, player A goes on the left (no flipping), no
+ * Won/Lost badge appears, and both names are clickable links.
+ */
+export interface MatchCardProps {
+  match: Match
+  players: Player[]
+  settings: Settings
+  /** When set, this player is shown on the left and gets a Won/Lost/Drew
+   *  badge. Their name renders as plain text (no self-link). */
+  viewerId?: string
+  /** Optional pill rendered in the header (e.g. "pending", "disputed",
+   *  "auto-confirmed"). Caller controls colours/labels. */
+  statusBadge?: ReactNode
+  /** Optional ring colour on the card edge for emphasis. */
+  ring?: 'amber' | 'tin' | 'brand' | 'none'
+  /** Optional small text rendered below the perf footer. */
+  hint?: ReactNode
+  /** Optional action row at the bottom (buttons). */
+  actions?: ReactNode
+  /** Optional class merged onto the outer card div. */
+  className?: string
+}
+
+export function MatchCard({
+  match: m,
+  players,
+  settings,
+  viewerId,
+  statusBadge,
+  ring = 'none',
+  hint,
+  actions,
+  className,
+}: MatchCardProps) {
+  // viewerIsA = the viewer is in slot A and should be shown on the left.
+  // When viewerId is unset OR refers to someone not in this match (e.g. the
+  // signed-in user viewing other players' games on the History page), we
+  // treat A as "left" and skip the result badge.
+  const viewerInMatch = !!viewerId && (m.playerAId === viewerId || m.playerBId === viewerId)
+  const viewerIsA = viewerInMatch ? m.playerAId === viewerId : true
+  const leftId = viewerIsA ? m.playerAId : m.playerBId
+  const rightId = viewerIsA ? m.playerBId : m.playerAId
+  const left = players.find((p) => p.id === leftId) ?? null
+  const right = players.find((p) => p.id === rightId) ?? null
+  const leftName = left?.name ?? 'Unknown'
+  const rightName = right?.name ?? 'Unknown'
+
+  const leftSide: 'a' | 'b' = viewerIsA ? 'a' : 'b'
+  const rightSide: 'a' | 'b' = viewerIsA ? 'b' : 'a'
+  const leftGames = gamesWonBy(m.games, leftSide)
+  const rightGames = gamesWonBy(m.games, rightSide)
+  const winner = winnerSide(m.games)
+  const drew = winner === null
+  const leftWon = !drew && winner === leftSide
+  const rightWon = !drew && winner === rightSide
+
+  const leftBefore = viewerIsA ? m.levelABefore : m.levelBBefore
+  const leftAfter = viewerIsA ? m.levelAAfter : m.levelBAfter
+  const leftDelta = viewerIsA ? m.deltaA : m.deltaB
+  const rightBefore = viewerIsA ? m.levelBBefore : m.levelABefore
+  const rightAfter = viewerIsA ? m.levelBAfter : m.levelAAfter
+  const rightDelta = viewerIsA ? m.deltaB : m.deltaA
+
+  // Performance percentages from the LEFT side's perspective. expected/actual
+  // are returned in player-A-share terms; flip when the viewer was B.
+  let perfExpected: number | null = null
+  let perfActual: number | null = null
+  if (!m.unranked && leftBefore != null && rightBefore != null) {
+    const expA = expectedPerformance(
+      viewerIsA ? leftBefore : rightBefore,
+      viewerIsA ? rightBefore : leftBefore,
+      settings,
+    )
+    const actA = actualPerformance(m.games, settings)
+    perfExpected = viewerIsA ? expA : 1 - expA
+    perfActual = viewerIsA ? actA : 1 - actA
+  }
+
+  const ringClass =
+    ring === 'amber' ? 'ring-1 ring-amber-200 dark:ring-amber-900/40'
+    : ring === 'tin' ? 'ring-1 ring-tin-300 dark:ring-tin-900/50'
+    : ring === 'brand' ? 'ring-1 ring-brand-200/60 dark:ring-brand-900/40'
+    : ''
+
+  return (
+    <div className={clsx('card space-y-3', ringClass, className)}>
+      {/* Header row: date · type · venue (and unranked tag / status pill) */}
+      <div className="flex items-center gap-2 text-xs text-slate-500">
+        <span className="truncate">
+          {fmtDate(m.date)} · {MATCH_TYPE_LABEL[m.type]}
+          {m.venue && <> · {m.venue}</>}
+        </span>
+        {m.unranked && <UnrankedTag />}
+        {statusBadge && <span className="ml-auto shrink-0">{statusBadge}</span>}
+      </div>
+
+      {/* Score row: left · centre · right */}
+      <div className="flex items-start gap-3">
+        <div className="flex items-start gap-2 flex-1 min-w-0">
+          {left && <PlayerAvatar name={left.name} avatarUrl={left.avatarUrl} size={36} />}
+          <div className="min-w-0 space-y-1">
+            <div className="font-semibold truncate text-slate-900 dark:text-slate-100">
+              {viewerInMatch && leftId === viewerId ? (
+                leftName
+              ) : (
+                <PlayerLink id={leftId} name={leftName} />
+              )}
+            </div>
+            {left && <PlayerMetaLinks player={left} />}
+            <LevelChange before={leftBefore} after={leftAfter} delta={leftDelta} unranked={m.unranked} />
+            {viewerInMatch && !m.unranked && (
+              <div>
+                {drew ? (
+                  <ResultBadge variant="draw">Drew</ResultBadge>
+                ) : leftWon ? (
+                  <ResultBadge variant="win">Won</ResultBadge>
+                ) : (
+                  <ResultBadge variant="loss">Lost</ResultBadge>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="shrink-0 text-center space-y-1">
+          <div className="font-mono text-lg leading-none">
+            <span className={clsx(leftWon && 'font-bold')}>{leftGames}</span>
+            <span className="text-slate-400 mx-1.5">–</span>
+            <span className={clsx(rightWon && 'font-bold')}>{rightGames}</span>
+          </div>
+          {/* Per-game scores in the left side's perspective. No per-game
+              colouring — bold winning total + Won/Lost badge already convey
+              the result, so dressing each "11" in green is redundant noise. */}
+          <div className="flex justify-center">
+            <GameScores games={m.games} viewerSide={leftSide} size="sm" colorize={false} />
+          </div>
+        </div>
+
+        <div className="flex items-start gap-2 flex-1 min-w-0 justify-end">
+          <div className="min-w-0 text-right">
+            <div className="font-medium truncate text-slate-600 dark:text-slate-400">
+              <PlayerLink id={rightId} name={rightName} />
+            </div>
+            {right && (
+              <div className="flex justify-end">
+                <PlayerMetaLinks player={right} />
+              </div>
+            )}
+            <LevelChange
+              before={rightBefore}
+              after={rightAfter}
+              delta={rightDelta}
+              unranked={m.unranked}
+              align="right"
+            />
+          </div>
+          {right && <PlayerAvatar name={right.name} avatarUrl={right.avatarUrl} size={36} />}
+        </div>
+      </div>
+
+      {m.notes && <div className="text-xs text-slate-500 italic">{m.notes}</div>}
+
+      {(perfExpected != null && perfActual != null) || hint ? (
+        <div className="text-xs text-slate-500 border-t border-slate-100 dark:border-slate-800 pt-2 space-y-1">
+          {perfExpected != null && perfActual != null && (
+            <div>
+              Expected perf: {(perfExpected * 100).toFixed(0)}% · Actual: {(perfActual * 100).toFixed(0)}%
+            </div>
+          )}
+          {hint && <div>{hint}</div>}
+        </div>
+      ) : null}
+
+      {actions && <div className="flex flex-wrap gap-2 pt-1">{actions}</div>}
+    </div>
+  )
+}
+
+function ResultBadge({ variant, children }: { variant: 'win' | 'loss' | 'draw'; children: ReactNode }) {
+  const cls =
+    variant === 'win'
+      ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
+      : variant === 'loss'
+        ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'
+        : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+  return (
+    <span className={clsx('inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider', cls)}>
+      {children}
+    </span>
+  )
+}
+
+function LevelChange({
+  before, after, delta, unranked, align,
+}: {
+  before?: number
+  after?: number
+  delta?: number
+  unranked?: boolean
+  align?: 'right'
+}) {
+  if (unranked) return null
+  if (before == null || after == null) return null
+  const up = (delta ?? 0) >= 0
+  return (
+    <div className={clsx('text-xs font-mono tabular-nums text-slate-500 truncate', align === 'right' && 'text-right')}>
+      {fmtLevel(before)} <span className="text-slate-400" aria-hidden>→</span> {fmtLevel(after)}
+      {delta != null && (
+        <span className={clsx('ml-1 font-semibold', up ? 'text-green-600' : 'text-red-600')}>
+          {fmtDelta(delta)}
+        </span>
+      )}
+    </div>
+  )
+}

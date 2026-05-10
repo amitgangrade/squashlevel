@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { v4 as uuid } from 'uuid'
-import type { Match, Player, Profile, Settings } from '../types'
+import type { Challenge, Match, Player, Profile, Settings } from '../types'
 import { DEFAULT_SETTINGS } from '../types'
 import { backend } from '../lib/storage/backend'
 import { recomputeAll, type RecomputeResult } from '../lib/rating/recompute'
@@ -17,6 +17,7 @@ import {
   type OnboardingInput,
 } from '../lib/supabase/profile'
 import { clubSlug, fetchMyClubAdminSlugs } from '../lib/supabase/clubs'
+import { fetchChallenges as fetchChallengesApi } from '../lib/supabase/challenges'
 
 interface StoreCtx {
   mode: 'local' | 'cloud'
@@ -38,6 +39,17 @@ interface StoreCtx {
   needsOnboarding: boolean
   /** Pending matches the current user can confirm or dispute. */
   pendingForMe: Match[]
+  /** All challenges involving the signed-in player (in either direction). */
+  challenges: Challenge[]
+  /** Re-fetch challenges from the server. Call after sending/responding to one. */
+  refreshChallenges: () => Promise<void>
+  /** Number of pending challenges sent TO the current user (action needed). */
+  incomingChallengeCount: number
+  /** Build a human-readable URL for a player. Prefers username when the
+   *  player is claimed; falls back to UUID for unclaimed legacy rows. */
+  playerUrl: (playerId: string) => string
+  /** Resolve a route param (UUID or username) to a player record. */
+  findPlayerByRouteParam: (param: string) => Player | null
   signInWithGoogle: () => Promise<void>
   signOut: () => Promise<void>
   completeOnboarding: (input: OnboardingInput) => Promise<void>
@@ -88,6 +100,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [myPlayer, setMyPlayer] = useState<Player | null>(null)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [myClubAdminSlugs, setMyClubAdminSlugs] = useState<string[]>([])
+  const [challenges, setChallenges] = useState<Challenge[]>([])
+  // user_id -> profile.username, fetched once on mount. Used to render
+  // human-readable URLs like /players/amit instead of /players/{uuid}.
+  // Profiles have a public-read RLS policy so this is just a lightweight
+  // table scan; (id, username) is small even with 100K profiles.
+  const [usernamesByUserId, setUsernamesByUserId] = useState<Map<string, string>>(new Map())
   // Rebuild-levels state: kept in the store rather than the Settings page so
   // it survives navigation away and back.
   const [rebuildRunning, setRebuildRunning] = useState(false)
@@ -151,6 +169,71 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return unsub
   }, [refresh])
 
+  // Fetch (id, username) from profiles for human-readable player URLs.
+  // Runs once at mount; new sign-ups arrive via realtime → backend.subscribe
+  // refresh, but their username is rare to need until they're linked from
+  // somewhere. A page reload always picks up the latest mapping.
+  useEffect(() => {
+    if (!supabaseEnabled) return
+    supabase!
+      .from('profiles')
+      .select('id, username')
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('username fetch failed', error)
+          return
+        }
+        const map = new Map<string, string>()
+        for (const r of (data ?? []) as Array<{ id: string; username: string | null }>) {
+          if (r.username) map.set(r.id, r.username)
+        }
+        setUsernamesByUserId(map)
+      })
+  }, [])
+
+  // Reverse lookup: username -> auth user_id. Built lazily for resolving
+  // human-readable profile URLs on the player profile page.
+  const userIdByUsername = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const [userId, username] of usernamesByUserId) {
+      map.set(username.toLowerCase(), userId)
+    }
+    return map
+  }, [usernamesByUserId])
+
+  /**
+   * Build a profile URL for a player. Prefers /players/{username} when the
+   * player is claimed and has a profile username; otherwise falls back to
+   * /players/{uuid}. Use everywhere instead of hand-building the path.
+   */
+  const playerUrl = useCallback(
+    (playerId: string): string => {
+      const p = players.find((pl) => pl.id === playerId)
+      if (!p?.userId) return `/players/${playerId}`
+      const username = usernamesByUserId.get(p.userId)
+      return username ? `/players/${username}` : `/players/${playerId}`
+    },
+    [players, usernamesByUserId],
+  )
+
+  /**
+   * Resolve a route param (either a UUID or a username) to a player. Used by
+   * the PlayerProfile page so old `/players/{uuid}` bookmarks keep working
+   * alongside the new `/players/{username}` form.
+   */
+  const findPlayerByRouteParam = useCallback(
+    (param: string): Player | null => {
+      if (!param) return null
+      // UUID-format check: 8-4-4-4-12 hex.
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(param)
+      if (isUuid) return players.find((p) => p.id === param) ?? null
+      const userId = userIdByUsername.get(param.toLowerCase())
+      if (!userId) return null
+      return players.find((p) => p.userId === userId) ?? null
+    },
+    [players, userIdByUsername],
+  )
+
   // Only confirmed matches affect ratings. Local-mode matches without a status
   // are treated as confirmed (legacy behaviour).
   const ratedMatches = useMemo(
@@ -161,6 +244,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const recomputed = useMemo(
     () => recomputeAll(players, ratedMatches, settings),
     [players, ratedMatches, settings],
+  )
+
+  const refreshChallenges = useCallback(async () => {
+    if (!supabaseEnabled || !session?.user) {
+      setChallenges([])
+      return
+    }
+    try {
+      setChallenges(await fetchChallengesApi())
+    } catch (err) {
+      // Non-fatal: leave whatever we last had so the badge / page degrade gracefully.
+      console.warn('challenge fetch failed', err)
+    }
+  }, [session?.user])
+
+  // Refresh challenges when the user changes (login / logout / onboarded).
+  useEffect(() => {
+    refreshChallenges()
+  }, [refreshChallenges, myPlayer?.id])
+
+  const incomingChallengeCount = useMemo(
+    () =>
+      myPlayer
+        ? challenges.filter((c) => c.toPlayerId === myPlayer.id && c.status === 'pending').length
+        : 0,
+    [challenges, myPlayer],
   )
 
   // Pending matches awaiting MY action (I'm the opponent — i.e., not the recorder).
@@ -434,6 +543,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     canWriteMatch,
     needsOnboarding,
     pendingForMe,
+    challenges,
+    refreshChallenges,
+    incomingChallengeCount,
+    playerUrl,
+    findPlayerByRouteParam,
     signInWithGoogle,
     signOut,
     completeOnboarding,

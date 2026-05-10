@@ -8,12 +8,11 @@ import { HistoryPage } from './pages/History'
 import { SettingsPage } from './pages/Settings'
 import { ProfilePage } from './pages/Profile'
 import { PlayerProfilePage } from './pages/PlayerProfile'
-import { PendingMatchesPage } from './pages/PendingMatches'
+import { ActivityPage } from './pages/Activity'
 import { ClubsPage } from './pages/Clubs'
 import { ClubProfilePage } from './pages/ClubProfile'
 import { GroupsPage } from './pages/Groups'
 import { GroupProfilePage } from './pages/GroupProfile'
-import { ChallengesPage } from './pages/Challenges'
 
 export default function App() {
   return (
@@ -31,8 +30,10 @@ export default function App() {
             <Route path="/clubs/:slug" element={<ClubProfilePage />} />
             <Route path="/groups" element={<GroupsPage />} />
             <Route path="/groups/:slug" element={<GroupProfilePage />} />
-            <Route path="/challenges" element={<ChallengesPage />} />
-            <Route path="/matches/pending" element={<PendingMatchesPage />} />
+            <Route path="/activity" element={<ActivityPage />} />
+            {/* Old routes kept as redirects so existing bookmarks / links keep working. */}
+            <Route path="/challenges" element={<Navigate to="/activity" replace />} />
+            <Route path="/matches/pending" element={<Navigate to="/activity" replace />} />
             <Route path="/admin" element={<SettingsPage />} />
             <Route path="/settings" element={<Navigate to="/admin" replace />} />
           </Route>

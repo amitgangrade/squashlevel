@@ -3,10 +3,13 @@ import clsx from 'clsx'
 import type { Player } from '../types'
 import { playerAge } from '../lib/format'
 import { clubSlug } from '../lib/supabase/clubs'
+import { useStore } from '../state/store'
 
 /**
  * A player name that links to its public profile page. Falls back to plain
  * text when the player id is unknown (e.g. unresolved match participant).
+ * Uses the store's playerUrl helper so links are username-based when the
+ * player has claimed their profile.
  */
 export function PlayerLink({
   id,
@@ -17,9 +20,10 @@ export function PlayerLink({
   name: string
   className?: string
 }) {
+  const { playerUrl } = useStore()
   if (!id) return <span className={className}>{name}</span>
   return (
-    <Link to={`/players/${id}`} className={clsx('hover:underline', className)}>
+    <Link to={playerUrl(id)} className={clsx('hover:underline', className)}>
       {name}
     </Link>
   )

@@ -59,7 +59,7 @@ function fromPlayer(p: Player): FormState {
 }
 
 export function RosterPage() {
-  const { players, recomputed, settings, isAdmin, addPlayer, updatePlayer, removePlayer } = useStore()
+  const { players, recomputed, settings, isAdmin, addPlayer, updatePlayer, removePlayer, playerUrl } = useStore()
   const [form, setForm] = useState<FormState>(emptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -312,7 +312,7 @@ export function RosterPage() {
                     <tr key={p.id} className="border-t border-slate-100 dark:border-slate-800">
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-3 min-w-0">
-                          <Link to={`/players/${p.id}`} aria-label={`View ${p.name}'s profile`}>
+                          <Link to={playerUrl(p.id)} aria-label={`View ${p.name}'s profile`}>
                             <PlayerAvatar name={p.name} avatarUrl={p.avatarUrl} size={32} />
                           </Link>
                           <div className="min-w-0">
@@ -347,13 +347,13 @@ export function RosterPage() {
                       </td>
                       <td className="px-3 py-2 text-right">{fmtLevel(p.startingLevel)}</td>
                       <td className="px-3 py-2 text-right font-semibold">
-                        <Link to={`/players/${p.id}`} className="hover:underline">
+                        <Link to={playerUrl(p.id)} className="hover:underline">
                           {fmtLevel(s?.currentLevel)}
                         </Link>
                       </td>
                       <td className="px-3 py-2 text-right text-slate-500">
                         {(s?.matchesPlayed ?? 0) > 0 ? (
-                          <Link to={`/players/${p.id}`} className="hover:underline">
+                          <Link to={playerUrl(p.id)} className="hover:underline">
                             {s?.matchesPlayed ?? 0}
                           </Link>
                         ) : (

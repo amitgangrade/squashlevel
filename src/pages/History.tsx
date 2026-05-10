@@ -3,16 +3,12 @@ import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
-import { MATCH_STATUS_LABEL, MATCH_TYPE_LABEL, type Player, type Match } from '../types'
-import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
-import { summarizeMatch } from '../lib/match-summary'
-import { GameScores } from '../components/MatchScores'
+import { MATCH_STATUS_LABEL, type Player, type Match } from '../types'
+import { MatchCard } from '../components/MatchCard'
 import { PlayerSearch } from '../components/PlayerSearch'
-import { PlayerLink } from '../components/PlayerLinks'
-import { UnrankedTag } from '../components/UnrankedTag'
 
 export function HistoryPage() {
-  const { players, recomputed, isAdmin, removeMatch, confirmMatch, session, myPlayer, fetchMatchesPage } = useStore()
+  const { players, recomputed, settings, isAdmin, removeMatch, confirmMatch, session, myPlayer, fetchMatchesPage } = useStore()
   const [filterPlayer, setFilterPlayer] = useState<Player | null>(null)
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 100
@@ -75,9 +71,6 @@ export function HistoryPage() {
       ) : (
         <div className="space-y-2">
           {visibleRows.map((m) => {
-            const s = summarizeMatch(m, players)
-            const aIsWinner = !s.isDraw && s.winnerId === m.playerAId
-            const bIsWinner = !s.isDraw && s.winnerId === m.playerBId
             const status = m.status ?? 'confirmed'
             const isMyPending =
               status === 'pending' &&
@@ -85,104 +78,62 @@ export function HistoryPage() {
               !!myPlayer &&
               (m.playerAId === myPlayer.id || m.playerBId === myPlayer.id) &&
               m.createdBy !== session.user.id
-            const ringClass =
-              status === 'pending'
-                ? 'ring-1 ring-amber-200 dark:ring-amber-900/40'
-                : status === 'disputed'
-                  ? 'ring-1 ring-tin-300 dark:ring-tin-900/50'
-                  : ''
+            const isMyRecorded =
+              status === 'pending' && session?.user?.id === m.createdBy
+            const ring =
+              status === 'pending' ? 'amber'
+              : status === 'disputed' ? 'tin'
+              : 'none'
+
+            const actions: React.ReactNode[] = []
+            if (isMyPending) {
+              actions.push(
+                <button
+                  key="confirm"
+                  className="btn-primary"
+                  onClick={() => act(m.id, false)}
+                  disabled={busy !== null}
+                >
+                  {busy === m.id + ':c' ? 'Confirming…' : 'Confirm'}
+                </button>,
+                <button
+                  key="dispute"
+                  className="btn bg-tin-100 text-tin-700 hover:bg-tin-200 dark:bg-tin-900/30 dark:text-tin-200"
+                  onClick={() => act(m.id, true)}
+                  disabled={busy !== null}
+                >
+                  {busy === m.id + ':d' ? 'Reporting…' : 'Dispute'}
+                </button>,
+              )
+            }
+            if (isAdmin) {
+              actions.push(
+                <button
+                  key="delete"
+                  className="btn-link-danger ml-auto"
+                  onClick={() => remove(m.id)}
+                >
+                  Delete
+                </button>,
+              )
+            }
+
+            const hint = isMyRecorded
+              ? <>Waiting on your opponent. <Link to="/activity" className="underline">View →</Link></>
+              : null
+
             return (
-              <div key={m.id} className={clsx('card', ringClass)}>
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <PlayerLink
-                        id={m.playerAId}
-                        name={s.aName}
-                        className={clsx('font-semibold', aIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
-                      />
-                      <span className="font-mono text-base">
-                        <span className={aIsWinner ? 'font-bold' : ''}>{s.aGames}</span>
-                        <span className="text-slate-400 mx-1">–</span>
-                        <span className={bIsWinner ? 'font-bold' : ''}>{s.bGames}</span>
-                      </span>
-                      <PlayerLink
-                        id={m.playerBId}
-                        name={s.bName}
-                        className={clsx('font-semibold', bIsWinner ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
-                      />
-                      {!s.isDraw && status === 'confirmed' && (
-                        <span className="rounded-full bg-green-100 text-green-800 text-[10px] font-semibold px-2 py-0.5 dark:bg-green-900/40 dark:text-green-300">
-                          {s.winnerName} won
-                        </span>
-                      )}
-                      {m.unranked && <UnrankedTag />}
-                      <StatusBadge status={status} autoConfirmed={!!m.autoConfirmed} />
-                    </div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {fmtDate(m.date)} · {MATCH_TYPE_LABEL[m.type as keyof typeof MATCH_TYPE_LABEL]}
-                      {m.venue && <> · <span>{m.venue}</span></>}
-                    </div>
-                    <div className="mt-1">
-                      <GameScores games={m.games} />
-                    </div>
-                    {m.notes && <div className="text-xs text-slate-500 mt-1 italic">{m.notes}</div>}
-                  </div>
-                  {status === 'confirmed' && !m.unranked && m.levelABefore != null && (
-                    <div className="grid grid-cols-2 gap-4 text-sm shrink-0">
-                      <div className="text-right">
-                        <PlayerLink
-                          id={m.playerAId}
-                          name={s.aName}
-                          className={clsx('text-xs', aIsWinner ? 'text-green-700 dark:text-green-400 font-medium' : 'text-slate-500')}
-                        />
-                        <div>{fmtLevel(m.levelABefore)} → <span className="font-semibold">{fmtLevel(m.levelAAfter)}</span></div>
-                        <div className={(m.deltaA ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaA)}</div>
-                      </div>
-                      <div className="text-right">
-                        <PlayerLink
-                          id={m.playerBId}
-                          name={s.bName}
-                          className={clsx('text-xs', bIsWinner ? 'text-green-700 dark:text-green-400 font-medium' : 'text-slate-500')}
-                        />
-                        <div>{fmtLevel(m.levelBBefore)} → <span className="font-semibold">{fmtLevel(m.levelBAfter)}</span></div>
-                        <div className={(m.deltaB ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>{fmtDelta(m.deltaB)}</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {isMyPending && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      className="btn-primary"
-                      onClick={() => act(m.id, false)}
-                      disabled={busy !== null}
-                    >
-                      {busy === m.id + ':c' ? 'Confirming…' : 'Confirm'}
-                    </button>
-                    <button
-                      className="btn bg-tin-100 text-tin-700 hover:bg-tin-200 dark:bg-tin-900/30 dark:text-tin-200"
-                      onClick={() => act(m.id, true)}
-                      disabled={busy !== null}
-                    >
-                      {busy === m.id + ':d' ? 'Reporting…' : 'Dispute'}
-                    </button>
-                  </div>
-                )}
-                {status === 'pending' && !isMyPending && session?.user?.id === m.createdBy && (
-                  <div className="mt-2 text-xs text-slate-500">
-                    Waiting on your opponent.{' '}
-                    <Link to="/matches/pending" className="underline">View →</Link>
-                  </div>
-                )}
-
-                {isAdmin && (
-                  <div className="mt-2 flex justify-end">
-                    <button className="btn-link-danger" onClick={() => remove(m.id)}>Delete</button>
-                  </div>
-                )}
-              </div>
+              <MatchCard
+                key={m.id}
+                match={m}
+                players={players}
+                settings={settings}
+                viewerId={myPlayer?.id}
+                ring={ring}
+                statusBadge={<StatusBadge status={status} autoConfirmed={!!m.autoConfirmed} />}
+                hint={hint}
+                actions={actions.length > 0 ? <>{actions}</> : null}
+              />
             )
           })}
         </div>

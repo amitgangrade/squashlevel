@@ -25,8 +25,11 @@ const desktopNav = [
 ]
 
 export function Layout() {
-  const { mode, session, profile, isAdmin, needsOnboarding, pendingForMe, signInWithGoogle, signOut } = useStore()
-  const pendingCount = pendingForMe.length
+  const { mode, session, profile, isAdmin, needsOnboarding, pendingForMe, incomingChallengeCount, signInWithGoogle, signOut } = useStore()
+  // Combined "needs your action" count: matches awaiting your confirmation +
+  // challenges incoming to you. Drives the Activity tab badge and the mobile
+  // More-sheet button badge so a single number reflects everything in flight.
+  const pendingCount = pendingForMe.length + incomingChallengeCount
   const [signInErr, setSignInErr] = useState<string | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const location = useLocation()
@@ -77,6 +80,26 @@ export function Layout() {
                 {n.label}
               </NavLink>
             ))}
+            {session && (
+              <NavLink
+                to="/activity"
+                className={({ isActive }) =>
+                  clsx(
+                    'whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors flex items-center gap-1.5',
+                    isActive
+                      ? 'bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200'
+                      : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+                  )
+                }
+              >
+                Activity
+                {pendingCount > 0 && (
+                  <span className="grid min-w-[18px] h-[18px] px-1 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
+                    {pendingCount}
+                  </span>
+                )}
+              </NavLink>
+            )}
             {isAdmin && (
               <NavLink
                 to="/admin"
@@ -254,12 +277,11 @@ function MoreSheet({
         <ul className="py-2">
           <SheetLink to="/profile" icon={<UserIcon className="h-5 w-5" />} label="My profile" />
           <SheetLink
-            to="/matches/pending"
+            to="/activity"
             icon={<HistoryIcon className="h-5 w-5" />}
-            label="Confirmations"
+            label="Activity"
             badge={pendingCount > 0 ? pendingCount : undefined}
           />
-          <SheetLink to="/challenges" icon={<UsersIcon className="h-5 w-5" />} label="Challenges" />
           <SheetLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />} label="Clubs" />
           <SheetLink to="/groups" icon={<UsersIcon className="h-5 w-5" />} label="Groups" />
           {isAdmin && <SheetLink to="/admin" icon={<CogIcon className="h-5 w-5" />} label="Admin" />}

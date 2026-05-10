@@ -14,7 +14,7 @@ interface Props {
  * issue a challenge (signed out, no linked player, or self).
  */
 export function ChallengeButton({ toPlayerId, toPlayerName }: Props) {
-  const { session, myPlayer } = useStore()
+  const { session, myPlayer, refreshChallenges } = useStore()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -43,6 +43,10 @@ export function ChallengeButton({ toPlayerId, toPlayerName }: Props) {
         proposedDate: proposedDate || undefined,
         venue: venue.trim() || undefined,
       })
+      // Pull the fresh row into the store so Activity reflects the send
+      // immediately. Non-fatal if it fails — Activity page also refreshes on
+      // mount.
+      refreshChallenges().catch(() => {})
       setDone(true)
       setOpen(false)
     } catch (ex) {
