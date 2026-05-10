@@ -80,13 +80,18 @@ export function GroupProfilePage() {
         const level = s?.currentLevel ?? p.startingLevel
         const ranking = s ? movingAverage(s.history, settings.movingAverageWindow) : level
         const isAdminMember = members.find((m) => m.playerId === p.id)?.isAdmin ?? false
+        // Match count comes from the server-maintained players.matches_played
+        // column, falling back to the recomputed state if available. Using
+        // recomputed.states alone breaks under cloud mode where the store's
+        // matches array is lazy-loaded and `s` is undefined for everyone.
+        const played = p.matchesPlayed ?? s?.matchesPlayed ?? 0
         return {
           id: p.id,
           player: p,
           level,
           ranking,
-          played: s?.matchesPlayed ?? 0,
-          provisional: (s?.matchesPlayed ?? 0) < settings.provisionalThreshold,
+          played,
+          provisional: played < settings.provisionalThreshold,
           isAdmin: isAdminMember,
         }
       })

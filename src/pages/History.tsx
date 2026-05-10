@@ -6,6 +6,7 @@ import { useStore } from '../state/store'
 import { MATCH_STATUS_LABEL, type Player, type Match } from '../types'
 import { MatchCard } from '../components/MatchCard'
 import { PlayerSearch } from '../components/PlayerSearch'
+import { EditMatchDialog } from '../components/EditMatchDialog'
 
 export function HistoryPage() {
   const { players, recomputed, settings, isAdmin, removeMatch, confirmMatch, session, myPlayer, fetchMatchesPage } = useStore()
@@ -14,6 +15,8 @@ export function HistoryPage() {
   const PAGE_SIZE = 100
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Match | null>(null)
+  const [rebuildHint, setRebuildHint] = useState(false)
 
   const [visibleRows, setVisibleRows] = useState<Match[]>([])
   const [totalRows, setTotalRows] = useState(0)
@@ -29,7 +32,15 @@ export function HistoryPage() {
 
   const remove = async (id: string) => {
     if (!window.confirm('Delete this match? Levels will be recomputed from history.')) return
-    await removeMatch(id)
+    setErr(null)
+    try {
+      await removeMatch(id)
+      setVisibleRows((prev) => prev.filter((m) => m.id !== id))
+      setTotalRows((n) => Math.max(0, n - 1))
+      setRebuildHint(true)
+    } catch (e) {
+      setErr((e as Error).message)
+    }
   }
 
   const act = async (id: string, dispute: boolean) => {
@@ -63,6 +74,23 @@ export function HistoryPage() {
       </div>
 
       {err && <div className="text-sm text-red-600">{err}</div>}
+
+      {rebuildHint && (
+        <div className="card border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100 flex items-start justify-between gap-3">
+          <div className="text-sm">
+            <strong>Match history changed.</strong> Player levels are now stale — run{' '}
+            <Link to="/admin" className="underline font-medium">Admin → Rebuild levels</Link>{' '}
+            to recompute.
+          </div>
+          <button
+            className="text-amber-700 hover:text-amber-900 dark:text-amber-200 text-lg leading-none px-1"
+            onClick={() => setRebuildHint(false)}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <Pagination page={page} pageSize={PAGE_SIZE} total={totalRows} onPage={setPage} />
 
@@ -109,8 +137,15 @@ export function HistoryPage() {
             if (isAdmin) {
               actions.push(
                 <button
+                  key="edit"
+                  className="btn-link ml-auto"
+                  onClick={() => setEditing(m)}
+                >
+                  Edit
+                </button>,
+                <button
                   key="delete"
-                  className="btn-link-danger ml-auto"
+                  className="btn-link-danger"
                   onClick={() => remove(m.id)}
                 >
                   Delete
@@ -145,6 +180,18 @@ export function HistoryPage() {
           total={totalRows}
           onPage={setPage}
           noun="matches"
+        />
+      )}
+
+      {editing && (
+        <EditMatchDialog
+          match={editing}
+          players={players}
+          onClose={() => setEditing(null)}
+          onSaved={(saved) => {
+            setVisibleRows((prev) => prev.map((x) => (x.id === saved.id ? saved : x)))
+            setRebuildHint(true)
+          }}
         />
       )}
     </div>

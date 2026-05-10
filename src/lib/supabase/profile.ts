@@ -282,3 +282,14 @@ export async function setAdminFlag(profileId: string, value: boolean): Promise<P
   if (error) throw error
   return fromProfileRow(data as ProfileRow)
 }
+
+/**
+ * Admin-only: completely delete a user (auth.users + profile + player + their
+ * matches/memberships/challenges via FK cascades). Server enforces admin and
+ * blocks self-delete.
+ */
+export async function deleteUserCompletely(userId: string): Promise<void> {
+  const sb = supabase!
+  const { error } = await sb.rpc('admin_delete_user', { target_user_id: userId })
+  if (error) throw error
+}

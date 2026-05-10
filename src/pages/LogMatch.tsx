@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { MATCH_TYPE_LABEL, type GameScore, type MatchType, type Player } from '../types'
+import { gamesWonBy, winnerSide } from '../lib/rating/levels'
 import { updateLevels } from '../lib/rating/update'
 import { fmtDelta, fmtLevel, todayIso } from '../lib/format'
 import { PlayerSearch } from '../components/PlayerSearch'
@@ -106,6 +107,15 @@ export function LogMatchPage() {
       return null
     }
   }, [levelA, levelB, scores, type, provisionalA, provisionalB, settings, unranked])
+
+  // Game-tally summary, computed off the same "non-zero" filter the preview
+  // uses so the displayed count matches what gets saved. Surfaces who's
+  // winning so the user can sanity-check before saving (independent of
+  // whether level data is loaded).
+  const cleanGames = scores.filter((g) => g.a > 0 || g.b > 0)
+  const gamesA = gamesWonBy(cleanGames, 'a')
+  const gamesB = gamesWonBy(cleanGames, 'b')
+  const winner = cleanGames.length > 0 ? winnerSide(cleanGames) : null
 
   const setGame = (i: number, side: 'a' | 'b', val: string) => {
     const n = Math.max(0, Math.floor(Number(val) || 0))
@@ -314,6 +324,21 @@ export function LogMatchPage() {
             ))}
             <button type="button" className="btn-secondary w-full sm:w-auto" onClick={addGame}>+ Add game</button>
           </div>
+          {playerA && playerB && cleanGames.length > 0 && (
+            <div className="mt-2 text-sm">
+              {winner === null ? (
+                <span className="text-slate-500">Tied {gamesA}–{gamesB}</span>
+              ) : winner === 'a' ? (
+                <span className="text-green-700 dark:text-green-400 font-medium">
+                  {playerA.name} wins {gamesA}–{gamesB}
+                </span>
+              ) : (
+                <span className="text-green-700 dark:text-green-400 font-medium">
+                  {playerB.name} wins {gamesB}–{gamesA}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div>
@@ -348,7 +373,19 @@ export function LogMatchPage() {
 
         {preview && playerA && playerB && (
           <div className="rounded-md border border-brand-200 bg-brand-50 p-3 text-sm dark:border-brand-900/60 dark:bg-brand-900/20">
-            <div className="font-medium mb-1">Preview</div>
+            <div className="flex items-baseline justify-between mb-1 gap-2">
+              <div className="font-medium">Preview</div>
+              <div className="text-sm">
+                {winner === null ? (
+                  <span className="text-slate-600 dark:text-slate-300">Tied {gamesA}–{gamesB}</span>
+                ) : (
+                  <span className="font-semibold text-green-700 dark:text-green-400">
+                    {(winner === 'a' ? playerA.name : playerB.name)} wins{' '}
+                    {winner === 'a' ? `${gamesA}–${gamesB}` : `${gamesB}–${gamesA}`}
+                  </span>
+                )}
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-2 sm:gap-6">
               <div>
                 <div className="text-slate-600 dark:text-slate-300">{playerA.name}</div>

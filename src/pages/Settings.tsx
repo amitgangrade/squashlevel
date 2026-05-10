@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { downloadExport, restoreFromJson } from '../lib/storage/import-export'
 import { DEFAULT_SETTINGS, type Profile, type Settings } from '../types'
-import { listAllProfiles, setAdminFlag } from '../lib/supabase/profile'
+import { deleteUserCompletely, listAllProfiles, setAdminFlag } from '../lib/supabase/profile'
 import { listClubAdminsForAdmin, setClubAdmin, summarizeClubs } from '../lib/supabase/clubs'
+import { deleteGroup, listGroups } from '../lib/supabase/groups'
+import type { Group } from '../types'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import type { ClubAdmin } from '../types'
@@ -257,6 +259,10 @@ export function SettingsPage() {
             </div>
           )}
         </div>
+
+        <div className="mt-3 max-w-lg">
+          <GroupsManager />
+        </div>
       </section>
 
       <section>
@@ -509,7 +515,7 @@ function ClubAdminManager() {
 }
 
 function AdminManager() {
-  const { profile: me } = useStore()
+  const { profile: me, refresh } = useStore()
   const [profiles, setProfiles] = useState<Profile[] | null>(null)
   const [search, setSearch] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -527,6 +533,29 @@ function AdminManager() {
     try {
       const updated = await setAdminFlag(p.id, !p.isAdmin)
       setProfiles((prev) => prev?.map((x) => (x.id === p.id ? updated : x)) ?? null)
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const remove = async (p: Profile) => {
+    const confirmed = window.confirm(
+      `Permanently delete ${p.fullName} (${p.email})?\n\n` +
+      `This removes their account, profile, player record, and every match, ` +
+      `group membership, and challenge they were part of. ` +
+      `Levels for opponents will be stale until you run "Rebuild levels".\n\n` +
+      `This cannot be undone.`,
+    )
+    if (!confirmed) return
+    setBusyId(p.id)
+    setErr(null)
+    try {
+      await deleteUserCompletely(p.id)
+      setProfiles((prev) => prev?.filter((x) => x.id !== p.id) ?? null)
+      // Sync the rest of the app so the deleted user disappears from leaderboards etc.
+      refresh().catch(() => {})
     } catch (e) {
       setErr((e as Error).message)
     } finally {
@@ -591,9 +620,111 @@ function AdminManager() {
                 >
                   {busyId === p.id ? '…' : p.isAdmin ? 'Demote' : 'Make admin'}
                 </button>
+                {!isMe && (
+                  <button
+                    className="btn-link-danger"
+                    onClick={() => remove(p)}
+                    disabled={busyId === p.id}
+                    title="Delete this user permanently"
+                  >
+                    Delete
+                  </button>
+                )}
               </li>
             )
           })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function GroupsManager() {
+  const { refresh } = useStore()
+  const [groups, setGroups] = useState<Group[] | null>(null)
+  const [search, setSearch] = useState('')
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    listGroups()
+      .then(setGroups)
+      .catch((e) => setErr((e as Error).message))
+  }, [])
+
+  const remove = async (g: Group) => {
+    if (!window.confirm(
+      `Delete group "${g.name}"?\n\nAll memberships in this group will also be removed. This cannot be undone.`,
+    )) return
+    setBusyId(g.id)
+    setErr(null)
+    try {
+      await deleteGroup(g.id)
+      setGroups((prev) => prev?.filter((x) => x.id !== g.id) ?? null)
+      refresh().catch(() => {})
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (groups === null && !err) {
+    return <div className="card text-sm text-slate-500">Loading groups…</div>
+  }
+  if (err && !groups) {
+    return <div className="card text-sm text-red-600">{err}</div>
+  }
+
+  const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const filtered = (groups ?? []).filter((g) => {
+    if (tokens.length === 0) return true
+    const hay = [g.name, g.slug, g.description].filter(Boolean).join(' ').toLowerCase()
+    return tokens.every((t) => hay.includes(t))
+  })
+
+  return (
+    <div className="card space-y-3">
+      <p className="text-sm text-slate-500">
+        Delete groups one at a time. Removes the group and every membership in it.
+        Players and matches are not affected.
+      </p>
+      <input
+        type="search"
+        className="input w-full"
+        placeholder="Search groups…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+      {err && <div className="text-sm text-red-600">{err}</div>}
+      {filtered.length === 0 ? (
+        <div className="text-sm text-slate-500 text-center py-3">
+          {groups && groups.length === 0 ? 'No groups exist.' : 'No matches.'}
+        </div>
+      ) : (
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {filtered.map((g) => (
+            <li key={g.id} className="flex items-center gap-3 py-2">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate flex items-center gap-2">
+                  <span className="truncate">{g.name}</span>
+                  {g.isPrivate && (
+                    <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                      private
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-500 truncate">/{g.slug}</div>
+              </div>
+              <button
+                className="btn-link-danger"
+                onClick={() => remove(g)}
+                disabled={busyId === g.id}
+              >
+                {busyId === g.id ? '…' : 'Delete'}
+              </button>
+            </li>
+          ))}
         </ul>
       )}
     </div>

@@ -21,6 +21,7 @@ const desktopNav = [
   { to: '/', label: 'Leaderboard', end: true },
   { to: '/clubs', label: 'Clubs' },
   { to: '/groups', label: 'Groups' },
+  { to: '/history', label: 'History' },
   { to: '/log', label: 'Log match' },
 ]
 
@@ -284,6 +285,7 @@ function MoreSheet({
           />
           <SheetLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />} label="Clubs" />
           <SheetLink to="/groups" icon={<UsersIcon className="h-5 w-5" />} label="Groups" />
+          <SheetLink to="/history" icon={<HistoryIcon className="h-5 w-5" />} label="History" />
           {isAdmin && <SheetLink to="/admin" icon={<CogIcon className="h-5 w-5" />} label="Admin" />}
           <li>
             <button

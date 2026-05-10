@@ -464,11 +464,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   const removeMatch: StoreCtx['removeMatch'] = async (id) => {
-    const target = matches.find((m) => m.id === id)
-    if (!target) throw new Error('Match not found.')
-    if (!canWriteMatch(target)) throw new Error('Admin only.')
+    // The store's `matches` array is empty under cloud mode (lazy-loaded
+    // page-by-page via fetchMatchesPage), so a lookup miss is normal —
+    // every Delete from the History page hits this. Admins are allowed
+    // to delete any match (RLS enforces auth server-side); without the
+    // target row we can't apply the optimistic level/match-count revert,
+    // but the admin Rebuild action corrects any drift.
+    const target = matches.find((m) => m.id === id) ?? null
+    if (!target && !isAdmin) throw new Error('Match not found.')
+    if (target && !canWriteMatch(target)) throw new Error('Admin only.')
     await backend.deleteMatch(id)
     setMatches((prev) => prev.filter((x) => x.id !== id))
+    if (!target) return
     // Optimistic revert of the level + match-count effect (mirrors the server
     // trigger). Drift is possible if subsequent matches have been played by
     // either participant — the admin "Rebuild levels" action corrects it.
