@@ -294,10 +294,12 @@ export const fromGroupRow = (r: GroupRow): Group => ({
   createdAt: r.created_at,
 })
 
-export const toGroupRow = (g: Group): GroupRow => ({
+// `slug` is a generated column on public.groups (computed from name via
+// public.club_slug). Postgres rejects any non-DEFAULT value, so we omit it
+// from inserts and let the DB derive it.
+export const toGroupRow = (g: Group): Omit<GroupRow, 'slug'> => ({
   id: g.id,
   name: g.name,
-  slug: g.slug,
   description: g.description ?? null,
   is_private: g.isPrivate,
   created_by: g.createdBy ?? null,

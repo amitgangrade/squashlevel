@@ -478,14 +478,17 @@ def main() -> None:
     used_slugs: set[str] = set()
 
     for gi in range(n_groups):
-        # unique-ish name (retry a few times before suffixing)
+        # unique name (retry a few times, else suffix the *name* — the DB
+        # recomputes slug from name via club_slug(), so suffixing only the
+        # slug wouldn't prevent the unique-index collision).
         for _ in range(8):
             name = random_group_name(rng)
             slug = slugify(name)
             if slug not in used_slugs:
                 break
         else:
-            slug = f'{slug}-{gi}'
+            name = f'{name} #{gi}'
+            slug = slugify(name)
         used_slugs.add(slug)
 
         gid     = new_id()
