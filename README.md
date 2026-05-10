@@ -81,6 +81,14 @@ The unit-tested algorithm core lives in [`src/lib/rating`](src/lib/rating/).
 
 ---
 
+## For contributors and AI coding assistants
+
+- **[`ARCHITECTURE.md`](./ARCHITECTURE.md)** — how the pieces fit together and where to look first.
+- **[`AGENTS.md`](./AGENTS.md)** — conventions and anti-patterns. Read before mass-editing.
+- **[`openspec/specs/`](./openspec/specs/)** — capability specs for auth, matches, ratings, clubs, groups, challenges, player-claim. Use `/opsx:propose` for non-trivial changes.
+
+---
+
 ## Quick start (local development)
 
 ```bash
@@ -183,9 +191,11 @@ npm test
 ```
 
 Conventions:
-- TypeScript strict, ESLint clean (`npm run lint`).
+- TypeScript strict; keep ESLint error count from rising (`npm run lint`).
 - Co-locate component-specific files; shared utilities live in `src/lib/`.
 - The rating algorithm has unit tests — please keep them green and add tests for behavior you change.
+- Reuse the existing helpers — `filterByTokens`, `parseProfileFields`, `<ProvisionalTag>`, `<OrgAvatar>`, `<PlayerAvatar>`, `<MatchCard>`, `fmtLevel`/`fmtDelta`/`fmtDate` — instead of re-rolling them. See [`AGENTS.md`](./AGENTS.md) for the full list.
+- DB writes that touch the rating math must update **both** `src/lib/rating/update.ts` **and** the matching plpgsql function in `supabase/schema.sql`.
 
 ---
 

@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useStore } from '../state/store'
 import { respondToChallenge } from '../lib/supabase/challenges'
 import { fmtDate } from '../lib/format'
-import { MATCH_STATUS_LABEL, type Challenge, type Player } from '../types'
+import { CHALLENGE_STATUS_LABEL, MATCH_STATUS_LABEL, type Challenge, type ChallengeStatus, type Player } from '../types'
 import { MatchCard } from '../components/MatchCard'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink } from '../components/PlayerLinks'
@@ -229,19 +229,15 @@ export function ActivityPage() {
             {pastChallenges.map((c) => {
               const otherId = c.fromPlayerId === myPlayer.id ? c.toPlayerId : c.fromPlayerId
               const other = playerById.get(otherId)
+              const direction = c.fromPlayerId === myPlayer.id ? 'outgoing' : 'incoming'
               return (
-                <div key={c.id} className="card flex items-center gap-3">
-                  <PlayerAvatar name={other?.name ?? '?'} avatarUrl={other?.avatarUrl} size={32} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm">
-                      <PlayerLink id={otherId} name={other?.name ?? 'Unknown'} className="font-medium" />
-                      <span className="ml-2 text-xs text-slate-500">{fmtDate(c.respondedAt ?? c.createdAt)}</span>
-                    </div>
-                  </div>
-                  <span className={clsx('tag', c.status === 'accepted' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600')}>
-                    {c.status}
-                  </span>
-                </div>
+                <ChallengeCard
+                  key={c.id}
+                  challenge={c}
+                  other={other}
+                  direction={direction}
+                  mode="past"
+                />
               )
             })}
           </div>
@@ -278,19 +274,33 @@ export function ActivityPage() {
 // Challenge cards
 // ---------------------------------------------------------------------------
 
+/**
+ * Renders a challenge as a card. The body (lead text, meta line, message) is
+ * the same regardless of state — so rich detail (proposed date, venue,
+ * message) shows after a challenge has been accepted/declined too. Pending
+ * challenges get action buttons; past challenges get a status badge.
+ */
 function ChallengeCard({
-  challenge, other, direction, busy, onAccept, onDecline, onCancel,
+  challenge, other, direction, mode = 'pending', busy = false,
+  onAccept, onDecline, onCancel,
 }: {
   challenge: Challenge
   other?: Player
+  /** Was this challenge sent TO me ('incoming') or BY me ('outgoing')? */
   direction: 'incoming' | 'outgoing'
-  busy: boolean
+  /** 'pending' shows action buttons; 'past' shows a status badge. */
+  mode?: 'pending' | 'past'
+  busy?: boolean
   onAccept?: () => void
   onDecline?: () => void
   onCancel?: () => void
 }) {
+  const isPast = mode === 'past'
   return (
-    <div className="card flex items-start gap-3 ring-1 ring-brand-200/60 dark:ring-brand-900/40">
+    <div className={clsx(
+      'card flex items-start gap-3',
+      !isPast && 'ring-1 ring-brand-200/60 dark:ring-brand-900/40',
+    )}>
       <PlayerAvatar name={other?.name ?? '?'} avatarUrl={other?.avatarUrl} size={40} />
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
@@ -301,21 +311,26 @@ function ChallengeCard({
               <>You challenged <PlayerLink id={other?.id} name={other?.name ?? 'Someone'} className="font-medium" /></>
             )}
           </span>
-          <span className="rounded-full bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-            Challenge
-          </span>
+          {!isPast && (
+            <span className="rounded-full bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+              Challenge
+            </span>
+          )}
         </div>
         <div className="text-xs text-slate-500">
           {fmtDate(challenge.createdAt)}
           {challenge.proposedDate && <> · proposed {fmtDate(challenge.proposedDate)}</>}
           {challenge.venue && <> · {challenge.venue}</>}
+          {isPast && challenge.respondedAt && challenge.respondedAt !== challenge.createdAt && (
+            <> · {challenge.status} {fmtDate(challenge.respondedAt)}</>
+          )}
         </div>
         {challenge.message && (
           <p className="text-sm text-slate-700 dark:text-slate-300 italic">"{challenge.message}"</p>
         )}
       </div>
       <div className="flex flex-col gap-2 shrink-0">
-        {direction === 'incoming' && (
+        {!isPast && direction === 'incoming' && (
           <>
             <button onClick={onAccept} disabled={busy} className="btn-primary text-xs">
               {busy ? '…' : 'Accept'}
@@ -325,13 +340,28 @@ function ChallengeCard({
             </button>
           </>
         )}
-        {direction === 'outgoing' && (
+        {!isPast && direction === 'outgoing' && (
           <button onClick={onCancel} disabled={busy} className="btn-secondary text-xs">
             {busy ? '…' : 'Cancel'}
           </button>
         )}
+        {isPast && <ChallengeStatusBadge status={challenge.status} />}
       </div>
     </div>
+  )
+}
+
+function ChallengeStatusBadge({ status }: { status: ChallengeStatus }) {
+  const cls =
+    status === 'accepted'
+      ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
+      : status === 'declined' || status === 'cancelled'
+        ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+  return (
+    <span className={clsx('rounded-full px-2 py-0.5 text-[11px] font-semibold lowercase', cls)}>
+      {CHALLENGE_STATUS_LABEL[status].toLowerCase()}
+    </span>
   )
 }
 

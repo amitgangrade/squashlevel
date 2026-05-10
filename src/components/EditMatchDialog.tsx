@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../state/store'
-import { MATCH_TYPE_LABEL, type GameScore, type Match, type MatchType, type Player } from '../types'
+import { MATCH_TYPE_KEYS, MATCH_TYPE_LABEL, type GameScore, type Match, type MatchType, type Player } from '../types'
 import { TrashIcon } from './Icons'
-
-const MATCH_TYPES: MatchType[] = ['friendly', 'box', 'league', 'tournament']
 
 export interface EditMatchDialogProps {
   match: Match
@@ -123,7 +121,7 @@ export function EditMatchDialog({ match, players, onClose, onSaved }: EditMatchD
                 value={type}
                 onChange={(e) => setType(e.target.value as MatchType)}
               >
-                {MATCH_TYPES.map((t) => (
+                {MATCH_TYPE_KEYS.map((t) => (
                   <option key={t} value={t}>{MATCH_TYPE_LABEL[t]}</option>
                 ))}
               </select>

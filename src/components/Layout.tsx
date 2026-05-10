@@ -5,6 +5,7 @@ import { supabaseEnabled } from '../lib/supabase/client'
 import { useStore } from '../state/store'
 import { OnboardingModal } from './OnboardingModal'
 import { IOSInstallHint } from './IOSInstallHint'
+import { PlayerAvatar } from './PlayerAvatar'
 import {
   CloseIcon,
   CogIcon,
@@ -236,7 +237,11 @@ function UserPill({
       aria-label="Open user menu"
     >
       <div className="relative">
-        <Avatar profile={profile} fallbackEmail={email} size={32} />
+        <PlayerAvatar
+          name={profile?.fullName ?? email}
+          avatarUrl={profile?.avatarUrl}
+          size={32}
+        />
         {isAdmin && (
           <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white bg-amber-400 dark:border-slate-950" aria-label="admin" />
         )}
@@ -320,24 +325,6 @@ function SheetLink({ to, icon, label, badge }: { to: string; icon: React.ReactNo
         )}
       </NavLink>
     </li>
-  )
-}
-
-function Avatar({ profile, fallbackEmail, size = 20 }: { profile: { avatarUrl?: string; fullName?: string } | null; fallbackEmail?: string; size?: number }) {
-  const initials = (profile?.fullName ?? fallbackEmail ?? '?')
-    .split(/\s+|@/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((s) => s[0]?.toUpperCase())
-    .join('') || '?'
-  const style = { height: size, width: size, fontSize: Math.round(size * 0.4) }
-  if (profile?.avatarUrl) {
-    return <img src={profile.avatarUrl} alt="" style={style} className="rounded-full object-cover" />
-  }
-  return (
-    <span style={style} className="grid place-items-center rounded-full bg-slate-200 font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-      {initials}
-    </span>
   )
 }
 

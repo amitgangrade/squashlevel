@@ -5,9 +5,11 @@ import { fmtLevel } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
 import { summarizeMatch } from '../lib/match-summary'
 import { MatchCard } from '../components/MatchCard'
+import { OrgAvatar } from '../components/OrgAvatar'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { PlayerSearch } from '../components/PlayerSearch'
+import { ProvisionalTag } from '../components/ProvisionalTag'
 import {
   addGroupMember,
   buildGroupShareUrl,
@@ -151,7 +153,7 @@ export function GroupProfilePage() {
       mostActive: mostActive ? { player: mostActive, count: counts.get(mostActive.id) ?? 0 } : null,
       streak: streakHolder && top ? { player: streakHolder, count: top[1] } : null,
     }
-  }, [recomputed.matches, memberIds, memberPlayers, players])
+  }, [groupMatches, memberIds, memberPlayers, players])
 
   if (loading) {
     return <div className="card text-center text-slate-500">Loading…</div>
@@ -192,9 +194,7 @@ export function GroupProfilePage() {
       <section>
         <div className="card">
           <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-md bg-violet-100 text-violet-700 text-xl font-bold dark:bg-violet-900/40 dark:text-violet-200">
-              {group.name.slice(0, 2).toUpperCase()}
-            </div>
+            <OrgAvatar name={group.name} kind="group" size={56} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="!mb-0 truncate">{group.name}</h1>
@@ -282,7 +282,7 @@ export function GroupProfilePage() {
                           <div className="font-medium truncate">
                             <PlayerLink id={r.id} name={r.player.name} />
                             {r.isAdmin && <span className="ml-2 tag bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">admin</span>}
-                            {r.provisional && <span className="ml-2 tag">P</span>}
+                            {r.provisional && <span className="ml-2 inline-block"><ProvisionalTag /></span>}
                           </div>
                           <div className="truncate">
                             <PlayerMetaLinks player={r.player} />

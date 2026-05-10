@@ -7,6 +7,7 @@ import { listClubAdminsForAdmin, setClubAdmin, summarizeClubs } from '../lib/sup
 import { deleteGroup, listGroups } from '../lib/supabase/groups'
 import type { Group } from '../types'
 import { supabaseEnabled } from '../lib/supabase/client'
+import { filterByTokens, joinHay } from '../lib/search'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import type { ClubAdmin } from '../types'
 
@@ -398,14 +399,9 @@ function ClubAdminManager() {
   const grantedHere = grants.filter((g) => g.clubSlug === selectedSlug)
   const isGranted = (uid: string) => grantedHere.some((g) => g.userId === uid)
 
-  const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  const candidates = profiles
-    .filter((p) => {
-      if (tokens.length === 0) return true
-      const hay = [p.fullName, p.email, p.club, p.username].filter(Boolean).join(' ').toLowerCase()
-      return tokens.every((t) => hay.includes(t))
-    })
-    .slice(0, 20)
+  const candidates = filterByTokens(profiles, search, (p) =>
+    joinHay([p.fullName, p.email, p.club, p.username]),
+  ).slice(0, 20)
 
   const toggle = async (uid: string, value: boolean) => {
     if (!selectedSlug) return
@@ -570,12 +566,9 @@ function AdminManager() {
     return <div className="card text-sm text-red-600">{err}</div>
   }
 
-  const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  const filtered = (profiles ?? []).filter((p) => {
-    if (tokens.length === 0) return true
-    const hay = [p.fullName, p.email, p.club, p.country, p.username].filter(Boolean).join(' ').toLowerCase()
-    return tokens.every((t) => hay.includes(t))
-  })
+  const filtered = filterByTokens(profiles ?? [], search, (p) =>
+    joinHay([p.fullName, p.email, p.club, p.country, p.username]),
+  )
 
   return (
     <div className="card space-y-3">
@@ -676,12 +669,9 @@ function GroupsManager() {
     return <div className="card text-sm text-red-600">{err}</div>
   }
 
-  const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  const filtered = (groups ?? []).filter((g) => {
-    if (tokens.length === 0) return true
-    const hay = [g.name, g.slug, g.description].filter(Boolean).join(' ').toLowerCase()
-    return tokens.every((t) => hay.includes(t))
-  })
+  const filtered = filterByTokens(groups ?? [], search, (g) =>
+    joinHay([g.name, g.slug, g.description]),
+  )
 
   return (
     <div className="card space-y-3">

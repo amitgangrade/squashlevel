@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
-import { fmtLevel } from '../lib/format'
+import { fmtLevel, initialsFor } from '../lib/format'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { uploadAvatar } from '../lib/supabase/profile'
-import { COUNTRIES, distinctValues, isValidCityName, normalizeCountry } from '../lib/places'
+import { COUNTRIES, distinctValues } from '../lib/places'
+import { parseProfileFields } from '../lib/profile-validation'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL, type DominantHand, type Gender } from '../types'
 import { AvatarCropper } from '../components/AvatarCropper'
 
@@ -64,12 +65,7 @@ export function ProfilePage() {
   const matchesPlayed = state?.matchesPlayed ?? 0
   const provisional = matchesPlayed < settings.provisionalThreshold
 
-  const initials = profile.fullName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((s) => s[0]?.toUpperCase())
-    .join('')
+  const initials = initialsFor(profile.fullName)
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     setErr(null)
@@ -101,24 +97,8 @@ export function ProfilePage() {
     const lvl = Number(draftLevel)
     if (!draftFullName.trim()) return setErr('Full name is required')
     if (!Number.isFinite(lvl) || lvl <= 0) return setErr('Rating must be positive')
-    let parsedYear: number | undefined
-    if (draftBirthYear.trim()) {
-      const y = Number(draftBirthYear)
-      const thisYear = new Date().getFullYear()
-      if (!Number.isInteger(y) || y < 1900 || y > thisYear) {
-        return setErr(`Year of birth must be between 1900 and ${thisYear}`)
-      }
-      parsedYear = y
-    }
-    let normalizedCountry: string | undefined
-    if (draftCountry.trim()) {
-      const c = normalizeCountry(draftCountry)
-      if (!c) return setErr(`"${draftCountry.trim()}" is not a recognized country. Please pick one from the list.`)
-      normalizedCountry = c
-    }
-    if (draftCity.trim() && !isValidCityName(draftCity)) {
-      return setErr('City name looks invalid. Use letters, spaces, hyphens or apostrophes.')
-    }
+    const parsed = parseProfileFields({ birthYear: draftBirthYear, country: draftCountry, city: draftCity })
+    if (!parsed.ok) return setErr(parsed.error)
     setBusy(true)
     try {
       let avatarUrl = profile.avatarUrl
@@ -129,10 +109,10 @@ export function ProfilePage() {
         ...profile,
         fullName: draftFullName.trim(),
         phone: draftPhone.trim() || undefined,
-        country: normalizedCountry,
-        city: draftCity.trim() || undefined,
+        country: parsed.values.country,
+        city: parsed.values.city,
         club: draftClub.trim() || undefined,
-        birthYear: parsedYear,
+        birthYear: parsed.values.birthYear,
         gender: draftGender || undefined,
         dominantHand: draftHand || undefined,
         avatarUrl,

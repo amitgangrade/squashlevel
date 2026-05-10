@@ -3,7 +3,9 @@ import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { fmtLevel, playerAge } from '../lib/format'
-import { COUNTRIES, distinctValues, isValidCityName, normalizeCountry } from '../lib/places'
+import { COUNTRIES, distinctValues } from '../lib/places'
+import { parseProfileFields } from '../lib/profile-validation'
+import { filterByTokens, joinHay } from '../lib/search'
 import {
   DOMINANT_HAND_LABEL,
   GENDER_LABEL,
@@ -13,6 +15,7 @@ import {
 } from '../types'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
+import { ProvisionalTag } from '../components/ProvisionalTag'
 
 interface FormState {
   name: string
@@ -88,33 +91,17 @@ export function RosterPage() {
     if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       return setError('Email looks invalid')
     }
-    let parsedYear: number | undefined
-    if (form.birthYear.trim()) {
-      const y = Number(form.birthYear)
-      const thisYear = new Date().getFullYear()
-      if (!Number.isInteger(y) || y < 1900 || y > thisYear) {
-        return setError(`Year of birth must be between 1900 and ${thisYear}`)
-      }
-      parsedYear = y
-    }
-    let normalizedCountry: string | undefined
-    if (form.country.trim()) {
-      const c = normalizeCountry(form.country)
-      if (!c) return setError(`"${form.country.trim()}" is not a recognized country. Please pick one from the list.`)
-      normalizedCountry = c
-    }
-    if (form.city.trim() && !isValidCityName(form.city)) {
-      return setError('City name looks invalid. Use letters, spaces, hyphens or apostrophes.')
-    }
+    const parsed = parseProfileFields({ birthYear: form.birthYear, country: form.country, city: form.city })
+    if (!parsed.ok) return setError(parsed.error)
     const data = {
       name: form.name.trim(),
       startingLevel: lvl,
       email: trimmedEmail || undefined,
       phone: form.phone.trim() || undefined,
-      country: normalizedCountry,
-      city: form.city.trim() || undefined,
+      country: parsed.values.country,
+      city: parsed.values.city,
       club: form.club.trim() || undefined,
-      birthYear: parsedYear,
+      birthYear: parsed.values.birthYear,
       gender: form.gender || undefined,
       dominantHand: form.dominantHand || undefined,
       notes: form.notes.trim() || undefined,
@@ -151,14 +138,10 @@ export function RosterPage() {
     await removePlayer(p.id)
   }
 
-  const filteredPlayers = useMemo(() => {
-    const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
-    if (tokens.length === 0) return players
-    return players.filter((p) => {
-      const haystack = [p.name, p.club, p.country, p.city, p.email].filter(Boolean).join(' ').toLowerCase()
-      return tokens.every((t) => haystack.includes(t))
-    })
-  }, [players, search])
+  const filteredPlayers = useMemo(
+    () => filterByTokens(players, search, (p) => joinHay([p.name, p.club, p.country, p.city, p.email])),
+    [players, search],
+  )
 
   const visiblePlayers = useMemo(
     () => filteredPlayers.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
@@ -305,8 +288,14 @@ export function RosterPage() {
               </thead>
               <tbody>
                 {visiblePlayers.map((p) => {
+                  // Prefer server-truth fields on Player (cloud, where the
+                  // store's matches array is lazy-loaded and the in-memory
+                  // recompute returns 0 for everyone). Fall back to the
+                  // recompute for local mode.
                   const s = recomputed.states.get(p.id)
-                  const prov = (s?.matchesPlayed ?? 0) < settings.provisionalThreshold
+                  const currentLevel = p.currentLevel ?? s?.currentLevel ?? p.startingLevel
+                  const matchesPlayed = p.matchesPlayed ?? s?.matchesPlayed ?? 0
+                  const prov = matchesPlayed < settings.provisionalThreshold
                   const age = playerAge(p.birthYear)
                   return (
                     <tr key={p.id} className="border-t border-slate-100 dark:border-slate-800">
@@ -318,7 +307,7 @@ export function RosterPage() {
                           <div className="min-w-0">
                             <div className="font-medium truncate flex items-center gap-2">
                               <PlayerLink id={p.id} name={p.name} className="truncate" />
-                              {prov && <span className="tag">P</span>}
+                              {prov && <ProvisionalTag />}
                             </div>
                             <div className="truncate md:hidden">
                               <PlayerMetaLinks player={p} />
@@ -348,13 +337,13 @@ export function RosterPage() {
                       <td className="px-3 py-2 text-right">{fmtLevel(p.startingLevel)}</td>
                       <td className="px-3 py-2 text-right font-semibold">
                         <Link to={playerUrl(p.id)} className="hover:underline">
-                          {fmtLevel(s?.currentLevel)}
+                          {fmtLevel(currentLevel)}
                         </Link>
                       </td>
                       <td className="px-3 py-2 text-right text-slate-500">
-                        {(s?.matchesPlayed ?? 0) > 0 ? (
+                        {matchesPlayed > 0 ? (
                           <Link to={playerUrl(p.id)} className="hover:underline">
-                            {s?.matchesPlayed ?? 0}
+                            {matchesPlayed}
                           </Link>
                         ) : (
                           0

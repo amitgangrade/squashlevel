@@ -5,8 +5,10 @@ import { fmtLevel } from '../lib/format'
 import type { Match } from '../types'
 import { movingAverage } from '../lib/rating/recompute'
 import { MatchCard } from '../components/MatchCard'
+import { OrgAvatar } from '../components/OrgAvatar'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
+import { ProvisionalTag } from '../components/ProvisionalTag'
 import { clubSlug, listClubAdminUserIds } from '../lib/supabase/clubs'
 
 export function ClubProfilePage() {
@@ -45,16 +47,21 @@ export function ClubProfilePage() {
   const rows = useMemo(() => {
     return members
       .map((p) => {
+        // Prefer server-truth fields (cloud mode, where the in-memory match
+        // array is lazy-loaded and the recompute can't see history).
         const s = recomputed.states.get(p.id)
-        const level = s?.currentLevel ?? p.startingLevel
-        const ranking = s ? movingAverage(s.history, settings.movingAverageWindow) : level
+        const level = p.currentLevel ?? s?.currentLevel ?? p.startingLevel
+        const played = p.matchesPlayed ?? s?.matchesPlayed ?? 0
+        const ranking = s && s.history.length > 1
+          ? movingAverage(s.history, settings.movingAverageWindow)
+          : level
         return {
           id: p.id,
           player: p,
           level,
           ranking,
-          played: s?.matchesPlayed ?? 0,
-          provisional: (s?.matchesPlayed ?? 0) < settings.provisionalThreshold,
+          played,
+          provisional: played < settings.provisionalThreshold,
         }
       })
       .sort((a, b) => b.ranking - a.ranking)
@@ -93,9 +100,7 @@ export function ClubProfilePage() {
       <section>
         <div className="card">
           <div className="flex items-start gap-4">
-            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-md bg-brand-100 text-brand-700 text-xl font-bold dark:bg-brand-900/40 dark:text-brand-200">
-              {clubName.slice(0, 2).toUpperCase()}
-            </div>
+            <OrgAvatar name={clubName} kind="club" size={56} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="!mb-0 truncate">{clubName}</h1>
@@ -155,7 +160,7 @@ export function ClubProfilePage() {
                       <div className="min-w-0">
                         <div className="font-medium truncate">
                           <PlayerLink id={r.id} name={r.player.name} />
-                          {r.provisional && <span className="ml-2 tag">P</span>}
+                          {r.provisional && <span className="ml-2 inline-block"><ProvisionalTag /></span>}
                         </div>
                         <div className="truncate">
                           <PlayerMetaLinks player={r.player} />

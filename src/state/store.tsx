@@ -156,9 +156,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     const { players, matches, settings } = await backend.getAll()
     setPlayers(players)
-    setMatches(matches)
     setSettings(settings)
-  }, [])
+    if (backend.mode === 'local') {
+      // Local mode loads the full matches table; just hand it over.
+      setMatches(matches)
+      return
+    }
+    // Cloud mode lazy-loads matches. We still want the small set the
+    // Activity page needs to show "needs my response" and "I'm waiting on
+    // an opponent", so populate `matches` with that subset. Confirmed
+    // matches keep loading per-page via fetchMatchesPage / fetchRecentMatches.
+    if (myPlayer) {
+      try {
+        const actionable = await backend.fetchActionableMatches(myPlayer.id, isAdmin)
+        setMatches(actionable)
+      } catch (err) {
+        console.warn('actionable matches fetch failed', err)
+        setMatches([])
+      }
+    } else {
+      setMatches([])
+    }
+  }, [myPlayer, isAdmin])
 
   useEffect(() => {
     refresh().finally(() => setLoading(false))

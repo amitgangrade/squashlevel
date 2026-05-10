@@ -3,6 +3,10 @@ import { z } from 'zod'
 export const MatchType = z.enum(['friendly', 'box', 'league', 'tournament'])
 export type MatchType = z.infer<typeof MatchType>
 
+/** Order in which match types are presented in pickers. Authoritative — both
+ *  the Log and Edit dialogs iterate this so they stay in sync. */
+export const MATCH_TYPE_KEYS: readonly MatchType[] = ['friendly', 'box', 'league', 'tournament']
+
 export const MATCH_TYPE_WEIGHT: Record<MatchType, number> = {
   friendly: 0.7,
   box: 1.0,

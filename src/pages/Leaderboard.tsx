@@ -5,10 +5,12 @@ import clsx from 'clsx'
 import { useStore } from '../state/store'
 import { fmtLevel, playerAge } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
+import { filterByTokens, joinHay } from '../lib/search'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonRow } from '../components/Skeleton'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
+import { ProvisionalTag } from '../components/ProvisionalTag'
 
 const AUTO_CONFIRM_KICK_KEY = 'sl_auto_confirm_kicked_at'
 const AUTO_CONFIRM_KICK_INTERVAL_MS = 60 * 60 * 1000 // 1h
@@ -101,14 +103,13 @@ export function LeaderboardPage() {
     })
   }, [allRows, filters])
 
-  const rows = useMemo(() => {
-    const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
-    if (tokens.length === 0) return filteredByFacet
-    return filteredByFacet.filter((r) => {
-      const hay = [r.name, r.player.club, r.player.country, r.player.city].filter(Boolean).join(' ').toLowerCase()
-      return tokens.every((t) => hay.includes(t))
-    })
-  }, [filteredByFacet, search])
+  const rows = useMemo(
+    () =>
+      filterByTokens(filteredByFacet, search, (r) =>
+        joinHay([r.name, r.player.club, r.player.country, r.player.city]),
+      ),
+    [filteredByFacet, search],
+  )
 
   const visibleRows = useMemo(
     () => rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
@@ -227,7 +228,7 @@ export function LeaderboardPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <PlayerLink id={r.id} name={r.name} className="font-medium truncate" />
-                          {r.provisional && <span className="tag">P</span>}
+                          {r.provisional && <ProvisionalTag />}
                           {isMe && <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">you</span>}
                         </div>
                         <div className="truncate">
@@ -276,7 +277,7 @@ export function LeaderboardPage() {
                               <div className="min-w-0">
                                 <div className="font-medium truncate">
                                   <PlayerLink id={r.id} name={r.name} />
-                                  {r.provisional && <span className="ml-2 tag">P</span>}
+                                  {r.provisional && <span className="ml-2 inline-block"><ProvisionalTag /></span>}
                                 </div>
                               </div>
                             </div>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../state/store'
-import { MATCH_TYPE_LABEL, type GameScore, type MatchType, type Player } from '../types'
+import { MATCH_TYPE_KEYS, MATCH_TYPE_LABEL, type GameScore, type MatchType, type Player } from '../types'
 import { gamesWonBy, winnerSide } from '../lib/rating/levels'
 import { updateLevels } from '../lib/rating/update'
 import { fmtDelta, fmtLevel, todayIso } from '../lib/format'
@@ -9,8 +9,6 @@ import { PlayerSearch } from '../components/PlayerSearch'
 import { TrashIcon } from '../components/Icons'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { createUnclaimedPlayer } from '../lib/supabase/profile'
-
-const MATCH_TYPES: MatchType[] = ['friendly', 'box', 'league', 'tournament']
 
 export function LogMatchPage() {
   const { players, recomputed, settings, isAdmin, session, myPlayer, addMatch, refresh } = useStore()
@@ -263,7 +261,7 @@ export function LogMatchPage() {
           <div>
             <label className="label">Match type</label>
             <select className="input w-full" value={type} onChange={(e) => setType(e.target.value as MatchType)}>
-              {MATCH_TYPES.map((t) => (
+              {MATCH_TYPE_KEYS.map((t) => (
                 <option key={t} value={t}>{MATCH_TYPE_LABEL[t]}</option>
               ))}
             </select>

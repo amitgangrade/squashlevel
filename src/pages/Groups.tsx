@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { createGroup, fetchMyGroupRoles, listGroups } from '../lib/supabase/groups'
 import { supabaseEnabled } from '../lib/supabase/client'
+import { OrgAvatar } from '../components/OrgAvatar'
 import type { Group } from '../types'
 
 type Role = 'admin' | 'member' | 'public' | 'private-admin-view'
@@ -130,9 +131,7 @@ export function GroupsPage() {
                 className="card block hover:border-brand-300 dark:hover:border-brand-700 transition-colors"
               >
                 <div className="flex items-start gap-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-violet-100 text-violet-700 font-semibold dark:bg-violet-900/40 dark:text-violet-200">
-                    {g.name.slice(0, 2).toUpperCase()}
-                  </div>
+                  <OrgAvatar name={g.name} kind="group" size={40} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold truncate">{g.name}</span>

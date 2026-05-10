@@ -92,6 +92,15 @@ export interface Backend {
   subscribe?(onChange: () => void): () => void
   fetchMatchesPage(page: number, pageSize: number, playerId?: string): Promise<{ data: Match[]; count: number }>
   fetchRecentMatches(limit: number, playerIds?: string[]): Promise<Match[]>
+  /** Lazy-load only the matches that need the signed-in user's attention:
+   *  every pending match they're a participant in (whether they're the
+   *  recorder waiting on an opponent, or the opponent who needs to confirm
+   *  / dispute), plus every disputed match (all if `isAdmin`, else just
+   *  their own). The store keeps the result in `matches` so the Activity
+   *  page's pendingForMe / myPendingMatches / disputed selectors all read
+   *  the right rows under cloud mode (where the full matches table isn't
+   *  loaded). */
+  fetchActionableMatches(myPlayerId: string, isAdmin: boolean): Promise<Match[]>
   /** Re-runs the rating algorithm over every rated match in date order, then
    *  bulk-writes the corrected level fields onto matches and players. Admin-only.
    *  Used to correct drift after edits/deletes/disputes.
@@ -153,6 +162,17 @@ const localBackend: Backend = {
     }
     all.sort((a, b) => b.date.localeCompare(a.date))
     return all.slice(0, limit)
+  },
+  async fetchActionableMatches(myPlayerId, isAdmin) {
+    // Local mode already loads the entire matches table on startup, so this
+    // is just a filter — no extra round-trip.
+    const all = await local.getAllMatches()
+    const involvesMe = (m: Match) => m.playerAId === myPlayerId || m.playerBId === myPlayerId
+    return all.filter((m) => {
+      if (m.status === 'pending') return involvesMe(m)
+      if (m.status === 'disputed') return isAdmin || involvesMe(m)
+      return false
+    })
   },
   async rebuildLevels(onProgress) {
     onProgress?.('Loading data…')
@@ -552,6 +572,27 @@ const cloudBackend: Backend = {
     const { data, error } = await q.order('date', { ascending: false }).limit(limit)
     if (error) throw error
     return (data as MatchRow[]).map(fromMatchRow)
+  },
+  async fetchActionableMatches(myPlayerId, isAdmin) {
+    // Two parallel targeted queries: pending-where-I'm-a-participant, plus
+    // disputed (all for admin, mine-only for everyone else). PostgREST can't
+    // express the compound `(status='pending' AND mine) OR (status='disputed'
+    // AND admin)` in one filter cleanly, and the row counts here are tiny
+    // (handful at most) so a second round-trip is cheap.
+    const sb = supabase!
+    const meFilter = `player_a_id.eq.${myPlayerId},player_b_id.eq.${myPlayerId}`
+    const pendingQ = sb.from('matches').select('*').eq('status', 'pending').or(meFilter)
+    const disputedQ = isAdmin
+      ? sb.from('matches').select('*').eq('status', 'disputed')
+      : sb.from('matches').select('*').eq('status', 'disputed').or(meFilter)
+    const [pendingRes, disputedRes] = await Promise.all([pendingQ, disputedQ])
+    if (pendingRes.error) throw pendingRes.error
+    if (disputedRes.error) throw disputedRes.error
+    const rows = [
+      ...((pendingRes.data ?? []) as MatchRow[]),
+      ...((disputedRes.data ?? []) as MatchRow[]),
+    ]
+    return rows.map(fromMatchRow)
   },
   async rebuildLevels(onProgress) {
     // Admin-only. Chunked server-side rebuild: math in plpgsql, but split

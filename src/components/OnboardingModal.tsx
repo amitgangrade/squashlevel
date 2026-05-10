@@ -5,7 +5,8 @@ import {
   findUnclaimedNameMatches,
   suggestUsername,
 } from '../lib/supabase/profile'
-import { COUNTRIES, distinctValues, isValidCityName, normalizeCountry } from '../lib/places'
+import { COUNTRIES, distinctValues } from '../lib/places'
+import { parseProfileFields } from '../lib/profile-validation'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL, type DominantHand, type Gender, type Player } from '../types'
 import { PlayerAvatar } from './PlayerAvatar'
 
@@ -35,6 +36,11 @@ export function OnboardingModal() {
   const [gender, setGender] = useState<Gender | ''>('')
   const [dominantHand, setDominantHand] = useState<DominantHand | ''>('')
   const [startingLevel, setStartingLevel] = useState('1000')
+  // Tri-state, deliberately starts null so the user has to make an explicit
+  // choice. A wrong starting rating wastes their first ~5 matches and
+  // destabilises their opponents' levels too — we'd rather have a moment of
+  // friction than silently default to 1000.
+  const [hasExistingRating, setHasExistingRating] = useState<'yes' | 'no' | null>(null)
 
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(initialAvatar)
@@ -80,6 +86,10 @@ export function OnboardingModal() {
           ? String(p.startingLevel)
           : p.startingLevel.toFixed(2),
       )
+      // If the existing player has a non-default rating, treat that as "yes,
+      // I have a rating". A 1000 stub is ambiguous so leave the choice null
+      // and let the user pick.
+      if (p.startingLevel !== 1000) setHasExistingRating('yes')
     }
     if (p.phone) setPhone(p.phone)
     if (p.country) setCountry(p.country)
@@ -114,28 +124,19 @@ export function OnboardingModal() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErr(null)
-    const lvl = Number(startingLevel)
     if (!fullName.trim()) return setErr('Full name is required')
     if (!email.trim()) return setErr('Email is required')
-    if (!Number.isFinite(lvl) || lvl <= 0) return setErr('Starting rating must be a positive number')
-    let parsedYear: number | undefined
-    if (birthYear.trim()) {
-      const y = Number(birthYear)
-      const thisYear = new Date().getFullYear()
-      if (!Number.isInteger(y) || y < 1900 || y > thisYear) {
-        return setErr(`Year of birth must be between 1900 and ${thisYear}`)
-      }
-      parsedYear = y
+    if (!hasExistingRating) {
+      return setErr('Please tell us whether you have an existing SquashLevels.com / LevelTech rating')
     }
-    let normalizedCountry: string | undefined
-    if (country.trim()) {
-      const c = normalizeCountry(country)
-      if (!c) return setErr(`"${country.trim()}" is not a recognized country. Please pick one from the list.`)
-      normalizedCountry = c
+    // 'no' branch always saves 1000; the form forces that value when picked.
+    // 'yes' branch must be a real positive number entered by the user.
+    const lvl = hasExistingRating === 'no' ? 1000 : Number(startingLevel)
+    if (hasExistingRating === 'yes' && (!Number.isFinite(lvl) || lvl <= 0)) {
+      return setErr('Enter your SquashLevels.com / LevelTech rating, or pick "I don\'t have one yet"')
     }
-    if (city.trim() && !isValidCityName(city)) {
-      return setErr('City name looks invalid. Use letters, spaces, hyphens or apostrophes.')
-    }
+    const parsed = parseProfileFields({ birthYear, country, city })
+    if (!parsed.ok) return setErr(parsed.error)
     setBusy(true)
     try {
       await completeOnboarding({
@@ -143,10 +144,10 @@ export function OnboardingModal() {
         email: email.trim(),
         startingLevel: lvl,
         phone: phone.trim() || undefined,
-        country: normalizedCountry,
-        city: city.trim() || undefined,
+        country: parsed.values.country,
+        city: parsed.values.city,
         club: club.trim() || undefined,
-        birthYear: parsedYear,
+        birthYear: parsed.values.birthYear,
         gender: gender || undefined,
         dominantHand: dominantHand || undefined,
         avatarFile,
@@ -266,10 +267,89 @@ export function OnboardingModal() {
                 Used for your profile. You'll always sign in with your Google account ({initialEmail || 'this one'}).
               </p>
             </div>
-            <div>
-              <label className="label" htmlFor="level">Starting rating</label>
-              <input id="level" inputMode="numeric" className="input w-full" value={startingLevel} onChange={(e) => setStartingLevel(e.target.value)} />
-              <p className="mt-1 text-xs text-slate-500">If you have a SquashLevels.com rating, use it (e.g. 1200). Otherwise leave at 1000 — we'll calibrate as you log matches.</p>
+            <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-900/20 p-4 space-y-3">
+              <div>
+                <div className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                  Starting rating — please get this right
+                </div>
+                <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+                  This is the level you'll start at. If it's far off,
+                  your first few matches won't reflect your real ability —
+                  and your opponents' levels will swing more than usual when
+                  they play you.
+                </p>
+              </div>
+
+              <fieldset className="space-y-2">
+                <legend className="sr-only">Do you have an existing rating?</legend>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="startingRatingSource"
+                    checked={hasExistingRating === 'yes'}
+                    onChange={() => {
+                      setHasExistingRating('yes')
+                      // Clear the default 1000 so they have to type a real
+                      // number; preserve any value they've already typed.
+                      if (startingLevel === '1000') setStartingLevel('')
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">I have a SquashLevels.com / LevelTech rating</span>
+                    <span className="block text-xs text-slate-600 dark:text-slate-300">
+                      Use the number from your account on those sites.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="startingRatingSource"
+                    checked={hasExistingRating === 'no'}
+                    onChange={() => {
+                      setHasExistingRating('no')
+                      setStartingLevel('1000')
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">I don't have one yet</span>
+                    <span className="block text-xs text-slate-600 dark:text-slate-300">
+                      We'll start you at 1000. If a club coach or strong club
+                      mate can give you an honest estimate, use that instead —
+                      it'll save a lot of unstable early matches.
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
+
+              {hasExistingRating === 'yes' && (
+                <div>
+                  <label className="label text-amber-900 dark:text-amber-100" htmlFor="level">
+                    Your rating
+                  </label>
+                  <input
+                    id="level"
+                    inputMode="numeric"
+                    className="input w-full"
+                    value={startingLevel}
+                    onChange={(e) => setStartingLevel(e.target.value)}
+                    placeholder="e.g. 1200"
+                  />
+                  <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                    Don't know your rating?{' '}
+                    <a
+                      href="https://www.squashlevels.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline font-medium"
+                    >
+                      Look it up at squashlevels.com →
+                    </a>
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Optional section */}

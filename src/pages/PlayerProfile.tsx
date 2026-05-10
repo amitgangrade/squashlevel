@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import clsx from 'clsx'
 import {
   CartesianGrid,
   Line,
@@ -18,6 +19,7 @@ import { Pagination } from '../components/Pagination'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerMetaLinks } from '../components/PlayerLinks'
 import { PlayerSearch } from '../components/PlayerSearch'
+import { ProvisionalTag } from '../components/ProvisionalTag'
 import { ChallengeButton } from '../components/ChallengeButton'
 import { ShareButton } from '../components/ShareButton'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL, type Match, type Player } from '../types'
@@ -288,7 +290,7 @@ export function PlayerProfilePage() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="!mb-0 truncate">{player.name}</h1>
-                {provisional && <span className="tag">Provisional</span>}
+                {provisional && <ProvisionalTag variant="full" />}
                 {isMe && (
                   <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">
                     you
@@ -555,30 +557,81 @@ function H2HSummary({
   owner: Player
   h2h: H2HData
 }) {
-  const { opponent, total, wins, losses, draws, setsFor, setsAgainst, pointsFor, pointsAgainst, winRate } = h2h
+  const { opponent, total, wins, losses, draws, setsFor, setsAgainst, pointsFor, pointsAgainst } = h2h
+  const decided = wins + losses
+  const ownerWinPct = decided > 0 ? Math.round((wins / decided) * 100) : null
+  const oppWinPct = decided > 0 ? 100 - ownerWinPct! : null
+  // Each row: label · owner-side value · opponent-side value. The "winning"
+  // side gets the green emphasis so the owner can see at a glance who's
+  // ahead on each axis.
+  const rows: Array<{ label: string; ownerValue: string; oppValue: string; ownerLeads: boolean; oppLeads: boolean }> = [
+    {
+      label: 'Sets won',
+      ownerValue: String(setsFor),
+      oppValue: String(setsAgainst),
+      ownerLeads: setsFor > setsAgainst,
+      oppLeads: setsAgainst > setsFor,
+    },
+    {
+      label: 'Points scored',
+      ownerValue: pointsFor.toLocaleString(),
+      oppValue: pointsAgainst.toLocaleString(),
+      ownerLeads: pointsFor > pointsAgainst,
+      oppLeads: pointsAgainst > pointsFor,
+    },
+    {
+      label: 'Win rate',
+      ownerValue: ownerWinPct != null ? `${ownerWinPct}%` : '—',
+      oppValue: oppWinPct != null ? `${oppWinPct}%` : '—',
+      ownerLeads: wins > losses,
+      oppLeads: losses > wins,
+    },
+  ]
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <PlayerAvatar name={owner.name} avatarUrl={owner.avatarUrl} size={40} />
-        <div className="text-center font-mono text-2xl flex-1">
+    <div className="space-y-4">
+      {/* Top row: avatar · big score · avatar, with names directly under each avatar. */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+        <div className="flex flex-col items-center text-center min-w-0">
+          <PlayerAvatar name={owner.name} avatarUrl={owner.avatarUrl} size={64} />
+          <div className="mt-2 font-semibold truncate w-full">{owner.name}</div>
+          {owner.club && (
+            <div className="text-xs text-slate-500 truncate w-full">{owner.club}</div>
+          )}
+        </div>
+        <div className="text-center font-mono text-3xl sm:text-4xl leading-none">
           <span className={wins > losses ? 'font-bold text-green-700 dark:text-green-400' : ''}>{wins}</span>
           <span className="text-slate-400 mx-2">–</span>
           <span className={losses > wins ? 'font-bold text-green-700 dark:text-green-400' : ''}>{losses}</span>
-          {draws > 0 && (
-            <span className="text-sm text-slate-500 ml-2">({draws} drew)</span>
+        </div>
+        <div className="flex flex-col items-center text-center min-w-0">
+          <PlayerAvatar name={opponent.name} avatarUrl={opponent.avatarUrl} size={64} />
+          <div className="mt-2 font-semibold truncate w-full">{opponent.name}</div>
+          {opponent.club && (
+            <div className="text-xs text-slate-500 truncate w-full">{opponent.club}</div>
           )}
         </div>
-        <PlayerAvatar name={opponent.name} avatarUrl={opponent.avatarUrl} size={40} />
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-        <Stat label="Matches" value={String(total)} />
-        <Stat
-          label="Win rate"
-          value={wins + losses > 0 ? `${(winRate * 100).toFixed(0)}%` : '—'}
-          sub={`${owner.name.split(' ')[0]} vs ${opponent.name.split(' ')[0]}`}
-        />
-        <Stat label="Sets" value={`${setsFor}–${setsAgainst}`} />
-        <Stat label="Points" value={`${pointsFor.toLocaleString()}–${pointsAgainst.toLocaleString()}`} />
+      {/* Per-side comparison table. */}
+      <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
+        <dl className="space-y-1.5">
+          {rows.map((r) => (
+            <div key={r.label} className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-4 text-sm">
+              <dd className={clsx('text-right font-mono tabular-nums', r.ownerLeads && 'font-semibold text-green-700 dark:text-green-400')}>
+                {r.ownerValue}
+              </dd>
+              <dt className="text-xs uppercase tracking-wide text-slate-500 text-center min-w-[5.5rem]">
+                {r.label}
+              </dt>
+              <dd className={clsx('text-left font-mono tabular-nums', r.oppLeads && 'font-semibold text-green-700 dark:text-green-400')}>
+                {r.oppValue}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div className="text-center text-xs text-slate-500">
+        {total} {total === 1 ? 'match' : 'matches'}
+        {draws > 0 && <> · {draws} drawn</>}
       </div>
     </div>
   )

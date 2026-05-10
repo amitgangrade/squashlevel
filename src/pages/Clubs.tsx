@@ -10,6 +10,7 @@ import {
   type ClubSummary,
 } from '../lib/supabase/clubs'
 import { supabaseEnabled } from '../lib/supabase/client'
+import { OrgAvatar } from '../components/OrgAvatar'
 import type { Club } from '../types'
 
 export function ClubsPage() {
@@ -87,9 +88,7 @@ export function ClubsPage() {
                 to={`/clubs/${encodeURIComponent(c.slug)}`}
                 className="card flex items-start gap-3 hover:border-brand-300 dark:hover:border-brand-700 transition-colors"
               >
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-brand-100 text-brand-700 font-semibold dark:bg-brand-900/40 dark:text-brand-200">
-                  {c.name.slice(0, 2).toUpperCase()}
-                </div>
+                <OrgAvatar name={c.name} kind="club" size={40} />
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold truncate">{c.name}</div>
                   <div className="text-xs text-slate-500 truncate">
