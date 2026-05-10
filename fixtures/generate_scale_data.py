@@ -14,10 +14,13 @@ Output: fixtures/scale-test-1k.json
 
 Usage:
     python fixtures/generate_scale_data.py
+    python fixtures/generate_scale_data.py --players 20 --matches 1000 --groups 2 \
+        --output fixtures/scale-test-tiny.json
 
 No external dependencies — uses only the Python standard library.
 """
 
+import argparse
 import bisect
 import itertools
 import json
@@ -278,14 +281,31 @@ def random_group_name(rng: random.Random) -> str:
 # ── Main generation ────────────────────────────────────────────────────────────
 
 def main() -> None:
-    rng = random.Random(SEED)
+    parser = argparse.ArgumentParser(description='Generate Boast scale-test fixture data.')
+    parser.add_argument('--players', type=int, default=TOTAL_PLAYERS)
+    parser.add_argument('--matches', type=int, default=TOTAL_MATCHES)
+    parser.add_argument('--groups',  type=int, default=TOTAL_GROUPS)
+    parser.add_argument('--output',  type=str, default=OUTPUT)
+    parser.add_argument('--seed',    type=int, default=SEED)
+    args = parser.parse_args()
+
+    n_players = args.players
+    n_matches = args.matches
+    n_groups  = args.groups
+    output    = args.output
+    rng       = random.Random(args.seed)
+
+    # group sizes auto-cap to player count for tiny fixtures
+    group_min = min(GROUP_MIN_MEMBERS, max(2, n_players))
+    group_max = min(GROUP_MAX_MEMBERS, n_players)
 
     # ── 1. Distribute players across cities by weight ──────────────────────────
     total_w = sum(c['weight'] for c in CITIES)
-    raw    = [c['weight'] / total_w * TOTAL_PLAYERS for c in CITIES]
-    counts = [max(5, int(round(x))) for x in raw]
-    # adjust to hit exactly TOTAL_PLAYERS — add/remove from largest cities
-    diff = TOTAL_PLAYERS - sum(counts)
+    min_per_city = max(1, n_players // (len(CITIES) * 4))
+    raw    = [c['weight'] / total_w * n_players for c in CITIES]
+    counts = [max(min_per_city, int(round(x))) for x in raw]
+    # adjust to hit exactly n_players — add/remove from largest cities
+    diff = n_players - sum(counts)
     order_by_size = sorted(range(len(CITIES)), key=lambda i: -counts[i])
     i = 0
     while diff != 0:
@@ -293,7 +313,7 @@ def main() -> None:
         if diff > 0:
             counts[idx] += 1
             diff -= 1
-        elif counts[idx] > 5:
+        elif counts[idx] > min_per_city:
             counts[idx] -= 1
             diff += 1
         i += 1
@@ -399,11 +419,12 @@ def main() -> None:
         return all_pids[bisect.bisect_left(cum_weights, r)]
 
     # ── 5. Generate matches ────────────────────────────────────────────────────
-    print(f'Generating {TOTAL_MATCHES:,} matches...')
+    print(f'Generating {n_matches:,} matches...')
     matches: list[dict] = []
     fallback_widen = 0
+    report_every = max(1_000, n_matches // 10)
 
-    for n in range(TOTAL_MATCHES):
+    for n in range(n_matches):
         pid_a = sample_player_a()
 
         r = rng.random()
@@ -443,20 +464,20 @@ def main() -> None:
             'createdAt': match_date + 'T18:00:00.000Z',
         })
 
-        if (n + 1) % 10_000 == 0:
+        if (n + 1) % report_every == 0:
             print(f'  {n + 1:,} matches built')
 
     if fallback_widen:
-        pct = fallback_widen / TOTAL_MATCHES * 100
+        pct = fallback_widen / max(1, n_matches) * 100
         print(f'  (widened pool {fallback_widen:,} times — {pct:.1f}%)')
 
     # ── 6. Generate groups ─────────────────────────────────────────────────────
-    print(f'Generating {TOTAL_GROUPS} groups...')
+    print(f'Generating {n_groups} groups...')
     groups:        list[dict] = []
     group_members: list[dict] = []
     used_slugs: set[str] = set()
 
-    for gi in range(TOTAL_GROUPS):
+    for gi in range(n_groups):
         # unique-ish name (retry a few times before suffixing)
         for _ in range(8):
             name = random_group_name(rng)
@@ -468,7 +489,7 @@ def main() -> None:
         used_slugs.add(slug)
 
         gid     = new_id()
-        n_mem   = rng.randint(GROUP_MIN_MEMBERS, GROUP_MAX_MEMBERS)
+        n_mem   = rng.randint(group_min, group_max)
         members = rng.sample(all_pids, n_mem)
         admin   = rng.choice(members)
 
@@ -512,11 +533,11 @@ def main() -> None:
         'groupMembers': group_members,
     }
 
-    print(f'Writing {OUTPUT} ...')
-    with open(OUTPUT, 'w', encoding='utf-8') as f:
+    print(f'Writing {output} ...')
+    with open(output, 'w', encoding='utf-8') as f:
         json.dump(export, f, separators=(',', ':'))
 
-    size_mb = os.path.getsize(OUTPUT) / 1_048_576
+    size_mb = os.path.getsize(output) / 1_048_576
 
     # Stats: rating buckets + match-count quantiles
     buckets = [(1_000, 10_000), (10_000, 25_000), (25_000, 50_000), (50_000, 100_001)]
@@ -530,7 +551,7 @@ def main() -> None:
     def pct(p): return sorted_counts[int(p * (len(sorted_counts) - 1))]
 
     print('\nDone.')
-    print(f'  File   : {OUTPUT}')
+    print(f'  File   : {output}')
     print(f'  Size   : {size_mb:.1f} MB')
     print(f'  Players: {len(players):,}')
     print(f'  Matches: {len(matches):,}')
