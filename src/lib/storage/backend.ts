@@ -407,22 +407,15 @@ const cloudBackend: Backend = {
     _importing = true
     try {
       const sb = supabase!
-      const NEVER_UUID = '00000000-0000-0000-0000-000000000000'
 
-      // ---- Delete in child→parent order ---------------------------------
-      const tablesToWipe: Array<{ table: string; pk: string; sentinel: string }> = [
-        { table: 'matches',         pk: 'id',         sentinel: NEVER_UUID },
-        { table: 'group_members',   pk: 'player_id',  sentinel: NEVER_UUID },
-        { table: 'groups',          pk: 'id',         sentinel: NEVER_UUID },
-        { table: 'challenges',      pk: 'id',         sentinel: NEVER_UUID },
-        { table: 'club_admins',     pk: 'user_id',    sentinel: NEVER_UUID },
-        { table: 'players',         pk: 'id',         sentinel: NEVER_UUID },
-        { table: 'clubs',           pk: 'slug',       sentinel: '__never__' },
-        { table: 'settings',        pk: 'id',         sentinel: '_never_' },
-      ]
-      for (const { table, pk, sentinel } of tablesToWipe) {
-        const { error } = await sb.from(table).delete().neq(pk, sentinel)
-        if (error) throw new Error(`wipe ${table}: ${error.message}`)
+      // ---- Wipe everything in one shot via server-side TRUNCATE ---------
+      // Per-table client DELETEs hit PostgREST's default 8s statement_timeout
+      // once matches grows to tens of thousands of rows. The RPC runs as
+      // security definer with statement_timeout = 60s and TRUNCATEs every
+      // import-managed table in a single statement.
+      {
+        const { error } = await sb.rpc('import_wipe_all')
+        if (error) throw new Error(`wipe: ${error.message}`)
       }
 
       // ---- Insert in parent→child order ---------------------------------
