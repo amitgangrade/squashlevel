@@ -1,4 +1,4 @@
-import { HashRouter, Route, Routes } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { StoreProvider } from './state/store'
 import { LeaderboardPage } from './pages/Leaderboard'
@@ -33,7 +33,8 @@ export default function App() {
             <Route path="/groups/:slug" element={<GroupProfilePage />} />
             <Route path="/challenges" element={<ChallengesPage />} />
             <Route path="/matches/pending" element={<PendingMatchesPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/admin" element={<SettingsPage />} />
+            <Route path="/settings" element={<Navigate to="/admin" replace />} />
           </Route>
         </Routes>
       </HashRouter>

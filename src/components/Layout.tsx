@@ -79,7 +79,7 @@ export function Layout() {
             ))}
             {isAdmin && (
               <NavLink
-                to="/settings"
+                to="/admin"
                 className={({ isActive }) =>
                   clsx(
                     'whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
@@ -89,7 +89,7 @@ export function Layout() {
                   )
                 }
               >
-                Settings
+                Admin
               </NavLink>
             )}
           </nav>
@@ -262,7 +262,7 @@ function MoreSheet({
           <SheetLink to="/challenges" icon={<UsersIcon className="h-5 w-5" />} label="Challenges" />
           <SheetLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />} label="Clubs" />
           <SheetLink to="/groups" icon={<UsersIcon className="h-5 w-5" />} label="Groups" />
-          {isAdmin && <SheetLink to="/settings" icon={<CogIcon className="h-5 w-5" />} label="Settings" />}
+          {isAdmin && <SheetLink to="/admin" icon={<CogIcon className="h-5 w-5" />} label="Admin" />}
           <li>
             <button
               onClick={onSignOut}

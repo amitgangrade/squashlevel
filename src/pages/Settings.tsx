@@ -85,7 +85,7 @@ export function SettingsPage() {
   if (!isAdmin) {
     return (
       <div className="card text-slate-500 text-sm">
-        Settings are only editable by the owner. Current algorithm values are applied automatically.
+        Admin tools are only available to global admins.
       </div>
     )
   }
@@ -94,7 +94,7 @@ export function SettingsPage() {
     <div className="space-y-6">
       {supabaseEnabled && (
         <section>
-          <h1 className="mb-3">Admins</h1>
+          <h1 className="mb-3">Global Admins - Can do anything</h1>
           <AdminManager />
         </section>
       )}

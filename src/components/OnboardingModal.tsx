@@ -63,6 +63,36 @@ export function OnboardingModal() {
     return () => clearTimeout(handle)
   }, [fullName])
 
+  // When the user picks an existing player, prefill form fields from that
+  // player's row so they don't have to re-enter starting level, club, country,
+  // etc. They can still edit anything before submitting. We don't try to be
+  // clever about preserving "user-edited" values across pick changes — the
+  // pick is treated as a fresh "fill in defaults" gesture each time.
+  useEffect(() => {
+    if (!claimId) return
+    const p = suggestions.find((s) => s.id === claimId)
+    if (!p) return
+    if (p.email) setEmail(p.email)
+    if (Number.isFinite(p.startingLevel)) {
+      // Avoid trailing ".0" when the rating is a clean integer.
+      setStartingLevel(
+        Number.isInteger(p.startingLevel)
+          ? String(p.startingLevel)
+          : p.startingLevel.toFixed(2),
+      )
+    }
+    if (p.phone) setPhone(p.phone)
+    if (p.country) setCountry(p.country)
+    if (p.city) setCity(p.city)
+    if (p.club) setClub(p.club)
+    if (p.birthYear) setBirthYear(String(p.birthYear))
+    if (p.gender) setGender(p.gender)
+    if (p.dominantHand) setDominantHand(p.dominantHand)
+    // Only show the existing player's photo if the user hasn't uploaded their
+    // own — their own upload should always win.
+    if (p.avatarUrl && !avatarFile) setAvatarPreview(p.avatarUrl)
+  }, [claimId, suggestions, avatarFile])
+
   useEffect(() => {
     if (!avatarFile) return
     const url = URL.createObjectURL(avatarFile)
@@ -232,6 +262,9 @@ export function OnboardingModal() {
             <div>
               <label className="label" htmlFor="email">Email</label>
               <input id="email" type="email" className="input w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <p className="mt-1 text-xs text-slate-500">
+                Used for your profile. You'll always sign in with your Google account ({initialEmail || 'this one'}).
+              </p>
             </div>
             <div>
               <label className="label" htmlFor="level">Starting rating</label>
