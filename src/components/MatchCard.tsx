@@ -18,9 +18,10 @@ import { UnrankedTag } from './UnrankedTag'
  *
  * Layout:
  *   [date · type · venue]                       [optional status pill]
- *   [avatar  name]            score        [opp name  avatar]
- *   [before→after Δ]       per-game scores       [before→after Δ]
+ *   [avatar  name]              [3 - 1]              [opp name  avatar]
+ *   [before→after Δ]                                 [before→after Δ]
  *   [Won/Lost badge — only when viewerId is set]
+ *   [per-game tiles — colour-tinted by per-game winner, full-width row]
  *   ─────────────────────────────────────────────────────────────
  *   Expected perf: X% · Actual: Y%   (only when level data exists)
  *   [optional hint line]
@@ -126,8 +127,11 @@ export function MatchCard({
         {statusBadge && <span className="ml-auto shrink-0">{statusBadge}</span>}
       </div>
 
-      {/* Score row: left · centre · right */}
-      <div className="flex items-start gap-3">
+      {/* Player row: left identity · big game count · right identity. The
+          per-game tiles get their own full-width row below — squeezing them
+          into the centre column on a 375px phone forced them to wrap into
+          a multi-line stack and made the whole card lopsided. */}
+      <div className="flex items-center gap-3">
         <div className="flex items-start gap-2 flex-1 min-w-0">
           {left && <PlayerAvatar name={left.name} avatarUrl={left.avatarUrl} size={36} />}
           <div className="min-w-0 space-y-1">
@@ -154,18 +158,10 @@ export function MatchCard({
           </div>
         </div>
 
-        <div className="shrink-0 text-center space-y-1">
-          <div className="font-mono text-lg leading-none">
-            <span className={clsx(leftWon && 'font-bold')}>{leftGames}</span>
-            <span className="text-slate-400 mx-1.5">–</span>
-            <span className={clsx(rightWon && 'font-bold')}>{rightGames}</span>
-          </div>
-          {/* Per-game scores in the left side's perspective. No per-game
-              colouring — bold winning total + Won/Lost badge already convey
-              the result, so dressing each "11" in green is redundant noise. */}
-          <div className="flex justify-center">
-            <GameScores games={m.games} viewerSide={leftSide} size="sm" colorize={false} />
-          </div>
+        <div className="shrink-0 font-mono text-2xl sm:text-3xl leading-none tabular-nums">
+          <span className={clsx(leftWon && 'font-bold')}>{leftGames}</span>
+          <span className="text-slate-400 mx-1.5">–</span>
+          <span className={clsx(rightWon && 'font-bold')}>{rightGames}</span>
         </div>
 
         <div className="flex items-start gap-2 flex-1 min-w-0 justify-end">
@@ -189,6 +185,16 @@ export function MatchCard({
           {right && <PlayerAvatar name={right.name} avatarUrl={right.avatarUrl} size={36} />}
         </div>
       </div>
+
+      {/* Per-game tiles — full-width row from the left side's perspective.
+          Tints green/red/slate by per-game winner so the eye can scan game
+          rhythm at a glance. Hidden when there's only one "game" with a
+          0-0 score (rare, but possible mid-edit). */}
+      {m.games.length > 0 && (
+        <div className="flex justify-center">
+          <GameScores games={m.games} viewerSide={leftSide} size="sm" />
+        </div>
+      )}
 
       {m.notes && <div className="text-xs text-slate-500 italic">{m.notes}</div>}
 
