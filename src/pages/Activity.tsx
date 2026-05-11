@@ -78,29 +78,40 @@ export function ActivityPage() {
 
   const disputed = isAdmin ? matches.filter((m) => m.status === 'disputed') : []
 
-  // Admin-only queue: pending matches where at least one participant is an
-  // unclaimed player. These can't be confirmed by the opponent (no account
-  // to act from), and the 3-day aged auto-confirm intentionally skips them,
-  // so a global admin has to step in via confirm_match.
-  // Exclude any rows that are already in pendingForMe (admin who is a
-  // participant) — they show up there with the same confirm UI.
-  const adminPendingUnclaimed = useMemo(() => {
+  // Admin oversight queue: every pending match in the system that the admin
+  // isn't already a participant in. Participant cases land in pendingForMe
+  // (matches awaiting MY confirmation) or myPendingMatches (matches I
+  // recorded that need my opponent), so excluding them here prevents the
+  // same match showing up twice.
+  //
+  // SQL allows global admins to confirm any pending match (see
+  // confirm_match in schema.sql) — the UI just needs to surface them.
+  // This was previously gated to "unclaimed-player matches only" since
+  // those need admin to break the deadlock; now admins can also expedite
+  // a claimed-vs-claimed pending if e.g. a tournament needs a result
+  // posted before the 3-day auto-confirm fires.
+  const adminPending = useMemo(() => {
     if (!isAdmin) return []
-    const playerById = new Map(players.map((p) => [p.id, p]))
-    const pendingForMeIds = new Set(pendingForMe.map((m) => m.id))
     return matches
-      .filter((m) => m.status === 'pending' && !pendingForMeIds.has(m.id))
+      .filter((m) => m.status === 'pending')
       .filter((m) => {
-        const a = playerById.get(m.playerAId)
-        const b = playerById.get(m.playerBId)
-        return (a && !a.userId) || (b && !b.userId)
+        if (!myPlayer) return true
+        return m.playerAId !== myPlayer.id && m.playerBId !== myPlayer.id
       })
       .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
-  }, [isAdmin, matches, players, pendingForMe])
+  }, [isAdmin, matches, myPlayer])
 
-  const actionCount = pendingForMe.length + incomingChallenges.length + adminPendingUnclaimed.length
+  // Personal action count drives the bottom-nav badge — admin oversight
+  // intentionally NOT included since "you have 47 pending matches across
+  // the platform" would constantly nag without being a personal todo.
+  const actionCount = pendingForMe.length + incomingChallenges.length
   const waitingCount = myPendingMatches.length + outgoingChallenges.length
-  const empty = actionCount === 0 && waitingCount === 0 && pastChallenges.length === 0 && disputed.length === 0
+  const empty =
+    actionCount === 0 &&
+    waitingCount === 0 &&
+    pastChallenges.length === 0 &&
+    disputed.length === 0 &&
+    adminPending.length === 0
 
   const onConfirm = async (id: string, dispute: boolean) => {
     setErr(null)
@@ -219,41 +230,69 @@ export function ActivityPage() {
                 }
               />
             ))}
-            {adminPendingUnclaimed.map((m) => (
-              <MatchCard
-                key={m.id}
-                match={m}
-                players={players}
-                settings={settings}
-                ring="amber"
-                statusBadge={<StatusPill variant="pending">{MATCH_STATUS_LABEL.pending}</StatusPill>}
-                hint={
-                  <>
-                    <strong>Awaiting admin confirmation</strong> — one of the
-                    players is unclaimed, so they can't confirm themselves.
-                    Confirm only if you trust the recorder's report.
-                  </>
-                }
-                actions={
-                  <>
-                    <button
-                      className="btn-primary flex-1 sm:flex-none"
-                      onClick={() => onConfirm(m.id, false)}
-                      disabled={busy !== null}
-                    >
-                      {busy === m.id + ':c' ? 'Confirming…' : 'Confirm'}
-                    </button>
-                    <button
-                      className="btn bg-tin-100 text-tin-800 hover:bg-tin-200 active:bg-tin-300 dark:bg-tin-900/30 dark:text-tin-200 dark:hover:bg-tin-900/50 flex-1 sm:flex-none"
-                      onClick={() => onConfirm(m.id, true)}
-                      disabled={busy !== null}
-                    >
-                      {busy === m.id + ':d' ? 'Reporting…' : 'Dispute'}
-                    </button>
-                  </>
-                }
-              />
-            ))}
+          </div>
+        </section>
+      )}
+
+      {adminPending.length > 0 && (
+        <section>
+          <h2 className="mb-2">Admin: pending matches ({adminPending.length})</h2>
+          <p className="text-xs text-slate-500 mb-2">
+            Pending matches where you're not a participant. Most resolve on their own —
+            opponents confirm or the 3-day timer auto-confirms — but you can step in to
+            expedite or to break a deadlock when a player is unclaimed.
+          </p>
+          <div className="space-y-2">
+            {adminPending.map((m) => {
+              const a = playerById.get(m.playerAId)
+              const b = playerById.get(m.playerBId)
+              const hasUnclaimed = (a && !a.userId) || (b && !b.userId)
+              const created = m.createdAt ? Date.parse(m.createdAt) : Date.now()
+              const remainingDays = Math.max(
+                0,
+                TIMEOUT_DAYS - Math.floor((Date.now() - created) / DAY_MS),
+              )
+              const hint = hasUnclaimed ? (
+                <>
+                  <strong>One player is unclaimed</strong> — auto-confirm won't fire,
+                  so this needs an admin to resolve. Confirm only if you trust the
+                  recorder's report.
+                </>
+              ) : remainingDays > 0 ? (
+                <>Awaiting opponent. Auto-confirms in {remainingDays} {remainingDays === 1 ? 'day' : 'days'}.</>
+              ) : (
+                <>Auto-confirming any moment now.</>
+              )
+              return (
+                <MatchCard
+                  key={m.id}
+                  match={m}
+                  players={players}
+                  settings={settings}
+                  ring="amber"
+                  statusBadge={<StatusPill variant="pending">{MATCH_STATUS_LABEL.pending}</StatusPill>}
+                  hint={hint}
+                  actions={
+                    <>
+                      <button
+                        className="btn-primary flex-1 sm:flex-none"
+                        onClick={() => onConfirm(m.id, false)}
+                        disabled={busy !== null}
+                      >
+                        {busy === m.id + ':c' ? 'Confirming…' : 'Confirm'}
+                      </button>
+                      <button
+                        className="btn bg-tin-100 text-tin-800 hover:bg-tin-200 active:bg-tin-300 dark:bg-tin-900/30 dark:text-tin-200 dark:hover:bg-tin-900/50 flex-1 sm:flex-none"
+                        onClick={() => onConfirm(m.id, true)}
+                        disabled={busy !== null}
+                      >
+                        {busy === m.id + ':d' ? 'Reporting…' : 'Dispute'}
+                      </button>
+                    </>
+                  }
+                />
+              )
+            })}
           </div>
         </section>
       )}

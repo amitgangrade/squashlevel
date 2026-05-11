@@ -106,13 +106,22 @@ export function HistoryPage() {
               m.createdBy !== session.user.id
             const isMyRecorded =
               status === 'pending' && session?.user?.id === m.createdBy
+            // Admins can confirm any pending match they didn't record (the
+            // SQL allows their own-recorded too, but exposing that in the
+            // UI invites accidental self-confirm noise — keep that path
+            // explicit by requiring the Activity admin-queue section).
+            const isAdminOversight =
+              status === 'pending' &&
+              isAdmin &&
+              !isMyPending &&
+              !isMyRecorded
             const ring =
               status === 'pending' ? 'amber'
               : status === 'disputed' ? 'tin'
               : 'none'
 
             const actions: React.ReactNode[] = []
-            if (isMyPending) {
+            if (isMyPending || isAdminOversight) {
               actions.push(
                 <button
                   key="confirm"
