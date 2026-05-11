@@ -130,8 +130,15 @@ export function MatchCard({
       {/* Player row: left identity · big game count · right identity. The
           per-game tiles get their own full-width row below — squeezing them
           into the centre column on a 375px phone forced them to wrap into
-          a multi-line stack and made the whole card lopsided. */}
-      <div className="flex items-center gap-3">
+          a multi-line stack and made the whole card lopsided.
+
+          Player meta chips (club · city · country) are hidden on mobile.
+          On a 390px phone with a 3-col layout each side gets ~95px of
+          inner space, which is not enough for "Singapore Cricket Club ·
+          Singapore · Singapore · age 45" — it wrapped to 4-5 lines and
+          made the card grotesquely tall. The name links to the full
+          profile where all that info lives. */}
+      <div className="flex items-center gap-1.5 sm:gap-3">
         <div className="flex items-start gap-2 flex-1 min-w-0">
           {left && <PlayerAvatar name={left.name} avatarUrl={left.avatarUrl} size={36} />}
           <div className="min-w-0 space-y-1">
@@ -142,7 +149,7 @@ export function MatchCard({
                 <PlayerLink id={leftId} name={leftName} />
               )}
             </div>
-            {left && <PlayerMetaLinks player={left} />}
+            {left && <PlayerMetaLinks player={left} className="hidden sm:inline" />}
             <LevelChange before={leftBefore} after={leftAfter} delta={leftDelta} unranked={m.unranked} />
             {viewerInMatch && !m.unranked && (
               <div>
@@ -158,19 +165,19 @@ export function MatchCard({
           </div>
         </div>
 
-        <div className="shrink-0 font-mono text-2xl sm:text-3xl leading-none tabular-nums">
+        <div className="shrink-0 font-mono text-xl sm:text-3xl leading-none tabular-nums">
           <span className={clsx(leftWon && 'font-bold')}>{leftGames}</span>
-          <span className="text-slate-400 mx-1.5">–</span>
+          <span className="text-slate-400 mx-1 sm:mx-1.5">–</span>
           <span className={clsx(rightWon && 'font-bold')}>{rightGames}</span>
         </div>
 
         <div className="flex items-start gap-2 flex-1 min-w-0 justify-end">
-          <div className="min-w-0 text-right">
+          <div className="min-w-0 text-right space-y-1">
             <div className="font-medium truncate text-slate-600 dark:text-slate-400">
               <PlayerLink id={rightId} name={rightName} />
             </div>
             {right && (
-              <div className="flex justify-end">
+              <div className="hidden sm:flex justify-end">
                 <PlayerMetaLinks player={right} />
               </div>
             )}
@@ -230,11 +237,23 @@ function LevelChange({
   if (unranked) return null
   if (before == null || after == null) return null
   const up = (delta ?? 0) >= 0
+  // Flex-wrap so "4,265 → 4,038" stays intact as a unit, and the delta
+  // (+227 / −227) sits next to it on roomy viewports but wraps to its
+  // own line when the column is too narrow. Previously the whole thing
+  // was a single truncating <div> and we'd cut to "4,265 → 4,0..." on
+  // mobile — losing the actual after-value the reader cares about.
   return (
-    <div className={clsx('text-xs font-mono tabular-nums text-slate-500 truncate', align === 'right' && 'text-right')}>
-      {fmtLevel(before)} <span className="text-slate-400" aria-hidden>→</span> {fmtLevel(after)}
+    <div
+      className={clsx(
+        'text-xs font-mono tabular-nums text-slate-500 flex flex-wrap gap-x-1',
+        align === 'right' && 'justify-end',
+      )}
+    >
+      <span className="whitespace-nowrap">
+        {fmtLevel(before)} <span className="text-slate-400" aria-hidden>→</span> {fmtLevel(after)}
+      </span>
       {delta != null && (
-        <span className={clsx('ml-1 font-semibold', up ? 'text-green-600' : 'text-red-600')}>
+        <span className={clsx('font-semibold whitespace-nowrap', up ? 'text-green-600' : 'text-red-600')}>
           {fmtDelta(delta)}
         </span>
       )}
