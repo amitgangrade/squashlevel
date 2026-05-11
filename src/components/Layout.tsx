@@ -149,27 +149,30 @@ export function Layout() {
       </footer>
 
       {/* ============ Mobile bottom tab bar ============ */}
-      {session && (
-        <nav className="fixed inset-x-0 bottom-0 z-20 sm:hidden border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 pb-safe">
-          <div className="mx-auto flex max-w-5xl items-stretch justify-around">
-            <TabLink to="/" end icon={<HomeIcon className="h-5 w-5" />}>Home</TabLink>
-            <button
-              onClick={() => setMoreOpen(true)}
-              className="flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[11px] text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 min-h-[56px] relative"
-            >
-              <span className="relative">
-                <MoreIcon className="h-5 w-5" />
-                {pendingCount > 0 && (
-                  <span className="absolute -top-1 -right-2 grid min-w-[16px] h-4 px-1 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
-                    {pendingCount}
-                  </span>
-                )}
-              </span>
-              <span>More</span>
-            </button>
-          </div>
-        </nav>
-      )}
+      {/* Rendered for everyone — signed-out phone users still need fast
+          access to public views (Clubs / Groups / History) via the More
+          sheet. The sheet itself adapts to signed-in/out state. */}
+      <nav className="fixed inset-x-0 bottom-0 z-20 sm:hidden border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 pb-safe">
+        <div className="mx-auto flex max-w-5xl items-stretch justify-around">
+          <TabLink to="/" end icon={<HomeIcon className="h-5 w-5" />}>Home</TabLink>
+          <TabLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />}>Clubs</TabLink>
+          <TabLink to="/groups" icon={<UsersIcon className="h-5 w-5" />}>Groups</TabLink>
+          <button
+            onClick={() => setMoreOpen(true)}
+            className="flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[11px] text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 min-h-[56px] relative"
+          >
+            <span className="relative">
+              <MoreIcon className="h-5 w-5" />
+              {pendingCount > 0 && (
+                <span className="absolute -top-1 -right-2 grid min-w-[16px] h-4 px-1 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
+                  {pendingCount}
+                </span>
+              )}
+            </span>
+            <span>More</span>
+          </button>
+        </div>
+      </nav>
 
       {/* ============ Floating Action Button (Log match) ============ */}
       {showFab && (
@@ -186,11 +189,13 @@ export function Layout() {
       {/* ============ More sheet (mobile) ============ */}
       {moreOpen && (
         <MoreSheet
+          signedIn={!!session}
           isAdmin={isAdmin}
           fullName={profile?.fullName}
           email={session?.user.email}
           pendingCount={pendingCount}
           onClose={() => setMoreOpen(false)}
+          onSignIn={onGoogle}
           onSignOut={signOut}
         />
       )}
@@ -253,18 +258,22 @@ function UserPill({
 }
 
 function MoreSheet({
+  signedIn,
   isAdmin,
   fullName,
   email,
   pendingCount,
   onClose,
+  onSignIn,
   onSignOut,
 }: {
+  signedIn: boolean
   isAdmin: boolean
   fullName?: string
   email?: string
   pendingCount: number
   onClose: () => void
+  onSignIn: () => Promise<void>
   onSignOut: () => Promise<void>
 }) {
   return (
@@ -273,34 +282,58 @@ function MoreSheet({
       <div className="absolute inset-x-0 bottom-0 sm:inset-y-0 sm:right-0 sm:left-auto sm:w-80 bg-white dark:bg-slate-950 rounded-t-2xl sm:rounded-none border-t border-slate-200 dark:border-slate-800 pb-safe">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <div className="min-w-0">
-            <div className="font-semibold truncate">{fullName ?? 'Account'}</div>
-            {email && <div className="text-xs text-slate-500 truncate">{email}</div>}
+            {signedIn ? (
+              <>
+                <div className="font-semibold truncate">{fullName ?? 'Account'}</div>
+                {email && <div className="text-xs text-slate-500 truncate">{email}</div>}
+              </>
+            ) : (
+              <>
+                <div className="font-semibold">Browse Boast</div>
+                <div className="text-xs text-slate-500">Sign in to log matches and track your level.</div>
+              </>
+            )}
           </div>
           <button onClick={onClose} aria-label="Close" className="grid h-10 w-10 place-items-center rounded-md text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
             <CloseIcon className="h-5 w-5" />
           </button>
         </div>
         <ul className="py-2">
-          <SheetLink to="/profile" icon={<UserIcon className="h-5 w-5" />} label="My profile" />
-          <SheetLink
-            to="/activity"
-            icon={<HistoryIcon className="h-5 w-5" />}
-            label="Activity"
-            badge={pendingCount > 0 ? pendingCount : undefined}
-          />
+          {!signedIn && (
+            <li>
+              <button
+                onClick={onSignIn}
+                className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-brand-700 dark:text-brand-300 hover:bg-slate-50 dark:hover:bg-slate-800 min-h-[48px]"
+              >
+                <span className="grid h-5 w-5 place-items-center"><GoogleGlyph /></span>
+                Sign in with Google
+              </button>
+            </li>
+          )}
+          {signedIn && <SheetLink to="/profile" icon={<UserIcon className="h-5 w-5" />} label="My profile" />}
+          {signedIn && (
+            <SheetLink
+              to="/activity"
+              icon={<HistoryIcon className="h-5 w-5" />}
+              label="Activity"
+              badge={pendingCount > 0 ? pendingCount : undefined}
+            />
+          )}
           <SheetLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />} label="Clubs" />
           <SheetLink to="/groups" icon={<UsersIcon className="h-5 w-5" />} label="Groups" />
           <SheetLink to="/history" icon={<HistoryIcon className="h-5 w-5" />} label="History" />
           {isAdmin && <SheetLink to="/admin" icon={<CogIcon className="h-5 w-5" />} label="Admin" />}
-          <li>
-            <button
-              onClick={onSignOut}
-              className="flex w-full items-center gap-3 px-4 py-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 min-h-[48px]"
-            >
-              <LogoutIcon className="h-5 w-5 text-slate-500" />
-              Sign out
-            </button>
-          </li>
+          {signedIn && (
+            <li>
+              <button
+                onClick={onSignOut}
+                className="flex w-full items-center gap-3 px-4 py-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 min-h-[48px]"
+              >
+                <LogoutIcon className="h-5 w-5 text-slate-500" />
+                Sign out
+              </button>
+            </li>
+          )}
         </ul>
       </div>
     </div>
