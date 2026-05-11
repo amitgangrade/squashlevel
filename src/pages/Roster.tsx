@@ -128,14 +128,32 @@ export function RosterPage() {
   }
 
   const remove = async (p: Player) => {
-    const hasMatches = recomputed.matches.some(
-      (m) => m.playerAId === p.id || m.playerBId === p.id,
-    )
-    const msg = hasMatches
-      ? `${p.name} has matches logged. Remove the player AND all their matches?`
-      : `Remove ${p.name}?`
+    // Wording mirrors the destructiveness of the underlying action:
+    //   • Claimed → full user delete via admin_delete_user (auth + profile +
+    //     player cascade). Match the language used in Settings → Admins.
+    //   • Unclaimed → drop the stub player row; matches cascade.
+    let msg: string
+    if (p.userId) {
+      msg =
+        `Permanently delete ${p.name}${p.email ? ` (${p.email})` : ''}?\n\n` +
+        `This removes their account, profile, player record, and every match, ` +
+        `group membership, and challenge they were part of. ` +
+        `Levels for opponents will be stale until you run "Rebuild levels".\n\n` +
+        `This cannot be undone.`
+    } else {
+      const hasMatches = recomputed.matches.some(
+        (m) => m.playerAId === p.id || m.playerBId === p.id,
+      )
+      msg = hasMatches
+        ? `${p.name} has matches logged. Remove the player AND all their matches?`
+        : `Remove ${p.name}?`
+    }
     if (!window.confirm(msg)) return
-    await removePlayer(p.id)
+    try {
+      await removePlayer(p.id)
+    } catch (err) {
+      setError((err as Error).message)
+    }
   }
 
   const filteredPlayers = useMemo(

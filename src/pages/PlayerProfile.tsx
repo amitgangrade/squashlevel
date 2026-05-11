@@ -14,6 +14,8 @@ import { useStore } from '../state/store'
 import { fmtDate, fmtLevel, playerAge } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
 import { gamesWonBy, winnerSide } from '../lib/rating/levels'
+import { fetchProfile } from '../lib/supabase/profile'
+import { AdminEditProfileModal } from '../components/AdminEditProfileModal'
 import { MatchCard } from '../components/MatchCard'
 import { Pagination } from '../components/Pagination'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -22,7 +24,7 @@ import { PlayerSearch } from '../components/PlayerSearch'
 import { ProvisionalTag } from '../components/ProvisionalTag'
 import { ChallengeButton } from '../components/ChallengeButton'
 import { ShareButton } from '../components/ShareButton'
-import { DOMINANT_HAND_LABEL, GENDER_LABEL, type Match, type Player } from '../types'
+import { DOMINANT_HAND_LABEL, GENDER_LABEL, type Match, type Player, type Profile } from '../types'
 
 // Up to MAX_COMPARE other players can be overlaid on the level chart.
 // Matches the colour palette length below — adding more colours implicitly
@@ -58,7 +60,7 @@ export function PlayerProfilePage() {
   // findPlayerByRouteParam resolves both transparently.
   const { id: routeParam } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { players, recomputed, settings, myPlayer, fetchRecentMatches, findPlayerByRouteParam, playerUrl } = useStore()
+  const { players, recomputed, settings, myPlayer, isAdmin, fetchRecentMatches, findPlayerByRouteParam, playerUrl } = useStore()
 
   const player = useMemo(
     () => (routeParam ? findPlayerByRouteParam(routeParam) : null),
@@ -80,6 +82,14 @@ export function PlayerProfilePage() {
       navigate(canonical, { replace: true })
     }
   }, [player, routeParam, playerUrl, navigate])
+
+  // Admin-edit-profile modal state. The target profile is fetched on demand
+  // when the admin clicks Edit — we only have the player row in the store,
+  // not the profile.
+  const [adminEditOpen, setAdminEditOpen] = useState(false)
+  const [adminEditProfile, setAdminEditProfile] = useState<Profile | null>(null)
+  const [adminEditLoading, setAdminEditLoading] = useState(false)
+  const [adminEditError, setAdminEditError] = useState<string | null>(null)
 
   const [playerMatches, setPlayerMatches] = useState<Match[]>([])
   useEffect(() => {
@@ -317,6 +327,35 @@ export function PlayerProfilePage() {
                 <ChallengeButton toPlayerId={player.id} toPlayerName={player.name} />
               )}
               <ShareButton kind="player" id={player.id} title={`${player.name} on Boast`} />
+              {isAdmin && !isMe && player.userId && (
+                <button
+                  type="button"
+                  className="btn-link text-xs"
+                  disabled={adminEditLoading}
+                  onClick={async () => {
+                    setAdminEditError(null)
+                    setAdminEditLoading(true)
+                    try {
+                      const p = await fetchProfile(player.userId!)
+                      if (!p) {
+                        setAdminEditError('Profile not found for this player.')
+                        return
+                      }
+                      setAdminEditProfile(p)
+                      setAdminEditOpen(true)
+                    } catch (e) {
+                      setAdminEditError((e as Error).message)
+                    } finally {
+                      setAdminEditLoading(false)
+                    }
+                  }}
+                >
+                  {adminEditLoading ? '…' : 'Edit profile (admin)'}
+                </button>
+              )}
+              {adminEditError && (
+                <div className="text-xs text-red-600 max-w-[14rem]">{adminEditError}</div>
+              )}
             </div>
           </div>
 
@@ -478,6 +517,14 @@ export function PlayerProfilePage() {
           </>
         )}
       </section>
+
+      {adminEditOpen && adminEditProfile && (
+        <AdminEditProfileModal
+          target={adminEditProfile}
+          onClose={() => { setAdminEditOpen(false); setAdminEditProfile(null) }}
+          onSaved={(updated) => setAdminEditProfile(updated)}
+        />
+      )}
     </div>
   )
 }

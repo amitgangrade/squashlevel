@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../state/store'
-import { MATCH_TYPE_KEYS, MATCH_TYPE_LABEL, type GameScore, type MatchType, type Player } from '../types'
+import {
+  DOMINANT_HAND_LABEL,
+  GENDER_LABEL,
+  MATCH_TYPE_KEYS,
+  MATCH_TYPE_LABEL,
+  type DominantHand,
+  type GameScore,
+  type Gender,
+  type MatchType,
+  type Player,
+} from '../types'
 import { gamesWonBy, winnerSide } from '../lib/rating/levels'
 import { updateLevels } from '../lib/rating/update'
 import { fmtDelta, fmtLevel, todayIso } from '../lib/format'
+import { COUNTRIES, distinctValues } from '../lib/places'
+import { parseProfileFields } from '../lib/profile-validation'
 import { PlayerSearch } from '../components/PlayerSearch'
 import { TrashIcon } from '../components/Icons'
 import { supabaseEnabled } from '../lib/supabase/client'
@@ -40,31 +52,80 @@ export function LogMatchPage() {
     if (found) setPlayerB(found)
   }, [searchParams, players, playerB])
 
-  const [unclaimedDraft, setUnclaimedDraft] = useState<{
-    name: string; email: string; club: string
-  } | null>(null)
+  // Inline "add new player" form, opened from PlayerSearch's "+ Add" CTA.
+  // Captures the full identity field set so the future claimer (when this
+  // person signs up) sees their data pre-filled in onboarding instead of
+  // starting from scratch. Email is REQUIRED at the server — keep that in
+  // mind when editing this form.
+  interface UnclaimedDraft {
+    name: string
+    email: string
+    phone: string
+    club: string
+    city: string
+    country: string
+    birthYear: string
+    gender: Gender | ''
+    dominantHand: DominantHand | ''
+    startingLevel: string
+  }
+  const [unclaimedDraft, setUnclaimedDraft] = useState<UnclaimedDraft | null>(null)
+  const [unclaimedError, setUnclaimedError] = useState<string | null>(null)
   const [savingUnclaimed, setSavingUnclaimed] = useState(false)
+  const cityOptions = useMemo(() => distinctValues(players, 'city'), [players])
+  const clubOptions = useMemo(() => distinctValues(players, 'club'), [players])
 
   const onCreateUnclaimed = (name: string) => {
-    setUnclaimedDraft({ name, email: '', club: myPlayer?.club ?? '' })
+    setUnclaimedDraft({
+      name,
+      email: '',
+      phone: '',
+      club: myPlayer?.club ?? '',
+      city: myPlayer?.city ?? '',
+      country: myPlayer?.country ?? '',
+      birthYear: '',
+      gender: '',
+      dominantHand: '',
+      startingLevel: '1000',
+    })
+    setUnclaimedError(null)
   }
+  const updateDraft = <K extends keyof UnclaimedDraft>(k: K, v: UnclaimedDraft[K]) =>
+    setUnclaimedDraft((d) => (d ? { ...d, [k]: v } : d))
 
   const submitUnclaimed = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!unclaimedDraft) return
+    setUnclaimedError(null)
+    if (!unclaimedDraft.name.trim()) return setUnclaimedError('Name is required')
+    if (!unclaimedDraft.email.trim()) return setUnclaimedError('Email is required (used to link the account when they sign up)')
+    const lvl = Number(unclaimedDraft.startingLevel)
+    if (!Number.isFinite(lvl) || lvl <= 0) return setUnclaimedError('Starting level must be a positive number')
+    const parsed = parseProfileFields({
+      birthYear: unclaimedDraft.birthYear,
+      country: unclaimedDraft.country,
+      city: unclaimedDraft.city,
+    })
+    if (!parsed.ok) return setUnclaimedError(parsed.error)
     setSavingUnclaimed(true)
     try {
       const created = await createUnclaimedPlayer({
-        name: unclaimedDraft.name,
-        email: unclaimedDraft.email.trim() || undefined,
+        name: unclaimedDraft.name.trim(),
+        email: unclaimedDraft.email.trim(),
+        startingLevel: lvl,
         club: unclaimedDraft.club.trim() || undefined,
+        city: parsed.values.city,
+        country: parsed.values.country,
+        phone: unclaimedDraft.phone.trim() || undefined,
+        birthYear: parsed.values.birthYear,
+        gender: unclaimedDraft.gender || undefined,
+        dominantHand: unclaimedDraft.dominantHand || undefined,
       })
       setPlayerB(created)
       setUnclaimedDraft(null)
-      // Refresh so the new row shows up everywhere (leaderboard, history, etc).
       refresh().catch(() => {})
     } catch (ex) {
-      setError((ex as Error).message)
+      setUnclaimedError((ex as Error).message)
     } finally {
       setSavingUnclaimed(false)
     }
@@ -179,7 +240,13 @@ export function LogMatchPage() {
             <div className="font-semibold">Add a new player</div>
             <p className="text-xs text-slate-500">
               We'll create a placeholder for <span className="font-medium">{unclaimedDraft.name}</span>.
-              They'll be able to claim this row when they sign up using the same email.
+              When they sign up to Boast with the same <strong>email</strong>, this record is
+              auto-claimed — they keep this match and their info, no re-entry needed.
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+              Heads up — the match you log against this player goes to a global admin for
+              confirmation before it counts toward levels (since the new player can't confirm it
+              themselves yet).
             </p>
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
@@ -188,32 +255,127 @@ export function LogMatchPage() {
               <input
                 className="input w-full"
                 value={unclaimedDraft.name}
-                onChange={(e) => setUnclaimedDraft({ ...unclaimedDraft, name: e.target.value })}
+                onChange={(e) => updateDraft('name', e.target.value)}
               />
             </div>
             <div>
-              <label className="label">Email <span className="text-slate-400">(optional)</span></label>
+              <label className="label">Email</label>
               <input
                 type="email"
                 className="input w-full"
                 value={unclaimedDraft.email}
-                onChange={(e) => setUnclaimedDraft({ ...unclaimedDraft, email: e.target.value })}
+                onChange={(e) => updateDraft('email', e.target.value)}
                 placeholder="opponent@email.com"
+                required
               />
             </div>
-            <div className="sm:col-span-2">
-              <label className="label">Club <span className="text-slate-400">(optional)</span></label>
+            <div>
+              <label className="label">Starting level</label>
               <input
                 className="input w-full"
+                inputMode="numeric"
+                value={unclaimedDraft.startingLevel}
+                onChange={(e) => updateDraft('startingLevel', e.target.value)}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Their SquashLevels.com rating if you know it (e.g. 1200). Otherwise leave at 1000 — they
+                can fix it when they sign up.
+              </p>
+            </div>
+            <div>
+              <label className="label">Phone <span className="text-slate-400">(optional)</span></label>
+              <input
+                type="tel"
+                className="input w-full"
+                value={unclaimedDraft.phone}
+                onChange={(e) => updateDraft('phone', e.target.value)}
+                placeholder="+65 9123 4567"
+              />
+            </div>
+            <div>
+              <label className="label">Club <span className="text-slate-400">(optional)</span></label>
+              <input
+                list="newplayer-club-options"
+                className="input w-full"
                 value={unclaimedDraft.club}
-                onChange={(e) => setUnclaimedDraft({ ...unclaimedDraft, club: e.target.value })}
+                onChange={(e) => updateDraft('club', e.target.value)}
                 placeholder="Their home club"
               />
             </div>
+            <div>
+              <label className="label">Country <span className="text-slate-400">(optional)</span></label>
+              <input
+                list="newplayer-country-options"
+                className="input w-full"
+                value={unclaimedDraft.country}
+                onChange={(e) => updateDraft('country', e.target.value)}
+                autoComplete="country-name"
+              />
+            </div>
+            <div>
+              <label className="label">City <span className="text-slate-400">(optional)</span></label>
+              <input
+                list="newplayer-city-options"
+                className="input w-full"
+                value={unclaimedDraft.city}
+                onChange={(e) => updateDraft('city', e.target.value)}
+                autoComplete="address-level2"
+              />
+            </div>
+            <div>
+              <label className="label">Year of birth <span className="text-slate-400">(optional)</span></label>
+              <input
+                inputMode="numeric"
+                className="input w-full"
+                value={unclaimedDraft.birthYear}
+                onChange={(e) => updateDraft('birthYear', e.target.value)}
+                placeholder="1985"
+              />
+            </div>
+            <div>
+              <label className="label">Gender <span className="text-slate-400">(optional)</span></label>
+              <select
+                className="input w-full"
+                value={unclaimedDraft.gender}
+                onChange={(e) => updateDraft('gender', e.target.value as Gender | '')}
+              >
+                <option value="">—</option>
+                {(Object.keys(GENDER_LABEL) as Gender[]).map((g) => (
+                  <option key={g} value={g}>{GENDER_LABEL[g]}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Dominant hand <span className="text-slate-400">(optional)</span></label>
+              <select
+                className="input w-full"
+                value={unclaimedDraft.dominantHand}
+                onChange={(e) => updateDraft('dominantHand', e.target.value as DominantHand | '')}
+              >
+                <option value="">—</option>
+                {(Object.keys(DOMINANT_HAND_LABEL) as DominantHand[]).map((h) => (
+                  <option key={h} value={h}>{DOMINANT_HAND_LABEL[h]}</option>
+                ))}
+              </select>
+            </div>
           </div>
+          <datalist id="newplayer-country-options">
+            {COUNTRIES.map((c) => <option key={c} value={c} />)}
+          </datalist>
+          <datalist id="newplayer-city-options">
+            {cityOptions.map((c) => <option key={c} value={c} />)}
+          </datalist>
+          <datalist id="newplayer-club-options">
+            {clubOptions.map((c) => <option key={c} value={c} />)}
+          </datalist>
+          {unclaimedError && <div className="text-sm text-red-600">{unclaimedError}</div>}
           <div className="flex justify-end gap-2">
             <button type="button" className="btn-secondary" onClick={() => setUnclaimedDraft(null)}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={savingUnclaimed || !unclaimedDraft.name.trim()}>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={savingUnclaimed || !unclaimedDraft.name.trim() || !unclaimedDraft.email.trim()}
+            >
               {savingUnclaimed ? 'Adding…' : 'Add player'}
             </button>
           </div>

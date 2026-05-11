@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { downloadExport, restoreFromJson } from '../lib/storage/import-export'
 import { DEFAULT_SETTINGS, type Profile, type Settings } from '../types'
-import { deleteUserCompletely, listAllProfiles, setAdminFlag } from '../lib/supabase/profile'
+import { deleteUserCompletely, listAllProfiles, searchProfilesForAdmin, setAdminFlag } from '../lib/supabase/profile'
 import { listClubAdminsForAdmin, setClubAdmin, summarizeClubs } from '../lib/supabase/clubs'
 import { deleteGroup, listGroups } from '../lib/supabase/groups'
 import type { Group } from '../types'
@@ -516,12 +516,20 @@ function AdminManager() {
   const [search, setSearch] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const PAGE_LIMIT = 25
 
+  // Server-side typeahead. Debounced so we don't fire an RPC on every
+  // keystroke. Empty query returns the first PAGE_LIMIT profiles by name so
+  // the panel isn't blank on first paint.
   useEffect(() => {
-    listAllProfiles()
-      .then(setProfiles)
-      .catch((e) => setErr((e as Error).message))
-  }, [])
+    let cancelled = false
+    const t = setTimeout(() => {
+      searchProfilesForAdmin(search, PAGE_LIMIT)
+        .then((rows) => { if (!cancelled) setProfiles(rows) })
+        .catch((e) => { if (!cancelled) setErr((e as Error).message) })
+    }, search.trim() ? 200 : 0)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [search])
 
   const toggle = async (p: Profile) => {
     setBusyId(p.id)
@@ -566,9 +574,8 @@ function AdminManager() {
     return <div className="card text-sm text-red-600">{err}</div>
   }
 
-  const filtered = filterByTokens(profiles ?? [], search, (p) =>
-    joinHay([p.fullName, p.email, p.club, p.country, p.username]),
-  )
+  const filtered = profiles ?? []
+  const isCapped = filtered.length >= PAGE_LIMIT
 
   return (
     <div className="card space-y-3">
@@ -584,7 +591,9 @@ function AdminManager() {
       />
       {err && <div className="text-sm text-red-600">{err}</div>}
       {filtered.length === 0 ? (
-        <div className="text-sm text-slate-500 text-center py-3">No matches.</div>
+        <div className="text-sm text-slate-500 text-center py-3">
+          {search.trim() ? 'No matches.' : 'No registered users yet.'}
+        </div>
       ) : (
         <ul className="divide-y divide-slate-100 dark:divide-slate-800">
           {filtered.map((p) => {
@@ -627,6 +636,11 @@ function AdminManager() {
             )
           })}
         </ul>
+      )}
+      {isCapped && (
+        <div className="text-xs text-slate-500 text-center pt-1">
+          Showing first {PAGE_LIMIT} — type to refine.
+        </div>
       )}
     </div>
   )

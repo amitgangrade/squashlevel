@@ -41,7 +41,7 @@ A match SHALL transition between exactly these statuses:
         (terminal)     (terminal)        until aged out)
 ```
 
-The `pending → *` transitions SHALL be triggered by either: (a) the `matches_before_insert` trigger setting `status = 'confirmed'` at insert time per the auto-confirm rules, (b) the opponent calling `confirm_match(id, dispute := false|true)`, or (c) the `auto_confirm_aged_matches()` job promoting matches older than 3 days to `confirmed`.
+The `pending → *` transitions SHALL be triggered by either: (a) the `matches_before_insert` trigger setting `status = 'confirmed'` at insert time per the auto-confirm rules, (b) the opponent (or a global admin) calling `confirm_match(id, dispute := false|true)`, or (c) the `auto_confirm_aged_matches()` job promoting matches older than 3 days to `confirmed` — *except* matches where either participant has `user_id IS NULL` (unclaimed), which are excluded from aging and require explicit global-admin confirmation via `confirm_match` instead.
 
 Once a match reaches a terminal status (`confirmed` or `disputed`), it MUST NOT transition back to `pending`. Only a global admin or qualifying club admin (via direct UPDATE) MAY change a terminal match's status, and doing so SHALL be considered an admin correction, not a normal transition.
 
@@ -54,12 +54,16 @@ Once a match reaches a terminal status (`confirmed` or `disputed`), it MUST NOT 
 - **THEN** `status = 'disputed'`, `disputed_at = now()`
 
 #### Scenario: Recorder tries to confirm their own match
-- **WHEN** the user who created the match calls `confirm_match(...)` on it
+- **WHEN** a non-admin user who created the match calls `confirm_match(...)` on it
 - **THEN** the RPC raises `you cannot confirm a match you recorded`
 
 #### Scenario: Non-participant tries to confirm
-- **WHEN** a signed-in user who owns neither participating player calls `confirm_match(...)`
+- **WHEN** a signed-in non-admin who owns neither participating player calls `confirm_match(...)`
 - **THEN** the RPC raises `only a participant can confirm or dispute`
+
+#### Scenario: Global admin confirms a match against an unclaimed player
+- **WHEN** an admin calls `confirm_match(id, false)` for a pending match where one participant is an unclaimed player
+- **THEN** the RPC accepts the call regardless of whether the admin recorded the match or is a participant; `status` becomes `confirmed`, `confirmed_at = now()`, `auto_confirmed` stays false (this is an explicit admin action, not an automatic one)
 
 ---
 
@@ -92,7 +96,9 @@ In all other cases the match SHALL remain `pending` until either the opponent ac
 
 ### Requirement: 3-day aging
 
-The `auto_confirm_aged_matches()` SECURITY DEFINER function SHALL promote any match with `status = 'pending'` and `created_at < now() - interval '3 days'` to `confirmed`, setting `auto_confirmed = true`. The function SHALL be idempotent (re-running it is safe and is a no-op if no aged pending matches exist) and SHALL return the count of rows updated.
+The `auto_confirm_aged_matches()` SECURITY DEFINER function SHALL promote any match with `status = 'pending'` and `created_at < now() - interval '3 days'` to `confirmed`, setting `auto_confirmed = true` — **unless** either participant has `user_id IS NULL` (unclaimed), in which case the match is skipped (rationale: the unclaimed side has no account to confirm with, so a timer would let non-admin recorders push fake self-wins into the rating system; those matches are routed to admin confirmation instead). The function SHALL be idempotent (re-running it is safe and is a no-op if no aged eligible-pending matches exist) and SHALL return the count of rows updated.
+
+Pending matches involving an unclaimed player MAY be retrieved by global admins via the `list_pending_unclaimed_matches_for_admin()` RPC, which returns the queue for the Activity "needs admin confirmation" section.
 
 When `pg_cron` is available, the function SHALL be scheduled daily at `0 3 * * *` under the job name `boast-auto-confirm`. Where `pg_cron` is not available (e.g. local dev, Supabase Free), the dashboard MAY call the RPC at app load as a fallback.
 
@@ -103,6 +109,10 @@ When `pg_cron` is available, the function SHALL be scheduled daily at `0 3 * * *
 #### Scenario: Aging is a no-op when nothing qualifies
 - **WHEN** `auto_confirm_aged_matches()` runs with no pending matches older than 3 days
 - **THEN** zero rows update and the function returns 0
+
+#### Scenario: Aging skips matches with an unclaimed participant
+- **WHEN** `auto_confirm_aged_matches()` runs and there are 3 aged pending matches, one of which has `player_b.user_id IS NULL`
+- **THEN** the 2 fully-claimed matches are promoted to `confirmed`; the unclaimed-participant one stays `pending` and awaits a global-admin `confirm_match` call
 
 ---
 

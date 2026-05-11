@@ -11,6 +11,7 @@ import { supabase, supabaseEnabled } from '../lib/supabase/client'
 import { fromMatchRow, type MatchRow } from '../lib/supabase/mappers'
 import {
   createProfileAndPlayer,
+  deleteUserCompletely,
   fetchPlayerForUser,
   fetchProfile,
   updateProfile as updateProfileApi,
@@ -388,8 +389,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const removePlayer: StoreCtx['removePlayer'] = async (id) => {
     const target = players.find((p) => p.id === id)
     if (!target) throw new Error('Player not found.')
-    if (!canWritePlayer(target)) throw new Error('Admin only.')
-    await backend.deletePlayer(id)
+    // Per spec (auth-permissions §Player RLS, 2026-05-11): player deletion is
+    // global-admin only. Club admins keep edit rights but not delete — the
+    // FK-cascade blast radius (matches against non-club players, group
+    // memberships, challenges) is too wide for club-scoped authority.
+    requireAdmin()
+    // State-aware delete:
+    //   • Unclaimed (no user_id) → drop the player row; FK cascades handle
+    //     matches / group_members / challenges. No auth/profile to remove.
+    //   • Claimed (user_id set)  → admin_delete_user RPC removes the entire
+    //     user (auth.users + profile + player via cascades). Avoids the
+    //     orphaned-account state where a deleted user could still sign in
+    //     because their profile + auth row survived.
+    if (target.userId) {
+      await deleteUserCompletely(target.userId)
+    } else {
+      await backend.deletePlayer(id)
+    }
     setPlayers((prev) => prev.filter((p) => p.id !== id))
     setMatches((prev) => prev.filter((m) => m.playerAId !== id && m.playerBId !== id))
   }

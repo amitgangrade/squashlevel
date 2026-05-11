@@ -574,25 +574,36 @@ const cloudBackend: Backend = {
     return (data as MatchRow[]).map(fromMatchRow)
   },
   async fetchActionableMatches(myPlayerId, isAdmin) {
-    // Two parallel targeted queries: pending-where-I'm-a-participant, plus
-    // disputed (all for admin, mine-only for everyone else). PostgREST can't
-    // express the compound `(status='pending' AND mine) OR (status='disputed'
-    // AND admin)` in one filter cleanly, and the row counts here are tiny
-    // (handful at most) so a second round-trip is cheap.
+    // Three parallel queries for the rows the Activity page needs:
+    //   1. pending where I'm a participant (covers both "I confirm" and
+    //      "I'm waiting on opponent")
+    //   2. disputed: all for admin, mine-only for everyone else
+    //   3. admin only: pending matches involving an unclaimed player — these
+    //      can't be confirmed by the opponent (no account) so an admin acts
+    //      via confirm_match. Fetched through the SECURITY DEFINER RPC.
+    // Row counts are tiny (handful each) so the extra round-trip is cheap.
     const sb = supabase!
     const meFilter = `player_a_id.eq.${myPlayerId},player_b_id.eq.${myPlayerId}`
     const pendingQ = sb.from('matches').select('*').eq('status', 'pending').or(meFilter)
     const disputedQ = isAdmin
       ? sb.from('matches').select('*').eq('status', 'disputed')
       : sb.from('matches').select('*').eq('status', 'disputed').or(meFilter)
-    const [pendingRes, disputedRes] = await Promise.all([pendingQ, disputedQ])
+    const adminUnclaimedQ = isAdmin
+      ? sb.rpc('list_pending_unclaimed_matches_for_admin')
+      : Promise.resolve({ data: [] as MatchRow[], error: null })
+    const [pendingRes, disputedRes, adminRes] = await Promise.all([pendingQ, disputedQ, adminUnclaimedQ])
     if (pendingRes.error) throw pendingRes.error
     if (disputedRes.error) throw disputedRes.error
-    const rows = [
+    if (adminRes.error) throw adminRes.error
+    // Dedup by id — admin queue can overlap with the "pending where I'm a
+    // participant" set when the admin themselves is in the match.
+    const byId = new Map<string, MatchRow>()
+    for (const r of [
       ...((pendingRes.data ?? []) as MatchRow[]),
       ...((disputedRes.data ?? []) as MatchRow[]),
-    ]
-    return rows.map(fromMatchRow)
+      ...((adminRes.data ?? []) as MatchRow[]),
+    ]) byId.set(r.id, r)
+    return [...byId.values()].map(fromMatchRow)
   },
   async rebuildLevels(onProgress) {
     // Admin-only. Chunked server-side rebuild: math in plpgsql, but split

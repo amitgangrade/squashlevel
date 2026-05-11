@@ -103,6 +103,10 @@ The first profile inserted for the original-owner email (`amit.gangrade@gmail.co
 - **WHEN** a non-admin user updates a profile row where `id <> auth.uid()`
 - **THEN** RLS rejects the update
 
+#### Scenario: Global admin edits another user's profile
+- **WHEN** a global admin updates a profile row for a different `auth.users.id`, modifying any of `full_name`, `phone`, `country`, `city`, `club`, `birth_year`, `gender`, `dominant_hand`, `starting_level`
+- **THEN** RLS permits the update and the `profiles_sync_player` AFTER UPDATE trigger mirrors the changed identity fields onto the target's linked player row. The admin SHALL NOT change `username` (canonical handle backing shareable URLs), `email` (auth.users canonical + auto-claim key), `avatar_url` (avatar bucket is owner-write only), or `is_admin` (gated by the separate `set_admin` RPC).
+
 ---
 
 ### Requirement: Player RLS
@@ -111,7 +115,23 @@ The first profile inserted for the original-owner email (`amit.gangrade@gmail.co
 - **Read**: anyone MAY select any player row.
 - **Insert**: a global admin MAY insert any player; a non-admin MAY only insert a row where `user_id = auth.uid()`; a **club admin** for a player's club MAY insert an unclaimed (`user_id IS NULL`) player whose `club` is a club they administer. Unclaimed-player creation by regular users MUST go through the `create_unclaimed_player` SECURITY DEFINER RPC, not a direct insert.
 - **Update**: the owning user (`user_id = auth.uid()`), a global admin, OR a **club admin** for the player's current club MAY update.
-- **Delete**: a global admin OR a **club admin** for the player's current club MAY delete.
+- **Delete**: only a **global admin** MAY delete a player. Club admins MAY add and edit but not delete — a single delete cascades to every match the player was in (including matches against players outside the admin's club), every group membership, and every challenge sent or received, so the blast radius is reserved for global admins.
+
+When deleting a player whose `user_id IS NOT NULL` (claimed), the system SHALL delete the entire user via the `admin_delete_user` SECURITY DEFINER RPC (auth.users + profiles + the player row, cascading matches / group_members / challenges). Deleting a player whose `user_id IS NULL` (unclaimed stub) deletes only the player row plus the cascaded matches / group_members / challenges; no auth / profile rows exist to remove.
+
+After any player deletion, opponents' `current_level` and `matches_played` become stale until **Admin → Rebuild levels** is run.
+
+#### Scenario: Club admin attempts to delete a player
+- **WHEN** a club admin (without global-admin) tries to delete any player — claimed or unclaimed — via UI or direct API call
+- **THEN** the action is rejected (UI hides the Delete control; RLS denies a direct `DELETE FROM players`)
+
+#### Scenario: Global admin deletes a claimed player
+- **WHEN** a global admin deletes a player with `user_id = U`
+- **THEN** the client routes the action through `admin_delete_user(U)`, which removes the `auth.users` row (cascading the profile and the player) and triggers FK cascades for matches / group_members / challenges
+
+#### Scenario: Global admin deletes an unclaimed player
+- **WHEN** a global admin deletes a player with `user_id IS NULL`
+- **THEN** the client issues `DELETE FROM players WHERE id = …`; matches / group_members / challenges cascade; no auth or profile rows are touched
 
 #### Scenario: Admin pre-creates an unclaimed player
 - **WHEN** an admin inserts a player with `user_id IS NULL` and an email

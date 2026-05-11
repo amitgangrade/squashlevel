@@ -1,6 +1,6 @@
-import type { DominantHand, Gender, Player, Profile } from '../../types'
+import type { DominantHand, Gender, Match, Player, Profile } from '../../types'
 import { supabase } from './client'
-import { fromPlayerRow, fromProfileRow, type PlayerRow, type ProfileRow } from './mappers'
+import { fromMatchRow, fromPlayerRow, fromProfileRow, type MatchRow, type PlayerRow, type ProfileRow } from './mappers'
 
 const SLUG_RE = /[^a-z0-9]+/g
 
@@ -211,29 +211,55 @@ export async function searchPlayers(query: string, limit = 20): Promise<Player[]
 }
 
 /**
- * Create an "unclaimed" stub player on behalf of the current user (used when
- * logging a match against someone not yet on Boast). The server validates
- * that the recorder is signed in and dedupes by email when given.
+ * Create an "unclaimed" stub player on behalf of the current user, for
+ * logging a match against someone not yet on Boast. Email is REQUIRED — it
+ * keys the auto-claim flow when the real user signs up later, and the
+ * server dedupes by it so two recorders entering the same opponent get the
+ * same row.
+ *
+ * The full identity field set is accepted so the future claimer sees their
+ * existing data (level, club, country, age, etc.) pre-filled during
+ * onboarding instead of starting from scratch.
  */
 export async function createUnclaimedPlayer(args: {
   name: string
-  email?: string
+  email: string
   startingLevel?: number
   club?: string
   city?: string
   country?: string
+  phone?: string
+  birthYear?: number
+  gender?: 'male' | 'female'
+  dominantHand?: 'right' | 'left' | 'ambi'
 }): Promise<Player> {
   const sb = supabase!
   const { data, error } = await sb.rpc('create_unclaimed_player', {
     p_name: args.name,
-    p_email: args.email ?? null,
+    p_email: args.email,
     p_starting_level: args.startingLevel ?? 1000,
     p_club: args.club ?? null,
     p_city: args.city ?? null,
     p_country: args.country ?? null,
+    p_phone: args.phone ?? null,
+    p_birth_year: args.birthYear ?? null,
+    p_gender: args.gender ?? null,
+    p_dominant_hand: args.dominantHand ?? null,
   })
   if (error) throw error
   return fromPlayerRow(data as PlayerRow)
+}
+
+/**
+ * Admin-only: pending matches where at least one participant is an
+ * unclaimed player. The 3-day aged auto-confirm intentionally skips these,
+ * so they accumulate until a global admin acts via confirm_match.
+ */
+export async function listPendingUnclaimedMatchesForAdmin(): Promise<Match[]> {
+  const sb = supabase!
+  const { data, error } = await sb.rpc('list_pending_unclaimed_matches_for_admin')
+  if (error) throw error
+  return ((data ?? []) as MatchRow[]).map(fromMatchRow)
 }
 
 /**
@@ -267,10 +293,27 @@ export async function claimUnclaimedPlayer(playerId: string): Promise<Player> {
   return fromPlayerRow(data as PlayerRow)
 }
 
-/** Admin-only: list every profile so admins can promote/demote others. */
+/** Admin-only: list every profile so admins can promote/demote others.
+ *  Returns the full table — use `searchProfilesForAdmin` for typeahead. */
 export async function listAllProfiles(): Promise<Profile[]> {
   const sb = supabase!
   const { data, error } = await sb.rpc('list_profiles_for_admin')
+  if (error) throw error
+  return (data as ProfileRow[]).map(fromProfileRow)
+}
+
+/**
+ * Admin-only typeahead over profiles. Server-side `ilike`-token search across
+ * full_name + email + username + club, backed by trigram indexes. Returns at
+ * most `limit` rows (server caps at 100). Empty query returns the first
+ * `limit` profiles by name so the UI isn't blank on first paint.
+ */
+export async function searchProfilesForAdmin(query: string, limit = 25): Promise<Profile[]> {
+  const sb = supabase!
+  const { data, error } = await sb.rpc('search_profiles_for_admin', {
+    p_query: query.trim() || null,
+    p_limit: limit,
+  })
   if (error) throw error
   return (data as ProfileRow[]).map(fromProfileRow)
 }

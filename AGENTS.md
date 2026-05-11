@@ -105,6 +105,69 @@ end-to-end.
 
 ---
 
+## Admin can edit another user's profile (limited fields)
+
+The "Edit profile (admin)" button on a `/players/:id` page (for claimed
+players, when viewer is global admin and isn't the target) opens
+`AdminEditProfileModal`. It edits `full_name`, `phone`, `country`, `city`,
+`club`, `birth_year`, `gender`, `dominant_hand`, `starting_level` only.
+
+Deliberately **not** editable by admin:
+- `username` — backs shareable URLs.
+- `email` — auth.users canonical + auto-claim key.
+- `avatar_url` — storage bucket policy is owner-write only.
+- `is_admin` — use Settings → Admins.
+
+The modal calls `updateProfile(...)` directly (NOT `store.saveProfile`,
+which mutates the *signed-in* user's profile/myPlayer state — wrong for
+admin-editing-someone-else). The `profiles_sync_player` AFTER UPDATE
+trigger mirrors the change onto the target's linked player row server-side;
+we call `store.refresh()` afterwards to bust the in-memory player cache.
+
+---
+
+## Unclaimed player creation requires email + admin confirmation for self-wins
+
+- `create_unclaimed_player` (server RPC) **requires** `p_email`. The Log Match
+  "+ Add new player" form gates the submit button on email. Don't relax this
+  — email is what wires the future auto-claim (`ensure_player_for_profile`
+  matches by normalised email) and powers dedup. A stub with no email is an
+  unreachable ghost.
+- Pending matches where either participant is unclaimed (`user_id IS NULL`)
+  are **excluded** from `auto_confirm_aged_matches` and require a global
+  admin to call `confirm_match`. The Activity page surfaces them in the
+  Action-needed section for admins with a "Awaiting admin confirmation"
+  hint. Self-loss recordings still auto-confirm at insert time per the
+  trigger — only non-admin self-WINs against unclaimed players get the
+  admin-gate treatment.
+- `confirm_match` allows global admins to confirm any pending match,
+  including one they themselves recorded. This is the path admins use to
+  step in for an unclaimed opponent.
+
+---
+
+## Player deletion is global-admin-only and state-aware
+
+- Only **global admins** may delete a player (`is_admin = true`). Club admins
+  can add and edit but cannot delete — the FK cascade (matches against
+  non-club players, group memberships, challenges) is too wide. Enforced by
+  the `admin delete player` RLS policy and by `requireAdmin()` in
+  `store.removePlayer`.
+- The Roster Delete action is **state-aware**:
+  - Claimed (`user_id` set) → routes through the `admin_delete_user` RPC so
+    `auth.users` + `profiles` + `players` all go. Otherwise the user can
+    still sign in (their profile survives) but has no player row.
+  - Unclaimed (`user_id IS NULL`) → plain `DELETE FROM players`; cascades
+    handle the rest.
+- **Never** call `backend.deletePlayer(id)` directly on a claimed player —
+  the resulting orphan state is the bug we just fixed.
+- After any player deletion, opponents' `current_level` / `matches_played`
+  are stale until **Admin → Rebuild levels** runs. The History page already
+  surfaces this hint; Roster does not (acceptable trade-off — deleting from
+  Roster is rare).
+
+---
+
 ## Cloud mode: match data is lazy-loaded
 
 Under cloud mode `store.matches` is **empty** — matches are fetched per

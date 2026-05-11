@@ -100,18 +100,25 @@ Match history attached to the claimed row MUST be preserved through the operatio
 
 ### Requirement: Unclaimed-player creation by participants
 
-The `create_unclaimed_player(p_name, p_email?, p_starting_level?, p_club?, p_city?, p_country?)` SECURITY DEFINER RPC SHALL allow any signed-in user to create a stub player to log a match against someone not yet on Boast. The RPC:
+The `create_unclaimed_player(p_name, p_email, p_starting_level?, p_club?, p_city?, p_country?, p_phone?, p_birth_year?, p_gender?, p_dominant_hand?)` SECURITY DEFINER RPC SHALL allow any signed-in user to create a stub player to log a match against someone not yet on Boast. The RPC:
 
 - Requires authentication; raises `not authenticated` if `auth.uid()` is null.
 - Requires a non-empty trimmed `p_name`; raises `name required` otherwise.
+- **Requires** a non-empty trimmed `p_email`; raises `email required` otherwise. Email keys the auto-claim flow when the real user signs up later (`ensure_player_for_profile` matches by normalised email) and powers the dedup step. Without email the row is unreachable by claim and unsafe to admit into the rating system.
+- Validates email shape (raises `email looks invalid`), `p_gender` ∈ `{male, female}`, `p_dominant_hand` ∈ `{right, left, ambi}`, `p_birth_year` ∈ `[1900, current_year]`.
 - Stamps `created_by = auth.uid()`.
 - Sets `user_id = NULL` (unclaimed).
-- If `p_email` is provided AND a player (claimed or unclaimed) with that email already exists, returns the existing player rather than creating a duplicate (case-insensitive match on raw email; the more elaborate `norm_email` is reserved for the claim trigger).
+- If a player (claimed or unclaimed) with the same email already exists, returns the existing player rather than creating a duplicate (case-insensitive match on raw email; the more elaborate `norm_email` is reserved for the claim trigger).
 - Defaults `starting_level = 1000` when not specified.
+- Accepts the full identity field set (phone, birth_year, gender, dominant_hand alongside club/city/country) so the future claimer sees their data pre-filled in onboarding via the `OnboardingModal` pick-an-existing-row flow.
 
 #### Scenario: Logging a match against a friend not on Boast
-- **WHEN** a signed-in user calls `create_unclaimed_player('Alex Smith', 'alex@example.com')` and no such player exists
-- **THEN** a new unclaimed player row is created and returned, ready to be the opponent in a match insert
+- **WHEN** a signed-in user calls `create_unclaimed_player('Alex Smith', 'alex@example.com', 1200, 'Singapore Cricket Club')` and no such player exists
+- **THEN** a new unclaimed player row is created with the supplied fields and returned, ready to be the opponent in a match insert
+
+#### Scenario: Missing email
+- **WHEN** the RPC is called with `p_email = null` or an empty string
+- **THEN** it raises `email required` (was previously permitted as of 2026-05-10; tightened 2026-05-11 to gate the auto-claim path and prevent unbounded ghost-player creation)
 
 #### Scenario: Email-based dedupe
 - **WHEN** the RPC is called with an email that already exists on a player

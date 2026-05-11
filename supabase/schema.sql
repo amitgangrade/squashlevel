@@ -35,6 +35,12 @@ alter table public.profiles add column if not exists dominant_hand text;
 
 create index if not exists profiles_username_idx on public.profiles (username);
 create index if not exists profiles_email_idx on public.profiles (email);
+-- Trigram indexes back the case-insensitive substring search powering the
+-- admin "Search by name, email, club..." typeahead. Cheap at 10K+ rows
+-- because the query stays server-side (search_profiles_for_admin RPC) and
+-- never ships the full profile table to the client.
+create index if not exists profiles_full_name_trgm_idx on public.profiles using gin (full_name gin_trgm_ops);
+create index if not exists profiles_email_trgm_idx on public.profiles using gin (email gin_trgm_ops);
 
 -- ===========================================================================
 -- players: ranked entities. Linked to a user when claimed.
@@ -412,6 +418,60 @@ $$;
 
 grant execute on function public.list_profiles_for_admin() to authenticated;
 
+-- search_profiles_for_admin: scalable replacement for list_profiles_for_admin.
+-- Returns up to p_limit rows matching the (whitespace-tokenised, case-
+-- insensitive) query against full_name + email + username + club. Empty
+-- query returns the first p_limit profiles by full_name so the UI isn't
+-- blank on first paint.
+--
+-- The old list_profiles_for_admin RPC is kept for now (some places still
+-- need a small full snapshot — e.g. ClubAdminManager's "current admins for
+-- this club" join). New code should prefer this one.
+create or replace function public.search_profiles_for_admin(
+  p_query text default null,
+  p_limit int default 25
+)
+returns setof public.profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  capped_limit int := greatest(1, least(coalesce(p_limit, 25), 100));
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  if p_query is null or btrim(p_query) = '' then
+    return query
+      select * from public.profiles
+      order by full_name
+      limit capped_limit;
+    return;
+  end if;
+  -- Every whitespace-separated token must appear (case-insensitively) in the
+  -- combined haystack: full_name + email + username + club. NOT EXISTS over
+  -- the failing-token set is the cleanest token-AND in plain SQL.
+  return query
+    select p.*
+    from public.profiles p
+    where not exists (
+      select 1
+      from unnest(regexp_split_to_array(btrim(p_query), '\s+')) tok
+      where (
+        coalesce(p.full_name, '') || ' ' ||
+        coalesce(p.email, '')     || ' ' ||
+        coalesce(p.username, '')  || ' ' ||
+        coalesce(p.club, '')
+      ) !~* tok
+    )
+    order by p.full_name
+    limit capped_limit;
+end;
+$$;
+
+grant execute on function public.search_profiles_for_admin(text, int) to authenticated;
+
 -- ===========================================================================
 -- Match confirmation
 -- ===========================================================================
@@ -624,17 +684,22 @@ begin
   if m.status <> 'pending' then
     raise exception 'match is already %', m.status using errcode = '22000';
   end if;
-  if m.created_by = uid then
-    raise exception 'you cannot confirm a match you recorded';
-  end if;
-
-  select exists(
-    select 1 from public.players
-    where id in (m.player_a_id, m.player_b_id)
-      and user_id = uid
-  ) into is_participant;
-  if not is_participant then
-    raise exception 'only a participant can confirm or dispute';
+  -- Global admins can confirm any pending match (including the recorder's
+  -- own — useful for stepping in when the opponent is unclaimed and can't
+  -- act). For everyone else the original rules apply: you can't confirm
+  -- your own match, and you must be a participant.
+  if not public.is_admin(uid) then
+    if m.created_by = uid then
+      raise exception 'you cannot confirm a match you recorded';
+    end if;
+    select exists(
+      select 1 from public.players
+      where id in (m.player_a_id, m.player_b_id)
+        and user_id = uid
+    ) into is_participant;
+    if not is_participant then
+      raise exception 'only a participant can confirm or dispute';
+    end if;
   end if;
 
   if dispute then
@@ -668,16 +733,52 @@ as $$
 declare
   affected int;
 begin
-  update public.matches
+  -- Skip when either participant is unclaimed (user_id IS NULL). Those
+  -- matches can't be confirmed by their opponent (there is no opponent
+  -- account), so a 3-day timer would let a non-admin recorder push fake
+  -- self-wins into the rating system. They go through a global admin
+  -- via confirm_match instead.
+  update public.matches m
      set status = 'confirmed', confirmed_at = now(), auto_confirmed = true
-   where status = 'pending'
-     and created_at < now() - interval '3 days';
+   where m.status = 'pending'
+     and m.created_at < now() - interval '3 days'
+     and exists (select 1 from public.players where id = m.player_a_id and user_id is not null)
+     and exists (select 1 from public.players where id = m.player_b_id and user_id is not null);
   get diagnostics affected = row_count;
   return affected;
 end;
 $$;
 
 grant execute on function public.auto_confirm_aged_matches() to authenticated;
+
+-- list_pending_unclaimed_matches_for_admin: admin-only listing of pending
+-- matches where at least one participant is an unclaimed player. The
+-- 3-day auto-confirm intentionally skips these, so they accumulate until a
+-- global admin acts. The Activity page calls this to render an admin-only
+-- "needs your confirmation" section.
+create or replace function public.list_pending_unclaimed_matches_for_admin()
+returns setof public.matches
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  return query
+    select m.*
+    from public.matches m
+    where m.status = 'pending'
+      and (
+        exists (select 1 from public.players where id = m.player_a_id and user_id is null)
+        or exists (select 1 from public.players where id = m.player_b_id and user_id is null)
+      )
+    order by m.created_at asc;
+end;
+$$;
+
+grant execute on function public.list_pending_unclaimed_matches_for_admin() to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Server-side level rebuild.
@@ -1455,13 +1556,14 @@ create policy "self update player" on public.players
     or public.is_club_admin(auth.uid(), public.club_slug(club))
   );
 
+-- Global-admin only. Club admins were previously allowed to delete players in
+-- their club but the cascade is too wide (matches against players outside
+-- the club, group memberships, challenges all disappear) and the spec was
+-- updated 2026-05-11 to reserve the blast radius for global admins.
 drop policy if exists "admin delete player" on public.players;
 create policy "admin delete player" on public.players
   for delete to authenticated
-  using (
-    public.is_admin(auth.uid())
-    or public.is_club_admin(auth.uid(), public.club_slug(club))
-  );
+  using (public.is_admin(auth.uid()));
 
 -- ---------------------------------------------------------------------------
 -- Matches: club admins can insert/update/delete matches that involve at
@@ -1506,13 +1608,29 @@ create policy "admin delete match" on public.matches
 -- The recorder is captured so we can rate-limit / audit later if abused.
 -- The trigger fills in user_id=null and created_by=auth.uid().
 -- ===========================================================================
+-- Drop the previous 6-arg signature so `create or replace` below doesn't
+-- create a second overload that PostgREST might pick ambiguously.
+drop function if exists public.create_unclaimed_player(text, text, numeric, text, text, text);
+
+-- create_unclaimed_player: lets a signed-in user mint a stub player for
+-- someone not yet on Boast. Email is REQUIRED so that:
+--   (a) the future auto-claim flow can match them (ensure_player_for_profile
+--       claims by normalized email when the real user signs up),
+--   (b) duplicate stubs get deduped here at creation time,
+--   (c) we have a way to recognise abuse / contact the recorder if needed.
+-- Admins create players via direct INSERT (bypass this RPC) so this gate
+-- only affects the non-admin "log match against someone not on Boast" flow.
 create or replace function public.create_unclaimed_player(
   p_name text,
   p_email text default null,
   p_starting_level numeric default 1000,
   p_club text default null,
   p_city text default null,
-  p_country text default null
+  p_country text default null,
+  p_phone text default null,
+  p_birth_year smallint default null,
+  p_gender text default null,
+  p_dominant_hand text default null
 ) returns public.players
 language plpgsql
 security definer
@@ -1521,6 +1639,7 @@ as $$
 declare
   uid uuid := auth.uid();
   new_id uuid := gen_random_uuid();
+  normalized_email text := nullif(trim(coalesce(p_email, '')), '');
   pl public.players;
 begin
   if uid is null then
@@ -1529,38 +1648,56 @@ begin
   if coalesce(trim(p_name), '') = '' then
     raise exception 'name required';
   end if;
-  -- If an existing claimed-or-unclaimed player has the same email, prefer
-  -- returning it over creating a duplicate stub.
-  if p_email is not null and trim(p_email) <> '' then
-    select * into pl from public.players
-     where email is not null and lower(email) = lower(trim(p_email))
-     order by created_at asc
-     limit 1;
-    if pl.id is not null then
-      return pl;
-    end if;
+  if normalized_email is null then
+    raise exception 'email required';
+  end if;
+  if normalized_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
+    raise exception 'email looks invalid';
+  end if;
+  if p_gender is not null and p_gender not in ('male','female') then
+    raise exception 'gender must be male or female';
+  end if;
+  if p_dominant_hand is not null and p_dominant_hand not in ('right','left','ambi') then
+    raise exception 'dominant_hand must be right, left or ambi';
+  end if;
+  if p_birth_year is not null and (p_birth_year < 1900 or p_birth_year > extract(year from now())) then
+    raise exception 'birth_year out of range';
+  end if;
+
+  -- Dedup by email (case-insensitive). Returns the existing row so the
+  -- recorder doesn't accidentally create a parallel stub for the same person.
+  select * into pl from public.players
+   where email is not null and lower(email) = lower(normalized_email)
+   order by created_at asc
+   limit 1;
+  if pl.id is not null then
+    return pl;
   end if;
 
   insert into public.players (
     id, name, starting_level, email, user_id, created_at, created_by,
-    club, city, country
+    club, city, country, phone, birth_year, gender, dominant_hand
   ) values (
     new_id,
     trim(p_name),
     coalesce(p_starting_level, 1000),
-    nullif(trim(coalesce(p_email, '')), ''),
+    normalized_email,
     null,
     now(),
     uid,
     nullif(trim(coalesce(p_club, '')), ''),
     nullif(trim(coalesce(p_city, '')), ''),
-    nullif(trim(coalesce(p_country, '')), '')
+    nullif(trim(coalesce(p_country, '')), ''),
+    nullif(trim(coalesce(p_phone, '')), ''),
+    p_birth_year,
+    p_gender,
+    p_dominant_hand
   ) returning * into pl;
 
   return pl;
 end;
 $$;
-grant execute on function public.create_unclaimed_player(text, text, numeric, text, text, text) to authenticated;
+grant execute on function public.create_unclaimed_player(text, text, numeric, text, text, text, text, smallint, text, text) to authenticated;
 
 -- claim_player_by_id: explicit name-based claim during onboarding. The user
 -- (already authenticated) takes over an unclaimed player row whose name
