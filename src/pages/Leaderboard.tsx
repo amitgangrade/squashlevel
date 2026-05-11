@@ -170,7 +170,7 @@ export function LeaderboardPage() {
                   </button>
                 </span>
               ))}
-              <button onClick={clearAllFilters} className="btn-link text-xs">
+              <button onClick={clearAllFilters} className="btn-text text-xs">
                 Clear all
               </button>
               <span className="text-xs text-slate-500 ml-auto">
@@ -233,7 +233,7 @@ export function LeaderboardPage() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <PlayerLink id={r.id} name={r.name} className="font-medium truncate" />
                           {r.provisional && <ProvisionalTag />}
-                          {isMe && <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">you</span>}
+                          {isMe && <span className="tag-brand">you</span>}
                         </div>
                         <div className="truncate">
                           <PlayerMetaLinks player={r.player} />

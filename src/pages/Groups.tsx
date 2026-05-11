@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { createGroup, fetchMyGroupRoles, listGroups } from '../lib/supabase/groups'
 import { supabaseEnabled } from '../lib/supabase/client'
+import { Alert } from '../components/Alert'
 import { OrgAvatar } from '../components/OrgAvatar'
 import type { Group } from '../types'
 
@@ -87,10 +88,10 @@ export function GroupsPage() {
       </p>
 
       {isAdmin && groups.some((g) => g.isPrivate && !roles.has(g.id)) && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+        <Alert variant="warn">
           As global admin, you can see every group, including private ones you're not a member of.
           You can edit settings and add members in any group.
-        </div>
+        </Alert>
       )}
 
       {session && myPlayer && supabaseEnabled && (
@@ -157,14 +158,10 @@ export function GroupsPage() {
 function RoleTag({ role }: { role: Role }) {
   switch (role) {
     case 'admin':
-      return (
-        <span className="tag bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
-          you admin
-        </span>
-      )
+      return <span className="tag-admin">you admin</span>
     case 'member':
       return (
-        <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">
+        <span className="tag-brand">
           member
         </span>
       )

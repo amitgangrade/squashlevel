@@ -354,9 +354,7 @@ export function PlayerProfilePage() {
                 <h1 className="!mb-0 text-xl sm:text-2xl truncate">{player.name}</h1>
                 {provisional && <ProvisionalTag variant="full" />}
                 {isMe && (
-                  <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">
-                    you
-                  </span>
+                  <span className="tag-brand">you</span>
                 )}
               </div>
               <div className="mt-1">
@@ -539,7 +537,7 @@ export function PlayerProfilePage() {
           {h2h && (
             <button
               type="button"
-              className="text-xs text-slate-500 hover:underline"
+              className="btn-text text-xs"
               onClick={() => setH2hOpponentId(null)}
             >
               Clear

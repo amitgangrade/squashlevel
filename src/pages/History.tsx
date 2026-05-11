@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
-import clsx from 'clsx'
 import { useStore } from '../state/store'
 import { MATCH_STATUS_LABEL, type Player, type Match } from '../types'
 import { Alert } from '../components/Alert'
@@ -9,6 +8,7 @@ import { EmptyState } from '../components/EmptyState'
 import { HistoryIcon } from '../components/Icons'
 import { MatchCard } from '../components/MatchCard'
 import { PlayerSearch } from '../components/PlayerSearch'
+import { StatusPill } from '../components/StatusPill'
 import { EditMatchDialog } from '../components/EditMatchDialog'
 
 export function HistoryPage() {
@@ -79,20 +79,11 @@ export function HistoryPage() {
       {err && <Alert variant="error">{err}</Alert>}
 
       {rebuildHint && (
-        <div className="card border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100 flex items-start justify-between gap-3">
-          <div className="text-sm">
-            <strong>Match history changed.</strong> Player levels are now stale — run{' '}
-            <Link to="/admin" className="underline font-medium">Admin → Rebuild levels</Link>{' '}
-            to recompute.
-          </div>
-          <button
-            className="text-amber-700 hover:text-amber-900 dark:text-amber-200 text-lg leading-none px-1"
-            onClick={() => setRebuildHint(false)}
-            aria-label="Dismiss"
-          >
-            ×
-          </button>
-        </div>
+        <Alert variant="warn" onDismiss={() => setRebuildHint(false)}>
+          <strong>Match history changed.</strong> Player levels are now stale — run{' '}
+          <Link to="/admin" className="underline font-medium">Admin → Rebuild levels</Link>{' '}
+          to recompute.
+        </Alert>
       )}
 
       <Pagination page={page} pageSize={PAGE_SIZE} total={totalRows} onPage={setPage} />
@@ -209,18 +200,19 @@ function StatusBadge({ status, autoConfirmed }: { status: 'pending' | 'confirmed
   if (status === 'confirmed' && !autoConfirmed) return null
   if (status === 'confirmed' && autoConfirmed) {
     return (
-      <span className="ml-auto rounded-full bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 dark:bg-slate-800 dark:text-slate-300" title="Auto-confirmed (recorder reported a self-loss, or 3-day timeout passed)">
+      <StatusPill
+        variant="auto"
+        case="lower"
+        className="ml-auto"
+        title="Auto-confirmed (recorder reported a self-loss, or 3-day timeout passed)"
+      >
         auto-confirmed
-      </span>
+      </StatusPill>
     )
   }
   return (
-    <span className={clsx(
-      'ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-      status === 'pending' && 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-      status === 'disputed' && 'bg-tin-100 text-tin-800 dark:bg-tin-900/40 dark:text-tin-200',
-    )}>
+    <StatusPill variant={status === 'pending' ? 'pending' : 'disputed'} className="ml-auto">
       {MATCH_STATUS_LABEL[status]}
-    </span>
+    </StatusPill>
   )
 }

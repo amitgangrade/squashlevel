@@ -233,8 +233,8 @@ export function GroupProfilePage() {
                 {group.isPrivate && (
                   <span className="tag bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">private</span>
                 )}
-                {isMember && <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">member</span>}
-                {isGroupAdmin && <span className="tag bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">admin</span>}
+                {isMember && <span className="tag-brand">member</span>}
+                {isGroupAdmin && <span className="tag-admin">admin</span>}
               </div>
               {group.description && (
                 <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">{group.description}</p>
@@ -317,7 +317,7 @@ export function GroupProfilePage() {
                         <div className="min-w-0">
                           <div className="font-medium truncate">
                             <PlayerLink id={r.id} name={r.player.name} />
-                            {r.isAdmin && <span className="ml-2 tag bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">admin</span>}
+                            {r.isAdmin && <span className="ml-2 tag-admin">admin</span>}
                             {r.provisional && <span className="ml-2 inline-block"><ProvisionalTag /></span>}
                           </div>
                           <div className="truncate">
@@ -487,10 +487,10 @@ function MemberRowControls({
 
   return (
     <div className="flex items-center justify-end gap-2">
-      <button onClick={togglePromote} disabled={busy} className="btn-link text-xs">
+      <button onClick={togglePromote} disabled={busy} className="btn-text text-xs">
         {isAdminMember ? 'Demote' : 'Promote'}
       </button>
-      <button onClick={remove} disabled={busy} className="btn-link text-xs text-red-600">
+      <button onClick={remove} disabled={busy} className="btn-text-danger text-xs">
         Remove
       </button>
     </div>
@@ -591,7 +591,7 @@ function ManagePanel({
           <button type="submit" disabled={savingMeta} className="btn-primary">
             {savingMeta ? 'Saving…' : 'Save changes'}
           </button>
-          <button type="button" onClick={onDelete} className="btn-link text-red-600">
+          <button type="button" onClick={onDelete} className="btn-link-danger">
             Delete group
           </button>
         </div>

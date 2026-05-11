@@ -58,7 +58,7 @@ export function ChallengeButton({ toPlayerId, toPlayerName }: Props) {
 
   if (done) {
     return (
-      <span className="tag bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200">
+      <span className="tag-won">
         Challenge sent
       </span>
     )

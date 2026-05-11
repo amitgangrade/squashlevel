@@ -119,7 +119,7 @@ export function ClubProfilePage() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="!mb-0 truncate">{clubName}</h1>
-                {isMember && <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">member</span>}
+                {isMember && <span className="tag-brand">member</span>}
               </div>
               <p className="text-sm text-slate-500 mt-1">
                 {members.length} {members.length === 1 ? 'member' : 'members'}

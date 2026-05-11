@@ -6,6 +6,7 @@ import { MATCH_TYPE_LABEL, type Match, type Player, type Settings } from '../typ
 import { GameScores } from './MatchScores'
 import { PlayerAvatar } from './PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from './PlayerLinks'
+import { StatusPill } from './StatusPill'
 import { UnrankedTag } from './UnrankedTag'
 
 /**
@@ -208,17 +209,7 @@ export function MatchCard({
 }
 
 function ResultBadge({ variant, children }: { variant: 'win' | 'loss' | 'draw'; children: ReactNode }) {
-  const cls =
-    variant === 'win'
-      ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
-      : variant === 'loss'
-        ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'
-        : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-  return (
-    <span className={clsx('inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider', cls)}>
-      {children}
-    </span>
-  )
+  return <StatusPill variant={variant}>{children}</StatusPill>
 }
 
 function LevelChange({

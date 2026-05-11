@@ -11,6 +11,7 @@ import { InboxIcon, UserIcon } from '../components/Icons'
 import { MatchCard } from '../components/MatchCard'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink } from '../components/PlayerLinks'
+import { StatusPill } from '../components/StatusPill'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const TIMEOUT_DAYS = 3
@@ -197,7 +198,7 @@ export function ActivityPage() {
                 settings={settings}
                 viewerId={myPlayer?.id}
                 ring="amber"
-                statusBadge={<StatusPill status="pending" />}
+                statusBadge={<StatusPill variant="pending">{MATCH_STATUS_LABEL.pending}</StatusPill>}
                 actions={
                   <>
                     <button
@@ -225,7 +226,7 @@ export function ActivityPage() {
                 players={players}
                 settings={settings}
                 ring="amber"
-                statusBadge={<StatusPill status="pending" />}
+                statusBadge={<StatusPill variant="pending">{MATCH_STATUS_LABEL.pending}</StatusPill>}
                 hint={
                   <>
                     <strong>Awaiting admin confirmation</strong> — one of the
@@ -281,7 +282,7 @@ export function ActivityPage() {
                   players={players}
                   settings={settings}
                   viewerId={myPlayer?.id}
-                  statusBadge={<StatusPill status="pending" />}
+                  statusBadge={<StatusPill variant="pending">{MATCH_STATUS_LABEL.pending}</StatusPill>}
                   hint={
                     remainingDays > 0
                       ? `Auto-confirms in ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} if no response.`
@@ -328,7 +329,7 @@ export function ActivityPage() {
                 players={players}
                 settings={settings}
                 ring="tin"
-                statusBadge={<StatusPill status="disputed" />}
+                statusBadge={<StatusPill variant="disputed">{MATCH_STATUS_LABEL.disputed}</StatusPill>}
               />
             ))}
           </div>
@@ -387,11 +388,7 @@ function ChallengeCard({
               <>You challenged <PlayerLink id={other?.id} name={other?.name ?? 'Someone'} className="font-medium" /></>
             )}
           </span>
-          {!isPast && (
-            <span className="rounded-full bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-              Challenge
-            </span>
-          )}
+          {!isPast && <StatusPill variant="brand">Challenge</StatusPill>}
         </div>
         <div className="text-xs text-slate-500">
           {fmtDate(challenge.createdAt)}
@@ -428,27 +425,13 @@ function ChallengeCard({
 }
 
 function ChallengeStatusBadge({ status }: { status: ChallengeStatus }) {
-  const cls =
-    status === 'accepted'
-      ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
-      : status === 'declined' || status === 'cancelled'
-        ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+  const variant: 'win' | 'neutral' | 'pending' =
+    status === 'accepted' ? 'win'
+    : status === 'declined' || status === 'cancelled' ? 'neutral'
+    : 'pending'
   return (
-    <span className={clsx('rounded-full px-2 py-0.5 text-[11px] font-semibold lowercase', cls)}>
+    <StatusPill variant={variant} case="lower">
       {CHALLENGE_STATUS_LABEL[status].toLowerCase()}
-    </span>
-  )
-}
-
-function StatusPill({ status }: { status: 'pending' | 'disputed' }) {
-  return (
-    <span className={clsx(
-      'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-      status === 'pending' && 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-      status === 'disputed' && 'bg-tin-100 text-tin-800 dark:bg-tin-900/40 dark:text-tin-200',
-    )}>
-      {MATCH_STATUS_LABEL[status]}
-    </span>
+    </StatusPill>
   )
 }
