@@ -5,6 +5,9 @@ import { useStore } from '../state/store'
 import { respondToChallenge } from '../lib/supabase/challenges'
 import { fmtDate } from '../lib/format'
 import { CHALLENGE_STATUS_LABEL, MATCH_STATUS_LABEL, type Challenge, type ChallengeStatus, type Player } from '../types'
+import { Alert } from '../components/Alert'
+import { EmptyState } from '../components/EmptyState'
+import { InboxIcon, UserIcon } from '../components/Icons'
 import { MatchCard } from '../components/MatchCard'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink } from '../components/PlayerLinks'
@@ -135,10 +138,24 @@ export function ActivityPage() {
   }
 
   if (!session) {
-    return <div className="card text-center text-slate-500">Sign in to see your activity.</div>
+    return (
+      <EmptyState
+        icon={<UserIcon className="h-6 w-6" />}
+        title="Sign in to see your activity"
+        description="Activity shows challenges, confirmations, and matches that need your response."
+      />
+    )
   }
   if (!myPlayer) {
-    return <div className="card text-center text-slate-500">Complete onboarding to see your activity.</div>
+    return (
+      <EmptyState
+        icon={<UserIcon className="h-6 w-6" />}
+        title="Finish setting up your profile"
+        description="Complete onboarding so you can receive challenges and confirm matches."
+        ctaLabel="Open my profile"
+        ctaTo="/profile"
+      />
+    )
   }
 
   return (
@@ -155,7 +172,7 @@ export function ActivityPage() {
         </p>
       </header>
 
-      {err && <div className="text-sm text-red-600">{err}</div>}
+      {err && <Alert variant="error">{err}</Alert>}
 
       {actionCount > 0 && (
         <section>
@@ -191,7 +208,7 @@ export function ActivityPage() {
                       {busy === m.id + ':c' ? 'Confirming…' : 'Confirm'}
                     </button>
                     <button
-                      className="btn bg-tin-100 text-tin-700 hover:bg-tin-200 dark:bg-tin-900/30 dark:text-tin-200 flex-1 sm:flex-none"
+                      className="btn bg-tin-100 text-tin-800 hover:bg-tin-200 active:bg-tin-300 dark:bg-tin-900/30 dark:text-tin-200 dark:hover:bg-tin-900/50 flex-1 sm:flex-none"
                       onClick={() => onConfirm(m.id, true)}
                       disabled={busy !== null}
                     >
@@ -226,7 +243,7 @@ export function ActivityPage() {
                       {busy === m.id + ':c' ? 'Confirming…' : 'Confirm'}
                     </button>
                     <button
-                      className="btn bg-tin-100 text-tin-700 hover:bg-tin-200 dark:bg-tin-900/30 dark:text-tin-200 flex-1 sm:flex-none"
+                      className="btn bg-tin-100 text-tin-800 hover:bg-tin-200 active:bg-tin-300 dark:bg-tin-900/30 dark:text-tin-200 dark:hover:bg-tin-900/50 flex-1 sm:flex-none"
                       onClick={() => onConfirm(m.id, true)}
                       disabled={busy !== null}
                     >
@@ -319,7 +336,11 @@ export function ActivityPage() {
       )}
 
       {empty && (
-        <div className="card text-center text-slate-500">All caught up.</div>
+        <EmptyState
+          icon={<InboxIcon className="h-6 w-6" />}
+          title="All caught up"
+          description="No challenges or confirmations waiting. New activity will show here."
+        />
       )}
     </div>
   )

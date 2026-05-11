@@ -4,6 +4,9 @@ import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../state/store'
 import { MATCH_STATUS_LABEL, type Player, type Match } from '../types'
+import { Alert } from '../components/Alert'
+import { EmptyState } from '../components/EmptyState'
+import { HistoryIcon } from '../components/Icons'
 import { MatchCard } from '../components/MatchCard'
 import { PlayerSearch } from '../components/PlayerSearch'
 import { EditMatchDialog } from '../components/EditMatchDialog'
@@ -73,7 +76,7 @@ export function HistoryPage() {
         </div>
       </div>
 
-      {err && <div className="text-sm text-red-600">{err}</div>}
+      {err && <Alert variant="error">{err}</Alert>}
 
       {rebuildHint && (
         <div className="card border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100 flex items-start justify-between gap-3">
@@ -95,7 +98,11 @@ export function HistoryPage() {
       <Pagination page={page} pageSize={PAGE_SIZE} total={totalRows} onPage={setPage} />
 
       {visibleRows.length === 0 ? (
-        <div className="card text-center text-slate-500">No matches found.</div>
+        <EmptyState
+          icon={<HistoryIcon className="h-6 w-6" />}
+          title={filterPlayer ? `No matches for ${filterPlayer.name}` : 'No matches yet'}
+          description={filterPlayer ? 'Try clearing the filter or pick a different player.' : 'Once matches are logged they\'ll appear here.'}
+        />
       ) : (
         <div className="space-y-2">
           {visibleRows.map((m) => {
@@ -126,7 +133,7 @@ export function HistoryPage() {
                 </button>,
                 <button
                   key="dispute"
-                  className="btn bg-tin-100 text-tin-700 hover:bg-tin-200 dark:bg-tin-900/30 dark:text-tin-200"
+                  className="btn bg-tin-100 text-tin-800 hover:bg-tin-200 active:bg-tin-300 dark:bg-tin-900/30 dark:text-tin-200 dark:hover:bg-tin-900/50"
                   onClick={() => act(m.id, true)}
                   disabled={busy !== null}
                 >

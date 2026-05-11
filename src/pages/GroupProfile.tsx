@@ -4,12 +4,17 @@ import { useStore } from '../state/store'
 import { fmtLevel } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
 import { summarizeMatch } from '../lib/match-summary'
+import { Alert } from '../components/Alert'
+import { BackLink } from '../components/BackLink'
+import { EmptyState } from '../components/EmptyState'
+import { HistoryIcon, UsersIcon } from '../components/Icons'
 import { MatchCard } from '../components/MatchCard'
 import { OrgAvatar } from '../components/OrgAvatar'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { PlayerSearch } from '../components/PlayerSearch'
 import { ProvisionalTag } from '../components/ProvisionalTag'
+import { SkeletonMatchCard } from '../components/Skeleton'
 import {
   addGroupMember,
   buildGroupShareUrl,
@@ -103,14 +108,20 @@ export function GroupProfilePage() {
   // Internal matches: both players are members. This is the "group league"
   // view — you only see what happened within the circle.
   const [groupMatches, setGroupMatches] = useState<Match[]>([])
+  const [matchesLoading, setMatchesLoading] = useState(true)
   useEffect(() => {
     if (memberIds.size === 0) {
       setGroupMatches([])
+      setMatchesLoading(false)
       return
     }
-    fetchRecentMatches(10000, Array.from(memberIds)).then(matches => {
-      setGroupMatches(matches.filter(m => memberIds.has(m.playerAId) && memberIds.has(m.playerBId)))
-    }).catch(console.error)
+    setMatchesLoading(true)
+    fetchRecentMatches(10000, Array.from(memberIds))
+      .then(matches => {
+        setGroupMatches(matches.filter(m => memberIds.has(m.playerAId) && memberIds.has(m.playerBId)))
+      })
+      .catch(console.error)
+      .finally(() => setMatchesLoading(false))
   }, [memberIds, fetchRecentMatches])
 
   const recent = useMemo(() => {
@@ -156,25 +167,45 @@ export function GroupProfilePage() {
   }, [groupMatches, memberIds, memberPlayers, players])
 
   if (loading) {
-    return <div className="card text-center text-slate-500">Loading…</div>
+    return (
+      <div className="space-y-4">
+        <BackLink fallback="/groups" />
+        <div className="card space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="skeleton h-14 w-14 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <div className="skeleton h-5 w-1/2" />
+              <div className="skeleton h-3 w-1/3" />
+            </div>
+          </div>
+        </div>
+        <SkeletonMatchCard />
+      </div>
+    )
   }
 
   if (err) {
-    return <div className="card text-center text-red-600">{err}</div>
+    return (
+      <div className="space-y-4">
+        <BackLink fallback="/groups" />
+        <Alert variant="error">{err}</Alert>
+      </div>
+    )
   }
 
   if (!group) {
     return (
       <div className="space-y-4">
-        <div className="card text-center text-slate-500 space-y-2">
-          <p>No group found at <span className="font-mono">/{slug}</span>.</p>
-          <p className="text-xs">
-            {isAdmin
-              ? 'It may have been deleted, or the slug is wrong.'
-              : 'Private groups are only visible to their members and the global admin.'}
-          </p>
-          <Link className="btn-secondary" to="/groups">Browse groups</Link>
-        </div>
+        <BackLink fallback="/groups" />
+        <EmptyState
+          icon={<UsersIcon className="h-6 w-6" />}
+          title="Group not found"
+          description={isAdmin
+            ? `No group at /${slug}. It may have been deleted, or the slug is wrong.`
+            : 'Private groups are only visible to their members.'}
+          ctaLabel="Browse groups"
+          ctaTo="/groups"
+        />
       </div>
     )
   }
@@ -191,6 +222,7 @@ export function GroupProfilePage() {
 
   return (
     <div className="space-y-6">
+      <BackLink fallback="/groups" />
       <section>
         <div className="card">
           <div className="flex items-start gap-4">
@@ -255,7 +287,11 @@ export function GroupProfilePage() {
       <section>
         <h2 className="mb-2">Group leaderboard</h2>
         {rows.length === 0 ? (
-          <div className="card text-center text-slate-500">No members yet.</div>
+          <EmptyState
+            icon={<UsersIcon className="h-6 w-6" />}
+            title="No members yet"
+            description={isGroupAdmin ? 'Add the first member from the Manage panel below.' : 'Members will appear here once admins add them.'}
+          />
         ) : (
           <div className="card overflow-x-auto p-0">
             <table className="w-full text-sm">
@@ -326,8 +362,17 @@ export function GroupProfilePage() {
 
       <section>
         <h2 className="mb-2">Recent group matches</h2>
-        {recent.length === 0 ? (
-          <div className="card text-center text-slate-500">No internal matches yet.</div>
+        {matchesLoading ? (
+          <div className="space-y-2">
+            <SkeletonMatchCard />
+            <SkeletonMatchCard />
+          </div>
+        ) : recent.length === 0 ? (
+          <EmptyState
+            icon={<HistoryIcon className="h-6 w-6" />}
+            title="No internal matches yet"
+            description="Once two members log a match against each other it'll appear here."
+          />
         ) : (
           <div className="space-y-2">
             {recent.map((m) => (

@@ -6,6 +6,7 @@ import { uploadAvatar } from '../lib/supabase/profile'
 import { COUNTRIES, distinctValues } from '../lib/places'
 import { parseProfileFields } from '../lib/profile-validation'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL, type DominantHand, type Gender } from '../types'
+import { Alert } from '../components/Alert'
 import { AvatarCropper } from '../components/AvatarCropper'
 
 export function ProfilePage() {
@@ -138,13 +139,22 @@ export function ProfilePage() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-dashed border-slate-300 bg-slate-50 grid place-items-center text-xs text-slate-400 hover:border-brand-400 dark:border-slate-700 dark:bg-slate-900"
-                aria-label="Upload photo"
+                className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-dashed border-slate-300 bg-slate-50 grid place-items-center text-slate-400 hover:border-brand-400 hover:text-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:hover:text-brand-400"
+                aria-label={draftAvatarPreview ? 'Change photo' : 'Upload photo'}
               >
                 {draftAvatarPreview ? (
-                  <img src={draftAvatarPreview} alt="" className="h-full w-full object-cover" />
+                  <>
+                    <img src={draftAvatarPreview} alt="" className="h-full w-full object-cover" />
+                    <span className="absolute inset-0 grid place-items-center bg-slate-950/0 group-hover:bg-slate-950/40 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity">Change</span>
+                  </>
                 ) : (
-                  <span>Add photo</span>
+                  <span className="flex flex-col items-center gap-0.5">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                      <circle cx="12" cy="13" r="4" />
+                    </svg>
+                    <span className="text-[10px]">Add photo</span>
+                  </span>
                 )}
               </button>
             ) : (
@@ -200,14 +210,14 @@ export function ProfilePage() {
                 </button>
               )}
               <div>
-                <label className="label">Full name</label>
-                <input className="input w-full" value={draftFullName} onChange={(e) => setDraftFullName(e.target.value)} />
+                <label className="label label-required">Full name</label>
+                <input className="input w-full" value={draftFullName} onChange={(e) => setDraftFullName(e.target.value)} required />
               </div>
               <div>
                 <label className="label">Phone</label>
                 <input type="tel" className="input w-full" value={draftPhone} onChange={(e) => setDraftPhone(e.target.value)} placeholder="+65 9123 4567" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="label">Country</label>
                   <input list="profile-country-options" className="input w-full" value={draftCountry} onChange={(e) => setDraftCountry(e.target.value)} autoComplete="country-name" />
@@ -233,7 +243,7 @@ export function ProfilePage() {
               <datalist id="profile-club-options">
                 {clubOptions.map((c) => <option key={c} value={c} />)}
               </datalist>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="label">Year of birth</label>
                   <input
@@ -276,7 +286,7 @@ export function ProfilePage() {
                 <input inputMode="numeric" className="input w-full" value={draftLevel} onChange={(e) => setDraftLevel(e.target.value)} />
                 <p className="mt-1 text-xs text-slate-500">Note: this is your seed/starting level. Your live level is computed from match history.</p>
               </div>
-              {err && <div className="text-sm text-red-600">{err}</div>}
+              {err && <Alert variant="error">{err}</Alert>}
               <div className="flex gap-2">
                 <button className="btn-primary" onClick={onSave} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
                 <button className="btn-secondary" onClick={() => { setEditing(false); setErr(null) }} disabled={busy}>Cancel</button>

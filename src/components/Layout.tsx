@@ -11,6 +11,7 @@ import {
   CogIcon,
   HistoryIcon,
   HomeIcon,
+  InboxIcon,
   LogoutIcon,
   MoreIcon,
   PlusIcon,
@@ -18,12 +19,13 @@ import {
   UsersIcon,
 } from './Icons'
 
+// Desktop nav order: browse → people → personal history. Log match is a
+// dedicated CTA rendered separately so it visually outranks the link list.
 const desktopNav = [
   { to: '/', label: 'Leaderboard', end: true },
   { to: '/clubs', label: 'Clubs' },
   { to: '/groups', label: 'Groups' },
   { to: '/history', label: 'History' },
-  { to: '/log', label: 'Log match' },
 ]
 
 export function Layout() {
@@ -122,6 +124,18 @@ export function Layout() {
           {/* Mobile spacer */}
           <div className="flex-1 sm:flex-none" />
 
+          {/* Desktop primary CTA. Mobile uses the FAB. Hidden when not signed
+              in or when already on /log so we don't duplicate the form CTA. */}
+          {session && location.pathname !== '/log' && (
+            <Link
+              to="/log"
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 active:bg-brand-800 whitespace-nowrap"
+            >
+              <PlusIcon className="h-4 w-4" />
+              Log match
+            </Link>
+          )}
+
           {/* Right side: user state */}
           {supabaseEnabled && (session ? (
             <UserPill profile={profile} email={session.user.email ?? ''} isAdmin={isAdmin} onMore={() => setMoreOpen(true)} />
@@ -156,19 +170,23 @@ export function Layout() {
         <div className="mx-auto flex max-w-5xl items-stretch justify-around">
           <TabLink to="/" end icon={<HomeIcon className="h-5 w-5" />}>Home</TabLink>
           <TabLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />}>Clubs</TabLink>
-          <TabLink to="/groups" icon={<UsersIcon className="h-5 w-5" />}>Groups</TabLink>
+          {/* Activity replaces Groups in the prime mid-bar slot when signed in
+              — Activity is the only tab that ever has unread/pending state, so
+              burying it behind More cost two taps for the most actionable
+              page. Groups is still reachable from More + the desktop nav. */}
+          {session ? (
+            <TabLink to="/activity" icon={<InboxIcon className="h-5 w-5" />} badge={pendingCount}>
+              Activity
+            </TabLink>
+          ) : (
+            <TabLink to="/groups" icon={<UsersIcon className="h-5 w-5" />}>Groups</TabLink>
+          )}
           <button
             onClick={() => setMoreOpen(true)}
             className="flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[11px] text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 min-h-[56px] relative"
+            aria-label="Open more menu"
           >
-            <span className="relative">
-              <MoreIcon className="h-5 w-5" />
-              {pendingCount > 0 && (
-                <span className="absolute -top-1 -right-2 grid min-w-[16px] h-4 px-1 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
-                  {pendingCount}
-                </span>
-              )}
-            </span>
+            <MoreIcon className="h-5 w-5" />
             <span>More</span>
           </button>
         </div>
@@ -206,7 +224,7 @@ export function Layout() {
   )
 }
 
-function TabLink({ to, end, icon, children }: { to: string; end?: boolean; icon: React.ReactNode; children: React.ReactNode }) {
+function TabLink({ to, end, icon, badge, children }: { to: string; end?: boolean; icon: React.ReactNode; badge?: number; children: React.ReactNode }) {
   return (
     <NavLink
       to={to}
@@ -218,7 +236,14 @@ function TabLink({ to, end, icon, children }: { to: string; end?: boolean; icon:
         )
       }
     >
-      {icon}
+      <span className="relative">
+        {icon}
+        {badge !== undefined && badge > 0 && (
+          <span className="absolute -top-1 -right-2 grid min-w-[16px] h-4 px-1 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
+            {badge}
+          </span>
+        )}
+      </span>
       <span>{children}</span>
     </NavLink>
   )

@@ -6,6 +6,8 @@ import { useStore } from '../state/store'
 import { fmtLevel, playerAge } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
 import { filterByTokens, joinHay } from '../lib/search'
+import { EmptyState } from '../components/EmptyState'
+import { UsersIcon } from '../components/Icons'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonRow } from '../components/Skeleton'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -26,7 +28,6 @@ const FILTER_LABEL: Record<FilterKey, string> = {
 export function LeaderboardPage() {
   const { players, recomputed, settings, isAdmin, session, myPlayer, loading, refresh, pendingForMe, runAutoConfirmAged, playerUrl } = useStore()
   const signedIn = !!session
-  const canLogMatch = signedIn && (isAdmin || !!myPlayer)
   const [searchParams, setSearchParams] = useSearchParams()
 
   // Best-effort fallback for projects without pg_cron: kick the aging job at most
@@ -141,10 +142,14 @@ export function LeaderboardPage() {
         <section>
           <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
             <h1>Leaderboard</h1>
-            <div className="hidden sm:flex gap-2">
-              {isAdmin && <Link className="btn-secondary" to="/roster">Add player</Link>}
-              {canLogMatch && <Link className="btn-primary" to="/log">Log match</Link>}
-            </div>
+            {/* Log-match CTA lives in the header for both desktop (button) and
+                mobile (FAB), so we don't duplicate it here. Add-player stays
+                because it's an admin-only contextual action. */}
+            {isAdmin && (
+              <div className="hidden sm:flex gap-2">
+                <Link className="btn-secondary" to="/roster">Add player</Link>
+              </div>
+            )}
           </div>
 
           {activeFilters.length > 0 && (
@@ -191,21 +196,20 @@ export function LeaderboardPage() {
               <SkeletonRow />
             </div>
           ) : allRows.length === 0 ? (
-            <div className="card text-center text-slate-500">
-              {isAdmin ? (
-                <>No players yet. <Link className="text-brand-600 underline" to="/roster">Add your first player</Link> to get started.</>
-              ) : (
-                <>No players yet.</>
-              )}
-            </div>
+            <EmptyState
+              icon={<UsersIcon className="h-6 w-6" />}
+              title="No players yet"
+              description={isAdmin ? 'Add the first player to get the leaderboard going.' : 'Players will appear here once an admin adds them.'}
+              ctaLabel={isAdmin ? 'Add your first player' : undefined}
+              ctaTo={isAdmin ? '/roster' : undefined}
+            />
           ) : rows.length === 0 ? (
-            <div className="card text-center text-slate-500">
-              {activeFilters.length > 0 ? (
-                <>No players match this filter. <button onClick={clearAllFilters} className="text-brand-600 underline">Clear filters</button></>
-              ) : (
-                <>No players match "{search}".</>
-              )}
-            </div>
+            <EmptyState
+              title={activeFilters.length > 0 ? 'No players match these filters' : `No players match "${search}"`}
+              description={activeFilters.length > 0 ? 'Try clearing one or more filters.' : 'Try a different name, club, or country.'}
+              ctaLabel={activeFilters.length > 0 ? 'Clear filters' : undefined}
+              ctaOnClick={activeFilters.length > 0 ? clearAllFilters : undefined}
+            />
           ) : (
             <>
               {/* Mobile: card list */}
@@ -226,7 +230,7 @@ export function LeaderboardPage() {
                         <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={36} />
                       </Link>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <PlayerLink id={r.id} name={r.name} className="font-medium truncate" />
                           {r.provisional && <ProvisionalTag />}
                           {isMe && <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">you</span>}
@@ -234,13 +238,10 @@ export function LeaderboardPage() {
                         <div className="truncate">
                           <PlayerMetaLinks player={r.player} />
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">
-                          {r.played} {r.played === 1 ? 'match' : 'matches'}
-                        </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-lg font-semibold leading-none">{fmtLevel(r.level)}</div>
-                        <div className="text-[10px] text-slate-400 mt-0.5 uppercase tracking-wider">level</div>
+                        <div className="text-lg font-semibold leading-none tabular-nums">{fmtLevel(r.level)}</div>
+                        <div className="text-[10px] text-slate-400 mt-1 tabular-nums">{r.played} {r.played === 1 ? 'match' : 'matches'}</div>
                       </div>
                     </li>
                   )

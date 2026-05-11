@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import {
@@ -16,6 +16,9 @@ import { movingAverage } from '../lib/rating/recompute'
 import { gamesWonBy, winnerSide } from '../lib/rating/levels'
 import { fetchProfile } from '../lib/supabase/profile'
 import { AdminEditProfileModal } from '../components/AdminEditProfileModal'
+import { Alert } from '../components/Alert'
+import { BackLink } from '../components/BackLink'
+import { EmptyState } from '../components/EmptyState'
 import { MatchCard } from '../components/MatchCard'
 import { Pagination } from '../components/Pagination'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -24,7 +27,20 @@ import { PlayerSearch } from '../components/PlayerSearch'
 import { ProvisionalTag } from '../components/ProvisionalTag'
 import { ChallengeButton } from '../components/ChallengeButton'
 import { ShareButton } from '../components/ShareButton'
+import { SkeletonMatchCard } from '../components/Skeleton'
+import { CloseIcon, HistoryIcon, MoreVerticalIcon } from '../components/Icons'
 import { DOMINANT_HAND_LABEL, GENDER_LABEL, type Match, type Player, type Profile } from '../types'
+
+// Short date format for the chart X-axis on narrow viewports — full
+// `fmtDate` overflows the available label width once a profile has more than
+// ~6 matches. "Mar '25" stays readable down to ~320px.
+function fmtChartTick(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
+  } catch {
+    return iso
+  }
+}
 
 // Up to MAX_COMPARE other players can be overlaid on the level chart.
 // Matches the colour palette length below — adding more colours implicitly
@@ -92,9 +108,17 @@ export function PlayerProfilePage() {
   const [adminEditError, setAdminEditError] = useState<string | null>(null)
 
   const [playerMatches, setPlayerMatches] = useState<Match[]>([])
+  // Distinct from "no matches" — this stays true until the first fetch
+  // resolves, so we can show skeletons instead of an empty-state CTA on
+  // initial load. Reset whenever the viewed player changes.
+  const [matchesLoading, setMatchesLoading] = useState(true)
   useEffect(() => {
     if (!id) return
-    fetchRecentMatches(10000, [id]).then(setPlayerMatches).catch(console.error)
+    setMatchesLoading(true)
+    fetchRecentMatches(10000, [id])
+      .then(setPlayerMatches)
+      .catch(console.error)
+      .finally(() => setMatchesLoading(false))
   }, [id, fetchRecentMatches])
 
   // Match-history pagination. Reset to page 0 whenever we look at a different
@@ -228,10 +252,12 @@ export function PlayerProfilePage() {
 
   if (!player) {
     return (
-      <div className="card text-center text-slate-500 space-y-2">
-        <p>Player not found.</p>
-        <Link className="btn-secondary" to="/">Back to leaderboard</Link>
-      </div>
+      <EmptyState
+        title="Player not found"
+        description="The link may be old or the player may have been removed."
+        ctaLabel="Back to leaderboard"
+        ctaTo="/"
+      />
     )
   }
 
@@ -291,15 +317,41 @@ export function PlayerProfilePage() {
   const ownerSeriesPoints = serieses[0]?.points ?? []
   const hasOwnerHistory = ownerSeriesPoints.length > 1
 
+  const onAdminEdit = async () => {
+    if (!player.userId) return
+    setAdminEditError(null)
+    setAdminEditLoading(true)
+    try {
+      const p = await fetchProfile(player.userId)
+      if (!p) {
+        setAdminEditError('Profile not found for this player.')
+        return
+      }
+      setAdminEditProfile(p)
+      setAdminEditOpen(true)
+    } catch (e) {
+      setAdminEditError((e as Error).message)
+    } finally {
+      setAdminEditLoading(false)
+    }
+  }
+
+  const showAdminEdit = isAdmin && !isMe && !!player.userId
+
   return (
     <div className="space-y-6">
+      <BackLink fallback="/" />
+
       <section>
         <div className="card space-y-4">
-          <div className="flex items-start gap-4">
-            <PlayerAvatar name={player.name} avatarUrl={player.avatarUrl} size={72} />
+          {/* Identity row: avatar + name/tags + (desktop-only) overflow menu.
+              Action buttons live below on mobile so the name has full width to
+              breathe; on desktop they sit to the right in their own column. */}
+          <div className="flex items-start gap-3 sm:gap-4">
+            <PlayerAvatar name={player.name} avatarUrl={player.avatarUrl} size={64} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="!mb-0 truncate">{player.name}</h1>
+                <h1 className="!mb-0 text-xl sm:text-2xl truncate">{player.name}</h1>
                 {provisional && <ProvisionalTag variant="full" />}
                 {isMe && (
                   <span className="tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">
@@ -310,64 +362,85 @@ export function PlayerProfilePage() {
               <div className="mt-1">
                 <PlayerMetaLinks player={player} />
               </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
                 {player.gender && <span>{GENDER_LABEL[player.gender]}</span>}
                 {player.dominantHand && <span>{DOMINANT_HAND_LABEL[player.dominantHand]}-handed</span>}
                 {age != null && <span>Age {age}</span>}
-                <span>Registered {fmtDate(player.createdAt)}</span>
-                <span>
-                  Starting level {fmtLevel(player.startingLevel)} on {fmtDate(player.createdAt)}
-                </span>
               </div>
             </div>
-            <div className="flex flex-col gap-2 shrink-0">
+
+            {/* Desktop-only action stack. Mobile gets a dedicated row below. */}
+            <div className="hidden sm:flex flex-col items-end gap-2 shrink-0">
               {isMe ? (
                 <Link to="/profile" className="btn-secondary">Edit</Link>
               ) : (
                 <ChallengeButton toPlayerId={player.id} toPlayerName={player.name} />
               )}
               <ShareButton kind="player" id={player.id} title={`${player.name} on Boast`} />
-              {isAdmin && !isMe && player.userId && (
-                <button
-                  type="button"
-                  className="btn-link text-xs"
-                  disabled={adminEditLoading}
-                  onClick={async () => {
-                    setAdminEditError(null)
-                    setAdminEditLoading(true)
-                    try {
-                      const p = await fetchProfile(player.userId!)
-                      if (!p) {
-                        setAdminEditError('Profile not found for this player.')
-                        return
-                      }
-                      setAdminEditProfile(p)
-                      setAdminEditOpen(true)
-                    } catch (e) {
-                      setAdminEditError((e as Error).message)
-                    } finally {
-                      setAdminEditLoading(false)
-                    }
-                  }}
-                >
-                  {adminEditLoading ? '…' : 'Edit profile (admin)'}
-                </button>
-              )}
-              {adminEditError && (
-                <div className="text-xs text-red-600 max-w-[14rem]">{adminEditError}</div>
+              {showAdminEdit && (
+                <ProfileOverflowMenu
+                  busy={adminEditLoading}
+                  onAdminEdit={onAdminEdit}
+                />
               )}
             </div>
+
+            {/* Mobile-only overflow icon for admin actions. The two main
+                actions (Challenge/Edit, Share) live in their own row below so
+                they're easy to tap. */}
+            {showAdminEdit && (
+              <div className="sm:hidden">
+                <ProfileOverflowMenu
+                  busy={adminEditLoading}
+                  onAdminEdit={onAdminEdit}
+                />
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <Stat label="Current level" value={fmtLevel(currentLevel) ?? '—'} sub={provisional ? 'provisional' : undefined} />
-            <Stat label="4-match avg" value={fmtLevel(ranking) ?? '—'} />
-            <Stat label="Matches" value={String(matchesPlayed)} />
-            <Stat
-              label="Win rate"
-              value={stats && stats.total > 0 ? `${(stats.winRate * 100).toFixed(0)}%` : '—'}
-              sub={stats && stats.total > 0 ? `${stats.wins}W · ${stats.losses}L` : undefined}
-            />
+          {/* Mobile action row. Hidden on desktop where actions live in the
+              identity row. ChallengeButton expands into its own card when
+              clicked — flex-wrap lets it take a full row in that state without
+              breaking the Share button below. */}
+          <div className="sm:hidden flex flex-wrap items-center gap-2">
+            {isMe ? (
+              <Link to="/profile" className="btn-secondary">Edit profile</Link>
+            ) : (
+              <ChallengeButton toPlayerId={player.id} toPlayerName={player.name} />
+            )}
+            <ShareButton kind="player" id={player.id} title={`${player.name} on Boast`} />
+          </div>
+
+          {adminEditError && (
+            <Alert variant="error">{adminEditError}</Alert>
+          )}
+
+          {/* Hero stat: current level dominates, supporting stats sit below.
+              On mobile the hero is left-aligned full-width; on desktop the
+              hero floats inline and the secondary grid takes the remaining
+              space, keeping the card compact. */}
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-4 sm:space-y-0 sm:flex sm:items-end sm:gap-6">
+            <div className="sm:shrink-0">
+              <div className="text-[11px] uppercase tracking-wider text-slate-500">Current level</div>
+              <div className="flex items-baseline gap-2">
+                <div className="text-4xl sm:text-5xl font-bold tabular-nums leading-none">{fmtLevel(currentLevel) ?? '—'}</div>
+                {provisional && (
+                  <span className="text-[11px] uppercase tracking-wide text-amber-700 dark:text-amber-400">provisional</span>
+                )}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-400">
+                Started at {fmtLevel(player.startingLevel)} · {fmtDate(player.createdAt)}
+              </div>
+            </div>
+            <div className="sm:flex-1 grid grid-cols-3 gap-3 sm:gap-4">
+              <Stat label="4-match avg" value={fmtLevel(ranking) ?? '—'} />
+              <Stat label="Matches" value={String(matchesPlayed)} />
+              <Stat
+                label="Win rate"
+                value={stats && stats.total > 0 ? `${(stats.winRate * 100).toFixed(0)}%` : '—'}
+                sub={stats && stats.total > 0 ? `${stats.wins}W · ${stats.losses}L` : undefined}
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -381,12 +454,18 @@ export function PlayerProfilePage() {
             </span>
           </div>
           <div className="card space-y-3">
-            <div className="h-64">
+            <div className="h-56 sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 5, right: 16, bottom: 0, left: 0 }}>
+                <LineChart data={chartData} margin={{ top: 5, right: 8, bottom: 0, left: -8 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="date" tickFormatter={(d) => fmtDate(String(d))} fontSize={12} />
-                  <YAxis fontSize={12} domain={['auto', 'auto']} />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(d) => fmtChartTick(String(d))}
+                    fontSize={11}
+                    minTickGap={24}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis fontSize={11} domain={['auto', 'auto']} width={36} />
                   <Tooltip
                     labelFormatter={(l) => fmtDate(String(l))}
                     formatter={(v, key) => {
@@ -413,23 +492,24 @@ export function PlayerProfilePage() {
             </div>
 
             {/* Legend chips. Owner is always present. Compared players show
-                an × for removal. */}
+                a real CloseIcon button (not an × glyph) so the tap target is
+                comfortable on mobile. */}
             <div className="flex flex-wrap gap-2">
               {serieses.map((s) => (
                 <span
                   key={s.id}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs dark:border-slate-700 dark:bg-slate-900/40"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 pl-2 pr-1 py-0.5 text-xs dark:border-slate-700 dark:bg-slate-900/40"
                 >
                   <span className="h-2 w-2 rounded-full" style={{ background: s.color }} aria-hidden />
-                  <span className="font-medium">{s.name}</span>
+                  <span className="font-medium py-1">{s.name}</span>
                   {s.id !== player.id && (
                     <button
                       type="button"
                       onClick={() => setComparedIds((ids) => ids.filter((x) => x !== s.id))}
                       aria-label={`Remove ${s.name} from comparison`}
-                      className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                      className="grid h-7 w-7 place-items-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 dark:hover:text-slate-200 dark:hover:bg-slate-700/60"
                     >
-                      ×
+                      <CloseIcon className="h-3.5 w-3.5" />
                     </button>
                   )}
                 </span>
@@ -489,15 +569,29 @@ export function PlayerProfilePage() {
 
       <section>
         <div className="flex items-center justify-between mb-2">
-          <h2>Match history</h2>
+          <h2 className="!mb-0">Match history</h2>
           {stats && stats.total > 0 && (
             <span className="text-xs text-slate-500">
               {stats.total.toLocaleString()} total · {stats.wins}W · {stats.losses}L
             </span>
           )}
         </div>
-        {!stats || stats.total === 0 ? (
-          <div className="card text-center text-slate-500">No matches yet.</div>
+        {matchesLoading && playerMatches.length === 0 ? (
+          <div className="space-y-2">
+            <SkeletonMatchCard />
+            <SkeletonMatchCard />
+            <SkeletonMatchCard />
+          </div>
+        ) : !stats || stats.total === 0 ? (
+          <EmptyState
+            icon={<HistoryIcon className="h-6 w-6" />}
+            title="No matches yet"
+            description={isMe
+              ? 'Log your first match to start tracking your level over time.'
+              : `${player.name} hasn't logged any matches yet.`}
+            ctaLabel={isMe ? 'Log a match' : undefined}
+            ctaTo={isMe ? '/log' : undefined}
+          />
         ) : (
           <>
             <div className="space-y-2">
@@ -531,10 +625,71 @@ export function PlayerProfilePage() {
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div>
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
-      {sub && <div className="text-[10px] text-slate-400">{sub}</div>}
+    <div className="min-w-0">
+      <div className="text-[11px] uppercase tracking-wider text-slate-500 truncate">{label}</div>
+      <div className="text-lg sm:text-xl font-semibold tabular-nums">{value}</div>
+      {sub && <div className="text-[10px] text-slate-400 truncate">{sub}</div>}
+    </div>
+  )
+}
+
+/**
+ * Overflow menu for header-row admin actions. Currently houses just one item
+ * (Edit profile as admin), but exists as a discrete component so future admin
+ * actions — merge players, transfer matches, etc. — slot in without bloating
+ * the main header layout.
+ */
+function ProfileOverflowMenu({ busy, onAdminEdit }: { busy: boolean; onAdminEdit: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onEsc)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onEsc)
+    }
+  }, [open])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        className="btn-icon"
+        aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <MoreVerticalIcon className="h-5 w-5" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-30 min-w-[12rem] rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            disabled={busy}
+            className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+            onClick={() => {
+              setOpen(false)
+              onAdminEdit()
+            }}
+          >
+            {busy ? 'Loading…' : 'Edit profile (admin)'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -639,7 +794,7 @@ function H2HSummary({
       {/* Top row: avatar · big score · avatar, with names directly under each avatar. */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
         <div className="flex flex-col items-center text-center min-w-0">
-          <PlayerAvatar name={owner.name} avatarUrl={owner.avatarUrl} size={64} />
+          <PlayerAvatar name={owner.name} avatarUrl={owner.avatarUrl} size={48} />
           <div className="mt-2 font-semibold truncate w-full">{owner.name}</div>
           {owner.club && (
             <div className="text-xs text-slate-500 truncate w-full">{owner.club}</div>
@@ -651,7 +806,7 @@ function H2HSummary({
           <span className={losses > wins ? 'font-bold text-green-700 dark:text-green-400' : ''}>{losses}</span>
         </div>
         <div className="flex flex-col items-center text-center min-w-0">
-          <PlayerAvatar name={opponent.name} avatarUrl={opponent.avatarUrl} size={64} />
+          <PlayerAvatar name={opponent.name} avatarUrl={opponent.avatarUrl} size={48} />
           <div className="mt-2 font-semibold truncate w-full">{opponent.name}</div>
           {opponent.club && (
             <div className="text-xs text-slate-500 truncate w-full">{opponent.club}</div>

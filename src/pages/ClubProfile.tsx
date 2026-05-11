@@ -4,11 +4,15 @@ import { useStore } from '../state/store'
 import { fmtLevel } from '../lib/format'
 import type { Match } from '../types'
 import { movingAverage } from '../lib/rating/recompute'
+import { BackLink } from '../components/BackLink'
+import { EmptyState } from '../components/EmptyState'
+import { HistoryIcon, UsersIcon } from '../components/Icons'
 import { MatchCard } from '../components/MatchCard'
 import { OrgAvatar } from '../components/OrgAvatar'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ProvisionalTag } from '../components/ProvisionalTag'
+import { SkeletonMatchCard, SkeletonTableRow } from '../components/Skeleton'
 import { clubSlug, listClubAdminUserIds } from '../lib/supabase/clubs'
 
 export function ClubProfilePage() {
@@ -68,14 +72,20 @@ export function ClubProfilePage() {
   }, [members, recomputed.states, settings.movingAverageWindow, settings.provisionalThreshold])
 
   const [clubMatches, setClubMatches] = useState<Match[]>([])
+  const [matchesLoading, setMatchesLoading] = useState(true)
   useEffect(() => {
     if (memberIds.size === 0) {
       setClubMatches([])
+      setMatchesLoading(false)
       return
     }
-    fetchRecentMatches(10000, Array.from(memberIds)).then(matches => {
-      setClubMatches(matches.filter(m => memberIds.has(m.playerAId) || memberIds.has(m.playerBId)))
-    }).catch(console.error)
+    setMatchesLoading(true)
+    fetchRecentMatches(10000, Array.from(memberIds))
+      .then(matches => {
+        setClubMatches(matches.filter(m => memberIds.has(m.playerAId) || memberIds.has(m.playerBId)))
+      })
+      .catch(console.error)
+      .finally(() => setMatchesLoading(false))
   }, [memberIds, fetchRecentMatches])
 
   const recent = useMemo(() => {
@@ -87,16 +97,21 @@ export function ClubProfilePage() {
   if (members.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="card text-center text-slate-500 space-y-2">
-          <p>No club found at <span className="font-mono">/{slug}</span>.</p>
-          <Link className="btn-secondary" to="/clubs">Browse clubs</Link>
-        </div>
+        <BackLink fallback="/clubs" />
+        <EmptyState
+          icon={<UsersIcon className="h-6 w-6" />}
+          title="Club not found"
+          description={`No club registered at /${slug}. The link may be stale or the club name was edited.`}
+          ctaLabel="Browse clubs"
+          ctaTo="/clubs"
+        />
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
+      <BackLink fallback="/clubs" />
       <section>
         <div className="card">
           <div className="flex items-start gap-4">
@@ -149,6 +164,13 @@ export function ClubProfilePage() {
               </tr>
             </thead>
             <tbody>
+              {rows.length === 0 && (
+                <>
+                  <SkeletonTableRow />
+                  <SkeletonTableRow />
+                  <SkeletonTableRow />
+                </>
+              )}
               {rows.map((r, i) => (
                 <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="px-3 py-2 text-slate-400">{i + 1}</td>
@@ -180,8 +202,17 @@ export function ClubProfilePage() {
 
       <section>
         <h2 className="mb-2">Recent matches</h2>
-        {recent.length === 0 ? (
-          <div className="card text-center text-slate-500">No matches yet for this club.</div>
+        {matchesLoading ? (
+          <div className="space-y-2">
+            <SkeletonMatchCard />
+            <SkeletonMatchCard />
+          </div>
+        ) : recent.length === 0 ? (
+          <EmptyState
+            icon={<HistoryIcon className="h-6 w-6" />}
+            title="No matches yet for this club"
+            description="Matches between members of this club will appear here."
+          />
         ) : (
           <div className="space-y-2">
             {recent.map((m) => (

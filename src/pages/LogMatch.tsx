@@ -17,8 +17,10 @@ import { updateLevels } from '../lib/rating/update'
 import { fmtDelta, fmtLevel, todayIso } from '../lib/format'
 import { COUNTRIES, distinctValues } from '../lib/places'
 import { parseProfileFields } from '../lib/profile-validation'
+import { Alert } from '../components/Alert'
+import { EmptyState } from '../components/EmptyState'
 import { PlayerSearch } from '../components/PlayerSearch'
-import { TrashIcon } from '../components/Icons'
+import { TrashIcon, UserIcon } from '../components/Icons'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { createUnclaimedPlayer } from '../lib/supabase/profile'
 
@@ -211,23 +213,32 @@ export function LogMatchPage() {
 
   if (!signedIn) {
     return (
-      <div className="card text-center text-slate-500 space-y-2">
-        <p>Sign in with Google to log a match.</p>
-      </div>
+      <EmptyState
+        icon={<UserIcon className="h-6 w-6" />}
+        title="Sign in to log a match"
+        description="Use the sign-in button at the top right (Google account)."
+      />
     )
   }
 
   if (supabaseEnabled && !canLog) {
     return (
-      <div className="card text-center text-slate-500">
-        Finish setting up your profile to log matches.
-      </div>
+      <EmptyState
+        icon={<UserIcon className="h-6 w-6" />}
+        title="Finish setting up your profile"
+        description="You need a player profile before you can log matches."
+        ctaLabel="Open my profile"
+        ctaTo="/profile"
+      />
     )
   }
 
   if (!isAdmin && players.length < 1) {
     return (
-      <div className="card text-center text-slate-500">No players available yet.</div>
+      <EmptyState
+        title="No players available yet"
+        description="Once an admin adds players you'll be able to log matches against them."
+      />
     )
   }
 
@@ -249,17 +260,18 @@ export function LogMatchPage() {
               themselves yet).
             </p>
           </div>
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
-              <label className="label">Name</label>
+              <label className="label label-required">Name</label>
               <input
                 className="input w-full"
                 value={unclaimedDraft.name}
                 onChange={(e) => updateDraft('name', e.target.value)}
+                required
               />
             </div>
             <div>
-              <label className="label">Email</label>
+              <label className="label label-required">Email</label>
               <input
                 type="email"
                 className="input w-full"
@@ -368,7 +380,7 @@ export function LogMatchPage() {
           <datalist id="newplayer-club-options">
             {clubOptions.map((c) => <option key={c} value={c} />)}
           </datalist>
-          {unclaimedError && <div className="text-sm text-red-600">{unclaimedError}</div>}
+          {unclaimedError && <Alert variant="error">{unclaimedError}</Alert>}
           <div className="flex justify-end gap-2">
             <button type="button" className="btn-secondary" onClick={() => setUnclaimedDraft(null)}>Cancel</button>
             <button
@@ -382,9 +394,9 @@ export function LogMatchPage() {
         </form>
       )}
       <form onSubmit={onSubmit} className="card space-y-4">
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid sm:grid-cols-2 gap-3 sm:gap-4">
           <div>
-            <label className="label">{isAdmin ? 'Player A' : 'You'}</label>
+            <label className="label label-required">{isAdmin ? 'Player A' : 'You'}</label>
             {isAdmin ? (
               <PlayerSearch
                 value={playerA}
@@ -404,7 +416,7 @@ export function LogMatchPage() {
             )}
           </div>
           <div>
-            <label className="label">Opponent</label>
+            <label className="label label-required">Opponent</label>
             <PlayerSearch
               value={playerB}
               onChange={setPlayerB}
@@ -417,8 +429,8 @@ export function LogMatchPage() {
             </p>
           </div>
           <div>
-            <label className="label">Date</label>
-            <input type="date" className="input w-full" value={date} onChange={(e) => setDate(e.target.value)} />
+            <label className="label label-required">Date</label>
+            <input type="date" className="input w-full" value={date} onChange={(e) => setDate(e.target.value)} required />
           </div>
           <div>
             <label className="label">Match type</label>
@@ -441,7 +453,7 @@ export function LogMatchPage() {
         </div>
 
         <div>
-          <label className="label">Game scores</label>
+          <label className="label label-required">Game scores</label>
           <div className="space-y-2">
             {scores.map((g, i) => (
               <div
@@ -566,7 +578,7 @@ export function LogMatchPage() {
           </div>
         )}
 
-        {error && <div className="text-sm text-red-600">{error}</div>}
+        {error && <Alert variant="error">{error}</Alert>}
 
         <div className="flex gap-2">
           <button type="submit" className="btn-primary">Save match</button>
