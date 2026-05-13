@@ -9,6 +9,7 @@ import { SettingsPage } from './pages/Settings'
 import { ProfilePage } from './pages/Profile'
 import { PlayerProfilePage } from './pages/PlayerProfile'
 import { ActivityPage } from './pages/Activity'
+import { AuditLogPage } from './pages/AuditLog'
 import { ClubsPage } from './pages/Clubs'
 import { ClubProfilePage } from './pages/ClubProfile'
 import { GroupsPage } from './pages/Groups'
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="/groups" element={<GroupsPage />} />
             <Route path="/groups/:slug" element={<GroupProfilePage />} />
             <Route path="/activity" element={<ActivityPage />} />
+            <Route path="/audit" element={<AuditLogPage />} />
             {/* Old routes kept as redirects so existing bookmarks / links keep working. */}
             <Route path="/challenges" element={<Navigate to="/activity" replace />} />
             <Route path="/matches/pending" element={<Navigate to="/activity" replace />} />

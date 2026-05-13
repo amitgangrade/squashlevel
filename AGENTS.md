@@ -105,6 +105,57 @@ end-to-end.
 
 ---
 
+## Desktop nav: admin entries live in the "Admin ▾" dropdown
+
+The desktop top nav fits four primary tabs (Leaderboard / Clubs /
+Groups / History) + Activity + a brand-coloured "Log match" CTA + the
+user pill. Admin-only entries — currently **Audit log** and **Admin
+settings** — collapse into a single "Admin ▾" dropdown
+(`AdminMenu` in `Layout.tsx`) to avoid horizontal overflow at typical
+laptop widths.
+
+When you add a new admin-only nav entry:
+
+- If it's relevant to global admins only → add it as an item inside
+  `AdminMenu`'s dropdown (next to Admin settings), gated on `isAdmin`.
+- If it's relevant to club admins too → add it inside `AdminMenu`
+  gated on `canSeeAudit` (which already means "global admin or any
+  club admin") and add it to the mobile More sheet via `SheetLink`.
+- If it's for every signed-in user → add as a top-level NavLink in
+  the main `<nav>` block, next to Activity.
+
+The mobile More sheet stays vertical and exposes everything directly —
+no nested dropdown needed there.
+
+---
+
+## Audit log captures every write
+
+A generic AFTER trigger (`audit_row_change`) writes one row to
+`public.audit_events` per INSERT/UPDATE/DELETE on the nine load-bearing
+tables (profiles, players, matches, challenges, clubs, club_admins,
+groups, group_members, settings). Reads go through the
+`list_audit_events` RPC; the table itself has no SELECT policy.
+
+If you add a new table that should be auditable: attach the same
+trigger and add a branch in `audit_row_change` to compute its
+`subject_player_ids / subject_club_slugs / subject_group_ids` denorm
+arrays. Without those arrays scoped (non-global) admins won't see the
+events.
+
+If you add a server-side trigger that cascades to one of the audited
+tables and the cascade should not produce its own audit row, wrap the
+write with `set_config('boast.audit_skip', 'true', true)` like
+`sync_player_from_profile` does. Otherwise scoped admins will see a
+suspicious "system did X" event with no obvious actor.
+
+Privileged events (is_admin-only profile changes, settings writes) are
+flagged at trigger time and are hidden from scoped admins regardless of
+their other scope overlap. See
+[openspec/specs/audit/spec.md](openspec/specs/audit/spec.md).
+
+---
+
 ## Admin can edit another user's profile (limited fields)
 
 The "Edit profile (admin)" button on a `/players/:id` page (for claimed

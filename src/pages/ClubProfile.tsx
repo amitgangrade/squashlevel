@@ -2,14 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { fmtLevel } from '../lib/format'
-import type { Match } from '../types'
+import type { Match, Player } from '../types'
 import { movingAverage } from '../lib/rating/recompute'
 import { BackLink } from '../components/BackLink'
+import { EditMatchDialog } from '../components/EditMatchDialog'
 import { EmptyState } from '../components/EmptyState'
 import { HistoryIcon, UsersIcon } from '../components/Icons'
 import { MatchCard } from '../components/MatchCard'
 import { OrgAvatar } from '../components/OrgAvatar'
 import { PlayerAvatar } from '../components/PlayerAvatar'
+import { PlayerFormModal } from '../components/PlayerFormModal'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ProvisionalTag } from '../components/ProvisionalTag'
 import { SkeletonMatchCard, SkeletonTableRow } from '../components/Skeleton'
@@ -19,8 +21,13 @@ export function ClubProfilePage() {
   const params = useParams<{ slug: string }>()
   const slug = (params.slug || '').toLowerCase()
   const {
-    players, recomputed, settings, myPlayer, fetchRecentMatches, playerUrl,
+    players, recomputed, settings, myPlayer, isAdmin, myClubAdminSlugs,
+    canWriteMatch, removeMatch,
+    fetchRecentMatches, playerUrl,
   } = useStore()
+  // True when the viewer can curate this club's roster + matches. Either
+  // they're a global admin, or they're listed in club_admins for this slug.
+  const iAdminThisClub = isAdmin || (!!slug && myClubAdminSlugs.includes(slug))
 
   const members = useMemo(
     () => players.filter((p) => clubSlug(p.club) === slug),
@@ -71,26 +78,53 @@ export function ClubProfilePage() {
       .sort((a, b) => b.ranking - a.ranking)
   }, [members, recomputed.states, settings.movingAverageWindow, settings.provisionalThreshold])
 
+  // Modal state for the curate-the-club admin actions.
+  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null)
+  const [addingPlayer, setAddingPlayer] = useState(false)
+  const [editingMatch, setEditingMatch] = useState<Match | null>(null)
+  const [busyMatchId, setBusyMatchId] = useState<string | null>(null)
+  const [adminError, setAdminError] = useState<string | null>(null)
+
   const [clubMatches, setClubMatches] = useState<Match[]>([])
   const [matchesLoading, setMatchesLoading] = useState(true)
-  useEffect(() => {
+  const reloadMatches = useMemo(() => async () => {
     if (memberIds.size === 0) {
       setClubMatches([])
       setMatchesLoading(false)
       return
     }
     setMatchesLoading(true)
-    fetchRecentMatches(10000, Array.from(memberIds))
-      .then(matches => {
-        setClubMatches(matches.filter(m => memberIds.has(m.playerAId) || memberIds.has(m.playerBId)))
-      })
-      .catch(console.error)
-      .finally(() => setMatchesLoading(false))
+    try {
+      const ms = await fetchRecentMatches(10000, Array.from(memberIds))
+      setClubMatches(ms.filter(m => memberIds.has(m.playerAId) || memberIds.has(m.playerBId)))
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setMatchesLoading(false)
+    }
   }, [memberIds, fetchRecentMatches])
+  useEffect(() => { reloadMatches() }, [reloadMatches])
+
+  const onDeleteMatch = async (m: Match) => {
+    if (!window.confirm('Delete this match? Levels will be stale until you run Admin → Rebuild levels.')) return
+    setAdminError(null)
+    setBusyMatchId(m.id)
+    try {
+      await removeMatch(m.id)
+      await reloadMatches()
+    } catch (e) {
+      setAdminError((e as Error).message)
+    } finally {
+      setBusyMatchId(null)
+    }
+  }
 
   const recent = useMemo(() => {
     return clubMatches
-      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice()
+      .sort((a, b) =>
+        b.date.localeCompare(a.date) || (b.createdAt ?? '').localeCompare(a.createdAt ?? ''),
+      )
       .slice(0, 10)
   }, [clubMatches])
 
@@ -129,6 +163,25 @@ export function ClubProfilePage() {
         </div>
       </section>
 
+      {iAdminThisClub && (
+        <section>
+          <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-900/20 p-4 space-y-2">
+            <div className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+              You administer this club
+            </div>
+            <ul className="text-xs text-amber-800 dark:text-amber-200 list-disc pl-5 space-y-0.5">
+              <li>Add new players to <span className="font-medium">{clubName}</span>.</li>
+              <li>Edit any member's player record (name, starting level, contact, etc.).</li>
+              <li>Edit or delete matches where at least one side is a club member — including the scoreline.</li>
+            </ul>
+            <p className="text-[11px] text-amber-700 dark:text-amber-300">
+              After editing or deleting a match, run <strong>Admin → Rebuild levels</strong> so opponents' levels reflect the change.
+            </p>
+          </div>
+          {adminError && <div className="mt-2 text-sm text-red-600">{adminError}</div>}
+        </section>
+      )}
+
       {clubAdmins.length > 0 && (
         <section>
           <h2 className="mb-2">Club admins</h2>
@@ -151,7 +204,14 @@ export function ClubProfilePage() {
       )}
 
       <section>
-        <h2 className="mb-2">Leaderboard</h2>
+        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+          <h2 className="!mb-0">Leaderboard</h2>
+          {iAdminThisClub && (
+            <button className="btn-secondary text-xs" onClick={() => setAddingPlayer(true)}>
+              + Add player
+            </button>
+          )}
+        </div>
         <div className="card overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500">
@@ -161,6 +221,7 @@ export function ClubProfilePage() {
                 <th className="px-3 py-2 text-right">Level</th>
                 <th className="px-3 py-2 text-right hidden sm:table-cell">4-match avg</th>
                 <th className="px-3 py-2 text-right">Matches</th>
+                {iAdminThisClub && <th className="px-3 py-2" />}
               </tr>
             </thead>
             <tbody>
@@ -193,6 +254,13 @@ export function ClubProfilePage() {
                   <td className="px-3 py-2 text-right font-semibold">{fmtLevel(r.level)}</td>
                   <td className="px-3 py-2 text-right hidden sm:table-cell">{fmtLevel(r.ranking)}</td>
                   <td className="px-3 py-2 text-right text-slate-500">{r.played}</td>
+                  {iAdminThisClub && (
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button className="btn-link text-xs" onClick={() => setEditingPlayer(r.player)}>
+                        Edit
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -215,12 +283,61 @@ export function ClubProfilePage() {
           />
         ) : (
           <div className="space-y-2">
-            {recent.map((m) => (
-              <MatchCard key={m.id} match={m} players={players} settings={settings} />
-            ))}
+            {recent.map((m) => {
+              const canEdit = canWriteMatch(m)
+              const actions = canEdit ? (
+                <>
+                  <button
+                    className="btn-link text-xs ml-auto"
+                    onClick={() => setEditingMatch(m)}
+                    disabled={busyMatchId === m.id}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="btn-link-danger text-xs"
+                    onClick={() => onDeleteMatch(m)}
+                    disabled={busyMatchId === m.id}
+                  >
+                    {busyMatchId === m.id ? 'Deleting…' : 'Delete'}
+                  </button>
+                </>
+              ) : null
+              return (
+                <MatchCard
+                  key={m.id}
+                  match={m}
+                  players={players}
+                  settings={settings}
+                  actions={actions}
+                />
+              )
+            })}
           </div>
         )}
       </section>
+
+      {addingPlayer && (
+        <PlayerFormModal
+          player={null}
+          defaultClub={clubName}
+          onClose={() => setAddingPlayer(false)}
+        />
+      )}
+      {editingPlayer && (
+        <PlayerFormModal
+          player={editingPlayer}
+          onClose={() => setEditingPlayer(null)}
+        />
+      )}
+      {editingMatch && (
+        <EditMatchDialog
+          match={editingMatch}
+          players={players}
+          onClose={() => setEditingMatch(null)}
+          onSaved={() => { reloadMatches() }}
+        />
+      )}
     </div>
   )
 }

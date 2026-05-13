@@ -126,7 +126,10 @@ export function GroupProfilePage() {
 
   const recent = useMemo(() => {
     return groupMatches
-      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice()
+      .sort((a, b) =>
+        b.date.localeCompare(a.date) || (b.createdAt ?? '').localeCompare(a.createdAt ?? ''),
+      )
       .slice(0, 10)
   }, [groupMatches])
 

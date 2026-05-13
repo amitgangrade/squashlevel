@@ -109,6 +109,15 @@ export interface Backend {
   rebuildLevels(onProgress?: (msg: string) => void): Promise<{ matchesUpdated: number; playersUpdated: number }>
 }
 
+/**
+ * Display sort for match lists: most recent match date first, then most
+ * recently entered first within a single date. Used by the local backend
+ * (the cloud backend mirrors it via PostgREST `.order()` calls). Match
+ * createdAt is an ISO timestamp; falsy values sort oldest.
+ */
+const byDateThenCreatedDesc = (a: Match, b: Match): number =>
+  b.date.localeCompare(a.date) || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+
 const localBackend: Backend = {
   mode: 'local',
   async getAll() {
@@ -152,7 +161,7 @@ const localBackend: Backend = {
     if (playerId) {
       all = all.filter(m => m.playerAId === playerId || m.playerBId === playerId)
     }
-    all.sort((a, b) => b.date.localeCompare(a.date))
+    all.sort(byDateThenCreatedDesc)
     return { data: all.slice(page * pageSize, (page + 1) * pageSize), count: all.length }
   },
   async fetchRecentMatches(limit, playerIds) {
@@ -160,7 +169,7 @@ const localBackend: Backend = {
     if (playerIds && playerIds.length > 0) {
       all = all.filter(m => playerIds.includes(m.playerAId) || playerIds.includes(m.playerBId))
     }
-    all.sort((a, b) => b.date.localeCompare(a.date))
+    all.sort(byDateThenCreatedDesc)
     return all.slice(0, limit)
   },
   async fetchActionableMatches(myPlayerId, isAdmin) {
@@ -559,7 +568,12 @@ const cloudBackend: Backend = {
     }
     const from = page * pageSize
     const to = from + pageSize - 1
-    const { data, count, error } = await q.order('date', { ascending: false }).range(from, to)
+    // Secondary order on created_at so same-day matches show in
+    // logged-newest-first order (matches the local backend's sort).
+    const { data, count, error } = await q
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(from, to)
     if (error) throw error
     return { data: (data as MatchRow[]).map(fromMatchRow), count: count ?? 0 }
   },
@@ -569,7 +583,10 @@ const cloudBackend: Backend = {
       const qs = playerIds.map(id => `player_a_id.eq.${id},player_b_id.eq.${id}`).join(',')
       q = q.or(qs)
     }
-    const { data, error } = await q.order('date', { ascending: false }).limit(limit)
+    const { data, error } = await q
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit)
     if (error) throw error
     return (data as MatchRow[]).map(fromMatchRow)
   },

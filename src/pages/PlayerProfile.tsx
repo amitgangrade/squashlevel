@@ -182,7 +182,11 @@ export function PlayerProfilePage() {
       winRate: total > 0 ? wins / total : 0,
       gamesFor,
       gamesAgainst,
-      matches: [...ms].sort((a, b) => b.date.localeCompare(a.date)),
+      // date desc, then createdAt desc — most recent entry first when two
+      // matches share the same date. Mirrors the backend sort.
+      matches: [...ms].sort((a, b) =>
+        b.date.localeCompare(a.date) || (b.createdAt ?? '').localeCompare(a.createdAt ?? ''),
+      ),
     }
   }, [id, playerMatches])
 
@@ -209,7 +213,9 @@ export function PlayerProfilePage() {
         (m.playerAId === id && m.playerBId === h2hOpponentId) ||
         (m.playerBId === id && m.playerAId === h2hOpponentId),
       )
-      .sort((a, b) => b.date.localeCompare(a.date))
+      .sort((a, b) =>
+        b.date.localeCompare(a.date) || (b.createdAt ?? '').localeCompare(a.createdAt ?? ''),
+      )
     let wins = 0
     let losses = 0
     let draws = 0

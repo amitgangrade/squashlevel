@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import clsx from 'clsx'
 import { supabaseEnabled } from '../lib/supabase/client'
@@ -29,7 +29,10 @@ const desktopNav = [
 ]
 
 export function Layout() {
-  const { mode, session, profile, isAdmin, needsOnboarding, pendingForMe, incomingChallengeCount, signInWithGoogle, signOut } = useStore()
+  const { mode, session, profile, isAdmin, myClubAdminSlugs, needsOnboarding, pendingForMe, incomingChallengeCount, signInWithGoogle, signOut } = useStore()
+  // Audit log surfaces to global admins and club admins. Group-only admins
+  // can still reach /audit by URL — the page filters server-side either way.
+  const canSeeAudit = isAdmin || myClubAdminSlugs.length > 0
   // Combined "needs your action" count: matches awaiting your confirmation +
   // challenges incoming to you. Drives the Activity tab badge and the mobile
   // More-sheet button badge so a single number reflects everything in flight.
@@ -56,7 +59,7 @@ export function Layout() {
     <div className="min-h-full flex flex-col">
       {/* ============ Header ============ */}
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90 pt-safe">
-        <div className="mx-auto max-w-5xl flex items-center gap-2 px-3 sm:gap-4 sm:px-4 py-2 sm:py-3">
+        <div className="mx-auto max-w-6xl flex items-center gap-2 px-3 sm:gap-4 sm:px-4 py-2 sm:py-3">
           <Link to="/" className="flex items-center gap-2 shrink-0" aria-label="Boast home">
             <BoastMark />
             <div className="hidden sm:flex flex-col leading-tight">
@@ -104,22 +107,20 @@ export function Layout() {
                 )}
               </NavLink>
             )}
-            {isAdmin && (
-              <NavLink
-                to="/admin"
-                className={({ isActive }) =>
-                  clsx(
-                    'whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200'
-                      : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
-                  )
-                }
-              >
-                Admin
-              </NavLink>
-            )}
           </nav>
+
+          {/* AdminMenu lives OUTSIDE the nav — the nav's `overflow-x-auto`
+              forces overflow-y to auto too, which would clip the dropdown
+              and surface an unwanted vertical scrollbar on the nav. */}
+          {(canSeeAudit || isAdmin) && (
+            <div className="hidden sm:block">
+              <AdminMenu
+                canSeeAudit={canSeeAudit}
+                isAdmin={isAdmin}
+                pathname={location.pathname}
+              />
+            </div>
+          )}
 
           {/* Mobile spacer */}
           <div className="flex-1 sm:flex-none" />
@@ -147,11 +148,11 @@ export function Layout() {
             </button>
           ))}
         </div>
-        {signInErr && <div className="mx-auto max-w-5xl px-4 pb-2 text-xs text-red-600">{signInErr}</div>}
+        {signInErr && <div className="mx-auto max-w-6xl px-4 pb-2 text-xs text-red-600">{signInErr}</div>}
       </header>
 
       {/* ============ Main content ============ */}
-      <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-4 sm:py-6 pb-24 sm:pb-6">
+      <main className="flex-1 mx-auto w-full max-w-6xl px-4 py-4 sm:py-6 pb-24 sm:pb-6">
         <Outlet />
       </main>
 
@@ -167,7 +168,7 @@ export function Layout() {
           access to public views (Clubs / Groups / History) via the More
           sheet. The sheet itself adapts to signed-in/out state. */}
       <nav className="fixed inset-x-0 bottom-0 z-20 sm:hidden border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 pb-safe">
-        <div className="mx-auto flex max-w-5xl items-stretch justify-around">
+        <div className="mx-auto flex max-w-6xl items-stretch justify-around">
           <TabLink to="/" end icon={<HomeIcon className="h-5 w-5" />}>Home</TabLink>
           <TabLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />}>Clubs</TabLink>
           {/* Activity replaces Groups in the prime mid-bar slot when signed in
@@ -209,6 +210,7 @@ export function Layout() {
         <MoreSheet
           signedIn={!!session}
           isAdmin={isAdmin}
+          canSeeAudit={canSeeAudit}
           fullName={profile?.fullName}
           email={session?.user.email}
           pendingCount={pendingCount}
@@ -220,6 +222,108 @@ export function Layout() {
 
       {needsOnboarding && <OnboardingModal />}
       <IOSInstallHint />
+    </div>
+  )
+}
+
+/**
+ * Desktop-only dropdown that collapses the admin nav entries (Audit, Admin
+ * settings) under a single "Admin ▾" trigger. Each entry is conditionally
+ * rendered — club admins see Audit only; global admins see both. Existed
+ * because the four primary tabs + Activity + Audit + Admin overflowed the
+ * header at typical laptop widths.
+ *
+ * Mobile users get the same items via the More sheet — no dropdown needed
+ * there, the sheet is already vertical scroll.
+ */
+function AdminMenu({
+  canSeeAudit, isAdmin, pathname,
+}: {
+  canSeeAudit: boolean
+  isAdmin: boolean
+  pathname: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Click-outside + Escape close.
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // Close after navigation to a contained item.
+  useEffect(() => { setOpen(false) }, [pathname])
+
+  const triggerActive = pathname === '/admin' || pathname.startsWith('/audit')
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={clsx(
+          'whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors flex items-center gap-1',
+          triggerActive
+            ? 'bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200'
+            : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+        )}
+      >
+        Admin
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-30 min-w-[180px] rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          {canSeeAudit && (
+            <NavLink
+              to="/audit"
+              role="menuitem"
+              className={({ isActive }) =>
+                clsx(
+                  'flex items-center gap-2 px-3 py-2 text-sm',
+                  isActive
+                    ? 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-200'
+                    : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800',
+                )
+              }
+            >
+              Audit log
+            </NavLink>
+          )}
+          {isAdmin && (
+            <NavLink
+              to="/admin"
+              role="menuitem"
+              className={({ isActive }) =>
+                clsx(
+                  'flex items-center gap-2 px-3 py-2 text-sm',
+                  isActive
+                    ? 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-200'
+                    : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800',
+                )
+              }
+            >
+              Admin settings
+            </NavLink>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -285,6 +389,7 @@ function UserPill({
 function MoreSheet({
   signedIn,
   isAdmin,
+  canSeeAudit,
   fullName,
   email,
   pendingCount,
@@ -294,6 +399,7 @@ function MoreSheet({
 }: {
   signedIn: boolean
   isAdmin: boolean
+  canSeeAudit: boolean
   fullName?: string
   email?: string
   pendingCount: number
@@ -347,6 +453,7 @@ function MoreSheet({
           <SheetLink to="/clubs" icon={<UsersIcon className="h-5 w-5" />} label="Clubs" />
           <SheetLink to="/groups" icon={<UsersIcon className="h-5 w-5" />} label="Groups" />
           <SheetLink to="/history" icon={<HistoryIcon className="h-5 w-5" />} label="History" />
+          {canSeeAudit && <SheetLink to="/audit" icon={<HistoryIcon className="h-5 w-5" />} label="Audit log" />}
           {isAdmin && <SheetLink to="/admin" icon={<CogIcon className="h-5 w-5" />} label="Admin" />}
           {signedIn && (
             <li>
