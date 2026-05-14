@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import { fmtDate, fmtDelta, fmtLevel } from '../lib/format'
 import { actualPerformance, expectedPerformance, gamesWonBy, winnerSide } from '../lib/rating/levels'
+import { explainPreview } from '../lib/rating/explain'
 import { MATCH_TYPE_LABEL, type Match, type Player, type Settings } from '../types'
 import { GameScores } from './MatchScores'
 import { PlayerAvatar } from './PlayerAvatar'
@@ -98,16 +99,43 @@ export function MatchCard({
   // are returned in player-A-share terms; flip when the viewer was B.
   let perfExpected: number | null = null
   let perfActual: number | null = null
-  if (!m.unranked && leftBefore != null && rightBefore != null) {
-    const expA = expectedPerformance(
-      viewerIsA ? leftBefore : rightBefore,
-      viewerIsA ? rightBefore : leftBefore,
-      settings,
-    )
-    const actA = actualPerformance(m.games, settings)
-    perfExpected = viewerIsA ? expA : 1 - expA
-    perfActual = viewerIsA ? actA : 1 - actA
+  // A-side perspective values for the collapsible explanation. Kept separate
+  // from perfExpected/perfActual which are already viewer-flipped.
+  let aSideExpected: number | null = null
+  let aSideActual: number | null = null
+  if (!m.unranked && m.levelABefore != null && m.levelBBefore != null) {
+    aSideExpected = expectedPerformance(m.levelABefore, m.levelBBefore, settings)
+    aSideActual = actualPerformance(m.games, settings)
+    perfExpected = viewerIsA ? aSideExpected : 1 - aSideExpected
+    perfActual = viewerIsA ? aSideActual : 1 - aSideActual
   }
+  // Plain-English explanation lines, built once when all the inputs are
+  // available. Rendered inside a `<details>` so the card stays tidy by
+  // default but every match offers the "why" on one click.
+  const explainLines = (() => {
+    if (m.unranked) return null
+    if (m.levelABefore == null || m.levelBBefore == null) return null
+    if (m.deltaA == null || m.deltaB == null) return null
+    if (aSideExpected == null || aSideActual == null) return null
+    const playerAByMatch = players.find((p) => p.id === m.playerAId)
+    const playerBByMatch = players.find((p) => p.id === m.playerBId)
+    if (!playerAByMatch || !playerBByMatch) return null
+    return explainPreview({
+      levelA: m.levelABefore,
+      levelB: m.levelBBefore,
+      preview: {
+        deltaA: m.deltaA,
+        deltaB: m.deltaB,
+        expected: aSideExpected,
+        actual: aSideActual,
+      },
+      matchType: m.type,
+      provisionalA: m.provisionalA ?? false,
+      provisionalB: m.provisionalB ?? false,
+      playerAName: playerAByMatch.name,
+      playerBName: playerBByMatch.name,
+    })
+  })()
 
   const ringClass =
     ring === 'amber' ? 'ring-1 ring-amber-200 dark:ring-amber-900/40'
@@ -243,6 +271,18 @@ export function MatchCard({
                 </div>
               )}
               {hint && <div>{hint}</div>}
+              {explainLines && explainLines.length > 0 && (
+                <details className="group">
+                  <summary className="cursor-pointer select-none text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 inline-flex items-center gap-1">
+                    Why these numbers?
+                    <span aria-hidden className="text-slate-400 group-open:hidden">▸</span>
+                    <span aria-hidden className="text-slate-400 hidden group-open:inline">▾</span>
+                  </summary>
+                  <ul className="mt-1.5 space-y-1 list-disc pl-5 text-slate-600 dark:text-slate-300">
+                    {explainLines.map((line, i) => <li key={i}>{line}</li>)}
+                  </ul>
+                </details>
+              )}
             </div>
           ) : null}
 

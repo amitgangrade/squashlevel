@@ -58,6 +58,10 @@ export interface OnboardingInput {
   fullName: string
   email: string
   startingLevel: number
+  /** True when the user picked "I have a SquashLevels.com / LevelTech
+   *  rating" in onboarding. Bypasses the provisional protection from
+   *  match 1 — see openspec/specs/rating/spec.md §Provisional rule. */
+  seededRating: boolean
   phone?: string
   country?: string
   city?: string
@@ -123,6 +127,7 @@ export async function createProfileAndPlayer(
     gender: input.gender ?? null,
     dominant_hand: input.dominantHand ?? null,
     starting_level: input.startingLevel,
+    seeded_rating: input.seededRating,
     is_admin: false, // server trigger flips this for the original owner email
     created_at: new Date().toISOString(),
   }
@@ -179,6 +184,10 @@ export async function updateProfile(profile: Profile): Promise<Profile> {
       gender: profile.gender ?? null,
       dominant_hand: profile.dominantHand ?? null,
       starting_level: profile.startingLevel,
+      // Owner-edit (self) and admin-edit both flow through here. The
+      // `sync_player_from_profile` AFTER UPDATE trigger mirrors this onto
+      // the linked players row.
+      seeded_rating: profile.seededRating ?? false,
     })
     .eq('id', profile.id)
     .select('*')

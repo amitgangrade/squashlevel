@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { useStore } from '../state/store'
 import { fmtLevel, playerAge } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
+import { isProvisional } from '../lib/rating/levels'
 import { filterByTokens, joinHay } from '../lib/search'
 import { EmptyState } from '../components/EmptyState'
 import { UsersIcon } from '../components/Icons'
@@ -84,7 +85,7 @@ export function LeaderboardPage() {
             level,
             ranking,
             played,
-            provisional: played < settings.provisionalThreshold,
+            provisional: isProvisional({ matchesPlayed: played, seededRating: p.seededRating }, settings),
           }
         })
         .sort((a, b) => b.ranking - a.ranking),

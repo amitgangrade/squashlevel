@@ -12,8 +12,9 @@ import {
   type MatchType,
   type Player,
 } from '../types'
-import { gamesWonBy, winnerSide } from '../lib/rating/levels'
+import { gamesWonBy, isProvisional, winnerSide } from '../lib/rating/levels'
 import { updateLevels } from '../lib/rating/update'
+import { explainPreview } from '../lib/rating/explain'
 import { fmtDelta, fmtLevel, todayIso } from '../lib/format'
 import { COUNTRIES, distinctValues } from '../lib/places'
 import { parseProfileFields } from '../lib/profile-validation'
@@ -143,10 +144,22 @@ export function LogMatchPage() {
   const levelA = playerA ? recomputed.states.get(playerA.id)?.currentLevel : undefined
   const levelB = playerB ? recomputed.states.get(playerB.id)?.currentLevel : undefined
   const provisionalA = playerA
-    ? (recomputed.states.get(playerA.id)?.matchesPlayed ?? 0) < settings.provisionalThreshold
+    ? isProvisional(
+        {
+          matchesPlayed: recomputed.states.get(playerA.id)?.matchesPlayed ?? playerA.matchesPlayed,
+          seededRating: playerA.seededRating,
+        },
+        settings,
+      )
     : false
   const provisionalB = playerB
-    ? (recomputed.states.get(playerB.id)?.matchesPlayed ?? 0) < settings.provisionalThreshold
+    ? isProvisional(
+        {
+          matchesPlayed: recomputed.states.get(playerB.id)?.matchesPlayed ?? playerB.matchesPlayed,
+          seededRating: playerB.seededRating,
+        },
+        settings,
+      )
     : false
 
   const preview = useMemo(() => {
@@ -575,6 +588,30 @@ export function LogMatchPage() {
             <div className="mt-2 text-xs text-slate-500">
               Expected perf: {(preview.expected * 100).toFixed(0)}% · Actual: {(preview.actual * 100).toFixed(0)}%
             </div>
+            {levelA != null && levelB != null && (
+              <div className="mt-2 border-t border-brand-200/60 dark:border-brand-900/40 pt-2">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">
+                  Why these numbers?
+                </div>
+                <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1 list-disc pl-5">
+                  {explainPreview({
+                    levelA, levelB,
+                    preview: {
+                      deltaA: preview.deltaA,
+                      deltaB: preview.deltaB,
+                      expected: preview.expected,
+                      actual: preview.actual,
+                    },
+                    matchType: type,
+                    provisionalA, provisionalB,
+                    playerAName: playerA.name,
+                    playerBName: playerB.name,
+                  }).map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 

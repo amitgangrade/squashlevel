@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { fmtLevel } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
+import { isProvisional } from '../lib/rating/levels'
 import { summarizeMatch } from '../lib/match-summary'
 import { Alert } from '../components/Alert'
 import { BackLink } from '../components/BackLink'
@@ -98,7 +99,7 @@ export function GroupProfilePage() {
           level,
           ranking,
           played,
-          provisional: played < settings.provisionalThreshold,
+          provisional: isProvisional({ matchesPlayed: played, seededRating: p.seededRating }, settings),
           isAdmin: isAdminMember,
         }
       })

@@ -1,5 +1,25 @@
 import type { GameScore, Settings } from '../../types'
 
+/**
+ * Provisional rule (per openspec/specs/rating/spec.md §Provisional):
+ *   - Seeded players (registered with an explicit SquashLevels.com /
+ *     LevelTech rating) bypass provisional from match 1 — their level
+ *     is already trustworthy.
+ *   - Everyone else is provisional until `matchesPlayed` reaches the
+ *     `provisionalThreshold`.
+ *
+ * Use this helper everywhere a "is X provisional" check is needed, so
+ * the rule stays in one place if it changes.
+ */
+export function isProvisional(
+  p: { matchesPlayed?: number | null; seededRating?: boolean | null },
+  settings: { provisionalThreshold: number },
+): boolean {
+  if (p.seededRating) return false
+  return (p.matchesPlayed ?? 0) < settings.provisionalThreshold
+}
+
+
 export function pointsRatio(games: GameScore[]): number {
   let a = 0
   let b = 0

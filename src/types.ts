@@ -41,6 +41,11 @@ export const PlayerSchema = z.object({
   // not yet played a rated match — frontend should fall back to startingLevel.
   currentLevel: z.number().optional(),
   matchesPlayed: z.number().int().nonnegative().optional(),
+  // True when the user registered with an explicit SquashLevels.com /
+  // LevelTech rating during onboarding. Seeded players bypass the
+  // provisional protection from match 1 — see
+  // openspec/specs/rating/spec.md §Provisional rule.
+  seededRating: z.boolean().optional(),
 })
 export type Player = z.infer<typeof PlayerSchema>
 
@@ -75,6 +80,10 @@ export const ProfileSchema = z.object({
   gender: Gender.optional(),
   dominantHand: DominantHand.optional(),
   startingLevel: z.number().positive(),
+  // Mirror of players.seeded_rating; the AFTER UPDATE trigger keeps the
+  // two in sync. Set during onboarding based on the "Do you have a
+  // SquashLevels.com rating?" choice.
+  seededRating: z.boolean().optional(),
   isAdmin: z.boolean(),
   createdAt: z.string(),
 })

@@ -23,8 +23,9 @@ interface Props {
  * Admin-only modal for editing another user's profile.
  *
  * Deliberately scoped: full_name, phone, country, city, club, birth_year,
- * gender, dominant_hand, starting_level. Username / email / avatar /
- * is_admin are intentionally NOT exposed here — see
+ * gender, dominant_hand, starting_level, and seeded_rating (the
+ * skip-provisional flag). Username / email / avatar / is_admin are
+ * intentionally NOT exposed here — see
  * openspec/specs/auth-permissions/spec.md §Profile RLS for the rationale.
  *
  * Calls `updateProfile(...)` directly rather than going through
@@ -49,6 +50,7 @@ export function AdminEditProfileModal({ target, onClose, onSaved }: Props) {
   const [gender, setGender] = useState<Gender | ''>(target.gender ?? '')
   const [dominantHand, setDominantHand] = useState<DominantHand | ''>(target.dominantHand ?? '')
   const [startingLevel, setStartingLevel] = useState(String(target.startingLevel))
+  const [seededRating, setSeededRating] = useState<boolean>(target.seededRating ?? false)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -78,6 +80,7 @@ export function AdminEditProfileModal({ target, onClose, onSaved }: Props) {
         gender: gender || undefined,
         dominantHand: dominantHand || undefined,
         startingLevel: lvl,
+        seededRating,
         // Untouchable fields: keep the originals so the same UPDATE statement
         // doesn't silently zero them out.
         // username, email, avatarUrl, isAdmin are preserved by the spread above.
@@ -235,6 +238,25 @@ export function AdminEditProfileModal({ target, onClose, onSaved }: Props) {
               the live level consistent with history.
             </p>
           </div>
+
+          <label className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50/60 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={seededRating}
+              onChange={(e) => setSeededRating(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium">Seeded rating (skip provisional)</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Tick when the player came in with a real SquashLevels.com / LevelTech
+                rating. Seeded players bypass the "(P)" provisional badge and the
+                first-5-matches asymmetric lock. Toggling this on an already-played
+                history needs <strong>Admin → Rebuild levels</strong> to re-derive
+                historical match flags.
+              </span>
+            </span>
+          </label>
 
           {err && <div className="text-sm text-red-600">{err}</div>}
         </div>

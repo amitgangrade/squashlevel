@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { fmtLevel, initialsFor } from '../lib/format'
+import { isProvisional } from '../lib/rating/levels'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { uploadAvatar } from '../lib/supabase/profile'
 import { COUNTRIES, distinctValues } from '../lib/places'
@@ -23,6 +24,12 @@ export function ProfilePage() {
   const [draftGender, setDraftGender] = useState<Gender | ''>(profile?.gender ?? '')
   const [draftHand, setDraftHand] = useState<DominantHand | ''>(profile?.dominantHand ?? '')
   const [draftLevel, setDraftLevel] = useState(String(profile?.startingLevel ?? 1000))
+  // Admin-only field: lets a global admin toggle their own seeded_rating
+  // flag from their own profile (the AdminEditProfileModal on /players/<id>
+  // is gated by `!isMe`, so admins can't self-edit through that path). Per
+  // openspec/specs/rating/spec.md, seeded_rating is set at onboarding or
+  // amended by an admin — never self-set by non-admins.
+  const [draftSeededRating, setDraftSeededRating] = useState<boolean>(profile?.seededRating ?? false)
   const [draftAvatarFile, setDraftAvatarFile] = useState<File | null>(null)
   const [draftAvatarPreview, setDraftAvatarPreview] = useState<string | null>(profile?.avatarUrl ?? null)
   const [cropSrc, setCropSrc] = useState<string | null>(null)
@@ -42,6 +49,7 @@ export function ProfilePage() {
       setDraftGender(profile?.gender ?? '')
       setDraftHand(profile?.dominantHand ?? '')
       setDraftLevel(String(profile?.startingLevel ?? 1000))
+      setDraftSeededRating(profile?.seededRating ?? false)
       setDraftAvatarPreview(profile?.avatarUrl ?? null)
       setDraftAvatarFile(null)
     }
@@ -64,7 +72,10 @@ export function ProfilePage() {
   const state = myPlayer ? recomputed.states.get(myPlayer.id) : undefined
   const currentLevel = state?.currentLevel ?? myPlayer?.startingLevel
   const matchesPlayed = state?.matchesPlayed ?? 0
-  const provisional = matchesPlayed < settings.provisionalThreshold
+  const provisional = isProvisional(
+    { matchesPlayed, seededRating: myPlayer?.seededRating ?? profile.seededRating },
+    settings,
+  )
 
   const initials = initialsFor(profile.fullName)
 
@@ -118,6 +129,10 @@ export function ProfilePage() {
         dominantHand: draftHand || undefined,
         avatarUrl,
         startingLevel: lvl,
+        // Non-admin viewers don't see the toggle, so their draftSeededRating
+        // is whatever the profile already had — round-trips unchanged. Admins
+        // can flip it from this form.
+        seededRating: isAdmin ? draftSeededRating : profile.seededRating,
       })
       setEditing(false)
       setMsg('Saved.')
@@ -286,6 +301,26 @@ export function ProfilePage() {
                 <input inputMode="numeric" className="input w-full" value={draftLevel} onChange={(e) => setDraftLevel(e.target.value)} />
                 <p className="mt-1 text-xs text-slate-500">Note: this is your seed/starting level. Your live level is computed from match history.</p>
               </div>
+              {isAdmin && (
+                <label className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50/60 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={draftSeededRating}
+                    onChange={(e) => setDraftSeededRating(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">Seeded rating (skip provisional)</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Admin-only — tick when you came in with a real SquashLevels.com /
+                      LevelTech rating. Seeded players bypass the "(P)" provisional badge
+                      and the first-5-matches asymmetric lock. After flipping on an
+                      already-played history, run <strong>Admin → Rebuild levels</strong>
+                      so historical match flags re-derive.
+                    </span>
+                  </span>
+                </label>
+              )}
               {err && <Alert variant="error">{err}</Alert>}
               <div className="flex gap-2">
                 <button className="btn-primary" onClick={onSave} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>

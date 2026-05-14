@@ -1,4 +1,5 @@
 import type { Match, Player, Settings } from '../../types'
+import { isProvisional } from './levels'
 import { updateLevels } from './update'
 
 export interface PlayerState {
@@ -47,6 +48,15 @@ export function recomputeAll(
     // the rating model. We pass them through with zero deltas and no level
     // change so the UI can render them in match feeds without affecting any
     // player's level trajectory.
+    const provisionalA = isProvisional(
+      { matchesPlayed: a.matchesPlayed, seededRating: a.player.seededRating },
+      settings,
+    )
+    const provisionalB = isProvisional(
+      { matchesPlayed: b.matchesPlayed, seededRating: b.player.seededRating },
+      settings,
+    )
+
     if (m.unranked) {
       enriched.push({
         ...m,
@@ -56,14 +66,11 @@ export function recomputeAll(
         levelBAfter: b.currentLevel,
         deltaA: 0,
         deltaB: 0,
-        provisionalA: a.matchesPlayed < settings.provisionalThreshold,
-        provisionalB: b.matchesPlayed < settings.provisionalThreshold,
+        provisionalA,
+        provisionalB,
       })
       continue
     }
-
-    const provisionalA = a.matchesPlayed < settings.provisionalThreshold
-    const provisionalB = b.matchesPlayed < settings.provisionalThreshold
 
     const upd = updateLevels({
       levelA: a.currentLevel,

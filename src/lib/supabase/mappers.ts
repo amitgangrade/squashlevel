@@ -21,6 +21,7 @@ export interface PlayerRow {
   // them and Supabase's upsert leaves the existing column values intact.
   current_level?: number | null
   matches_played?: number | null
+  seeded_rating?: boolean | null
 }
 
 export interface ProfileRow {
@@ -37,6 +38,9 @@ export interface ProfileRow {
   gender: 'male' | 'female' | null
   dominant_hand: 'right' | 'left' | 'ambi' | null
   starting_level: number
+  // Source-of-truth for the seeded-rating exemption from provisional. The
+  // sync_player_from_profile trigger mirrors this to players.seeded_rating.
+  seeded_rating?: boolean | null
   is_admin: boolean
   created_at: string
 }
@@ -90,6 +94,7 @@ export const fromPlayerRow = (r: PlayerRow): Player => ({
   dominantHand: r.dominant_hand ?? undefined,
   currentLevel: r.current_level != null ? Number(r.current_level) : undefined,
   matchesPlayed: r.matches_played ?? undefined,
+  seededRating: r.seeded_rating ?? undefined,
 })
 
 export const toPlayerRow = (p: Player): PlayerRow => ({
@@ -124,6 +129,7 @@ export const toProfileRow = (p: import('../../types').Profile): ProfileRow => ({
   gender: p.gender ?? null,
   dominant_hand: p.dominantHand ?? null,
   starting_level: p.startingLevel,
+  seeded_rating: p.seededRating ?? false,
   is_admin: p.isAdmin,
   created_at: p.createdAt,
 })
@@ -142,6 +148,7 @@ export const fromProfileRow = (r: ProfileRow): import('../../types').Profile => 
   gender: r.gender ?? undefined,
   dominantHand: r.dominant_hand ?? undefined,
   startingLevel: Number(r.starting_level),
+  seededRating: r.seeded_rating ?? undefined,
   isAdmin: r.is_admin,
   createdAt: r.created_at,
 })

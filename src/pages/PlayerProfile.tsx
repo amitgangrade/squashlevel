@@ -13,7 +13,7 @@ import {
 import { useStore } from '../state/store'
 import { fmtDate, fmtLevel, playerAge } from '../lib/format'
 import { movingAverage } from '../lib/rating/recompute'
-import { gamesWonBy, winnerSide } from '../lib/rating/levels'
+import { gamesWonBy, isProvisional, winnerSide } from '../lib/rating/levels'
 import { fetchProfile } from '../lib/supabase/profile'
 import { AdminEditProfileModal } from '../components/AdminEditProfileModal'
 import { Alert } from '../components/Alert'
@@ -279,7 +279,7 @@ export function PlayerProfilePage() {
     player.matchesPlayed ?? 0,
     state?.matchesPlayed ?? 0,
   )
-  const provisional = matchesPlayed < settings.provisionalThreshold
+  const provisional = isProvisional({ matchesPlayed, seededRating: player.seededRating }, settings)
   const ranking = state && state.history.length > 1
     ? movingAverage(state.history, settings.movingAverageWindow)
     : currentLevel

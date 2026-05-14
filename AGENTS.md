@@ -105,6 +105,24 @@ end-to-end.
 
 ---
 
+## Provisional is `matchesPlayed < threshold AND NOT seededRating`
+
+Players who registered with an explicit SquashLevels.com / LevelTech
+rating ("I have a rating" in onboarding) get `seeded_rating = true` on
+both profile + player rows and are **never provisional** — they
+participate in symmetric updates from match 1.
+
+Use `isProvisional(player, settings)` from
+[`src/lib/rating/levels.ts`](src/lib/rating/levels.ts) **everywhere** —
+never reach for the raw `matchesPlayed < provisionalThreshold` check.
+The helper also handles the cloud-lazy-load case where `matchesPlayed`
+is null. Mirrored server-side in `rebuild_levels_chunk` (the plpgsql
+twin); if you tweak the formula in one place, update the other.
+
+See [`openspec/specs/rating/spec.md` §Provisional](openspec/specs/rating/spec.md).
+
+---
+
 ## Desktop nav: admin entries live in the "Admin ▾" dropdown
 
 The desktop top nav fits four primary tabs (Leaderboard / Clubs /
@@ -161,7 +179,8 @@ their other scope overlap. See
 The "Edit profile (admin)" button on a `/players/:id` page (for claimed
 players, when viewer is global admin and isn't the target) opens
 `AdminEditProfileModal`. It edits `full_name`, `phone`, `country`, `city`,
-`club`, `birth_year`, `gender`, `dominant_hand`, `starting_level` only.
+`club`, `birth_year`, `gender`, `dominant_hand`, `starting_level`, and
+`seeded_rating` (the skip-provisional flag).
 
 Deliberately **not** editable by admin:
 - `username` — backs shareable URLs.

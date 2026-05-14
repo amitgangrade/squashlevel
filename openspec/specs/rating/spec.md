@@ -88,20 +88,53 @@ Default `dampingK = 0.12`. The update SHALL be **multiplicative on level**, not 
 
 ### Requirement: Provisional players
 
-A player SHALL be considered **provisional** until they have played `settings.provisionalThreshold` (default 5) confirmed matches. When exactly one of the two players is provisional, the non-provisional player's level MUST NOT change for that match — only the provisional player's level updates. This protects established players from rating noise while a newcomer's level is still finding its true value.
+A player SHALL be considered **provisional** when BOTH of these hold:
+1. `matchesPlayed < settings.provisionalThreshold` (default 5), AND
+2. `seededRating` is FALSE — i.e. they did NOT register with an explicit
+   SquashLevels.com / LevelTech rating.
+
+Seeded players (registered with an explicit external rating) are
+**never provisional** — their starting level is already trustworthy, so
+they participate in symmetric level updates from match 1.
+
+When exactly one of the two players is provisional, the non-provisional player's level MUST NOT change for that match — only the provisional player's level updates. This protects established players from rating noise while a newcomer's level is still finding its true value.
 
 When both players are provisional, both levels update normally.
 
-#### Scenario: Provisional newcomer plays an established player
-- **WHEN** A has `matchesPlayed < provisionalThreshold` and B has `matchesPlayed >= provisionalThreshold`
-- **THEN** after the match A's level updates per the formula but B's level is unchanged
+The `seeded_rating` flag SHALL be set during onboarding based on the
+user's "Do you have a SquashLevels.com rating?" choice, persisted on
+both `profiles` and `players` (the `sync_player_from_profile` AFTER
+UPDATE trigger keeps them in sync), and respected by both the live
+match-insert path and `rebuild_levels_chunk`. A global admin MAY
+amend the flag for any profile via the **Edit profile (admin)** modal
+on a player profile page — useful for backfilling players who
+registered before the flag existed, or correcting an obvious onboarding
+mis-pick. Toggling the flag does NOT automatically re-derive historical
+match `provisional_a/b` columns; running **Admin → Rebuild levels**
+afterwards is required to keep history consistent with the new flag.
 
-#### Scenario: Both provisional
-- **WHEN** both players have `matchesPlayed < provisionalThreshold`
+#### Scenario: Unseeded newcomer plays an established player
+- **WHEN** A has `matchesPlayed < provisionalThreshold` and `seededRating = false`, and B has `matchesPlayed >= provisionalThreshold`
+- **THEN** after the match A's level updates per the formula but B's level is unchanged (A is provisional, B is not)
+
+#### Scenario: Seeded player from match 1
+- **WHEN** a brand-new player has `matchesPlayed = 0` but `seededRating = true` (they entered their SquashLevels rating at signup), and they play any opponent
+- **THEN** both players' levels update symmetrically — the seeded player is NOT treated as provisional, so neither side's level is locked on that account
+
+#### Scenario: Both provisional (both unseeded, both under threshold)
+- **WHEN** both players have `matchesPlayed < provisionalThreshold` and `seededRating = false`
 - **THEN** both levels update normally
 
+#### Scenario: Stub claimed at signup inherits the user's seeded choice
+- **WHEN** an unclaimed stub (created via `create_unclaimed_player`, `seeded_rating = false`) is claimed by a real signup whose profile has `seeded_rating = true`
+- **THEN** `ensure_player_for_profile` overwrites the claimed player's `seeded_rating` with the profile's value (TRUE), so the user is non-provisional from their next confirmed match
+
+#### Scenario: Admin backfills seeded_rating for a pre-existing player
+- **WHEN** a global admin opens the **Edit profile (admin)** modal for a user who registered before the flag existed, ticks "Seeded rating (skip provisional)", and saves
+- **THEN** `profiles.seeded_rating` flips to `true`; the `sync_player_from_profile` trigger mirrors it onto the linked players row; the next match that user plays uses the new flag in its provisional computation. Historical `matches.provisional_a/b` flags are NOT automatically re-derived — the admin SHOULD run **Admin → Rebuild levels** afterwards to bring history in line with the new flag value.
+
 #### Scenario: Provisional threshold reached mid-recompute
-- **WHEN** during `recomputeAll`, player A crosses `provisionalThreshold` after match #5
+- **WHEN** during `recomputeAll`, player A (unseeded) crosses `provisionalThreshold` after match #5
 - **THEN** match #5 is processed with A still treated as provisional (the count is read BEFORE the update); match #6 sees A as non-provisional
 
 ---

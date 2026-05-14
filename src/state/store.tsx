@@ -6,6 +6,7 @@ import type { Challenge, Match, Player, Profile, Settings } from '../types'
 import { DEFAULT_SETTINGS } from '../types'
 import { backend } from '../lib/storage/backend'
 import { recomputeAll, type RecomputeResult } from '../lib/rating/recompute'
+import { isProvisional } from '../lib/rating/levels'
 import { updateLevels } from '../lib/rating/update'
 import { supabase, supabaseEnabled } from '../lib/supabase/client'
 import { fromMatchRow, type MatchRow } from '../lib/supabase/mappers'
@@ -429,8 +430,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const b = players.find((p) => p.id === data.playerBId)
     const levelA = a?.currentLevel ?? a?.startingLevel
     const levelB = b?.currentLevel ?? b?.startingLevel
-    const provisionalA = (a?.matchesPlayed ?? 0) < settings.provisionalThreshold
-    const provisionalB = (b?.matchesPlayed ?? 0) < settings.provisionalThreshold
+    const provisionalA = isProvisional(
+      { matchesPlayed: a?.matchesPlayed, seededRating: a?.seededRating },
+      settings,
+    )
+    const provisionalB = isProvisional(
+      { matchesPlayed: b?.matchesPlayed, seededRating: b?.seededRating },
+      settings,
+    )
 
     let enrichment: Pick<
       Match,

@@ -3,6 +3,7 @@ import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { fmtLevel, playerAge } from '../lib/format'
+import { isProvisional } from '../lib/rating/levels'
 import { COUNTRIES, distinctValues } from '../lib/places'
 import { parseProfileFields } from '../lib/profile-validation'
 import { filterByTokens, joinHay } from '../lib/search'
@@ -313,7 +314,7 @@ export function RosterPage() {
                   const s = recomputed.states.get(p.id)
                   const currentLevel = p.currentLevel ?? s?.currentLevel ?? p.startingLevel
                   const matchesPlayed = p.matchesPlayed ?? s?.matchesPlayed ?? 0
-                  const prov = matchesPlayed < settings.provisionalThreshold
+                  const prov = isProvisional({ matchesPlayed, seededRating: p.seededRating }, settings)
                   const age = playerAge(p.birthYear)
                   return (
                     <tr key={p.id} className="border-t border-slate-100 dark:border-slate-800">

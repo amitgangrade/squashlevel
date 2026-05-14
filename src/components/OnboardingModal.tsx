@@ -143,6 +143,10 @@ export function OnboardingModal() {
         fullName: fullName.trim(),
         email: email.trim(),
         startingLevel: lvl,
+        // Seeded only when the user explicitly picked "I have a rating".
+        // The "I don't have one yet" branch saves 1000 and stays
+        // provisional-eligible until they've played enough matches.
+        seededRating: hasExistingRating === 'yes',
         phone: phone.trim() || undefined,
         country: parsed.values.country,
         city: parsed.values.city,
