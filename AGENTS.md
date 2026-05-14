@@ -105,6 +105,28 @@ end-to-end.
 
 ---
 
+## `can_write_match` and the three admin tiers
+
+The SQL helper `public.can_write_match(uid, p_a, p_b)` returns TRUE when
+any of the following is true:
+1. `uid` is a global admin (`is_admin(uid)`).
+2. `uid` is a club admin for at least one of the two players' clubs.
+3. `uid` administers a group that contains BOTH `p_a` and `p_b` as
+   members (`is_group_admin_for_pair`).
+
+This single helper powers the matches UPDATE / DELETE / INSERT RLS
+policies AND the `confirm_match` SECURITY DEFINER RPC override, so a
+single edit in SQL propagates everywhere.
+
+Client mirror: `canWriteMatch` in the store implements the same three
+branches. It reads `myClubAdminSlugs` (string[]) and
+`myGroupAdminScope` (Map<groupId, Set<playerId>>) which are fetched
+once on profile load via `fetchMyClubAdminSlugs` /
+`fetchMyGroupAdminScope`. If you add a fourth tier, update both the
+SQL helper and the client `canWriteMatch` — they MUST agree.
+
+---
+
 ## Provisional is `matchesPlayed < threshold AND NOT seededRating`
 
 Players who registered with an explicit SquashLevels.com / LevelTech

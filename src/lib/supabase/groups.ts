@@ -48,6 +48,32 @@ export async function listGroupsForPlayer(playerId: string): Promise<Group[]> {
 }
 
 /**
+ * For each group the current user administers, the set of player IDs in
+ * that group. Powers the client-side mirror of `is_group_admin_for_pair`
+ * — `canWriteMatch` returns true when both participants share a group I
+ * admin, so the Edit / Delete buttons can render without round-tripping
+ * to the server first. RLS still enforces the rule on the actual write.
+ *
+ * Empty for users who don't admin any group.
+ */
+export async function fetchMyGroupAdminScope(): Promise<Map<string, Set<string>>> {
+  const sb = supabase!
+  const { data, error } = await sb.rpc('list_my_group_admin_scope')
+  if (error) throw error
+  const rows = (data ?? []) as Array<{ group_id: string; player_id: string }>
+  const out = new Map<string, Set<string>>()
+  for (const r of rows) {
+    let set = out.get(r.group_id)
+    if (!set) {
+      set = new Set()
+      out.set(r.group_id, set)
+    }
+    set.add(r.player_id)
+  }
+  return out
+}
+
+/**
  * Map of group_id → is_admin for the given player, fetched in one round-trip.
  * Used by the Groups index to tag each card with the viewer's relationship
  * (admin / member / public / private-admin-view).

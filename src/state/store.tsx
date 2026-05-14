@@ -19,6 +19,7 @@ import {
   type OnboardingInput,
 } from '../lib/supabase/profile'
 import { clubSlug, fetchMyClubAdminSlugs } from '../lib/supabase/clubs'
+import { fetchMyGroupAdminScope } from '../lib/supabase/groups'
 import { fetchChallenges as fetchChallengesApi } from '../lib/supabase/challenges'
 
 interface StoreCtx {
@@ -102,6 +103,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [myPlayer, setMyPlayer] = useState<Player | null>(null)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [myClubAdminSlugs, setMyClubAdminSlugs] = useState<string[]>([])
+  // Map<groupId, Set<playerId>> for every group the signed-in user
+  // administers. Powers canWriteMatch's group-admin branch — RLS still
+  // enforces the rule server-side, but mirroring it locally lets the UI
+  // gate Edit/Delete buttons without a round-trip.
+  const [myGroupAdminScope, setMyGroupAdminScope] = useState<Map<string, Set<string>>>(new Map())
   const [challenges, setChallenges] = useState<Challenge[]>([])
   // user_id -> profile.username, fetched once on mount. Used to render
   // human-readable URLs like /players/amit instead of /players/{uuid}.
@@ -142,11 +148,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         console.warn('club admin slugs load failed', err)
         return [] as string[]
       }),
+      fetchMyGroupAdminScope().catch((err) => {
+        console.warn('group admin scope load failed', err)
+        return new Map<string, Set<string>>()
+      }),
     ])
-      .then(([p, pl, slugs]) => {
+      .then(([p, pl, slugs, groupScope]) => {
         setProfile(p)
         setMyPlayer(pl)
         setMyClubAdminSlugs(slugs)
+        setMyGroupAdminScope(groupScope)
       })
       .catch((err) => console.error('profile load failed', err))
       .finally(() => setProfileLoaded(true))
@@ -321,11 +332,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const canWriteMatch: StoreCtx['canWriteMatch'] = (m) => {
     if (isAdmin) return true
+    // Club admin path: caller administers either participant's club.
     const a = players.find((p) => p.id === m.playerAId)
     const b = players.find((p) => p.id === m.playerBId)
     for (const side of [a, b]) {
       const slug = clubSlug(side?.club ?? '')
       if (slug && myClubAdminSlugs.includes(slug)) return true
+    }
+    // Group admin path: caller administers a group that contains BOTH
+    // participants. Mirrors the SQL `is_group_admin_for_pair` helper used
+    // by the matches RLS policies and confirm_match override.
+    for (const memberSet of myGroupAdminScope.values()) {
+      if (memberSet.has(m.playerAId) && memberSet.has(m.playerBId)) return true
     }
     return false
   }

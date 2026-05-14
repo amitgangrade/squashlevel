@@ -132,9 +132,13 @@ Setting `unranked = true` on a match SHALL cause it to be recorded for history (
 
 ### Requirement: Match writes restricted to RPCs and admins for state changes
 
-Direct UPDATE on `matches` by participants MUST be blocked (RLS); the only sanctioned state transitions for non-admins are via `confirm_match`. This prevents an opponent from silently rewriting a recorded score. See `auth-permissions` for the RLS specifics.
+Direct UPDATE on `matches` by participants MUST be blocked (RLS); the only sanctioned state transitions for non-admins are via `confirm_match`. This prevents an opponent from silently rewriting a recorded score. Group admins MAY update or delete matches where both participants are members of a group they administer (see `auth-permissions` for the RLS specifics + the `is_group_admin_for_pair` predicate); the same predicate also extends the `confirm_match` override to group admins acting on within-group matches.
 
 #### Scenario: Participant tries to fix a typo via UPDATE
 - **WHEN** a non-admin participant runs `UPDATE matches SET games = ... WHERE id = ...`
-- **THEN** RLS rejects the update; the participant must ask an admin or club admin to make the correction
+- **THEN** RLS rejects the update; the participant must ask a global admin, a qualifying club admin, or a group admin of a group containing both players to make the correction
+
+#### Scenario: Group admin confirms an internal group match
+- **WHEN** a group admin (not a participant, not a global / club admin) calls `confirm_match(id)` for a match where both `player_a_id` and `player_b_id` are members of a group they administer
+- **THEN** the RPC accepts the call (via `can_write_match` extended with `is_group_admin_for_pair`); `status` becomes `confirmed`, `confirmed_at = now()`, `auto_confirmed = false` (explicit admin action)
 

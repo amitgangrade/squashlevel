@@ -152,8 +152,10 @@ After any player deletion, opponents' `current_level` and `matches_played` becom
 `public.matches` SHALL have RLS enabled with:
 - **Read**: anyone MAY select any match.
 - **Insert**: a global admin MAY insert any match; a non-admin MAY insert only if their `auth.uid()` matches the `user_id` of either `player_a_id` or `player_b_id`; a **club admin** for the club of either participant MAY insert.
-- **Update**: a global admin OR a club admin for either participant's club MAY update. Regular participants MAY NOT update a match (so opponents cannot silently rewrite history); they confirm or dispute via the `confirm_match` RPC instead — see the `match-recording` capability.
-- **Delete**: a global admin OR a club admin for either participant's club MAY delete.
+- **Update**: a global admin OR a club admin for either participant's club OR a **group admin** of a group containing BOTH participants MAY update. Regular participants MAY NOT update a match (so opponents cannot silently rewrite history); they confirm or dispute via the `confirm_match` RPC instead — see the `match-recording` capability.
+- **Delete**: a global admin OR a club admin for either participant's club OR a **group admin** of a group containing BOTH participants MAY delete.
+
+The matches RLS policies use the `can_write_match(uid, p_a, p_b)` SECURITY DEFINER helper, which combines all three branches above (global / club-admin / group-admin) into one predicate. The group-admin branch is backed by `is_group_admin_for_pair(uid, p_a, p_b)` — TRUE iff `uid` admins at least one group that contains BOTH `p_a` and `p_b` as members. A match between two players who share NO group the caller admins falls back to the club / global branches only.
 
 The `matches_before_insert` trigger SHALL stamp `created_by = auth.uid()` and reject inserts where the recorder cannot be resolved to a participant (and is not an admin).
 
@@ -166,8 +168,16 @@ The `matches_before_insert` trigger SHALL stamp `created_by = auth.uid()` and re
 - **THEN** RLS (and the trigger) reject the insert
 
 #### Scenario: Non-admin tries to edit or delete a match
-- **WHEN** a non-admin attempts an UPDATE or DELETE on `matches`
+- **WHEN** a non-admin (no global / club / group-pair authority) attempts an UPDATE or DELETE on `matches`
 - **THEN** RLS rejects it regardless of whether the user was a participant
+
+#### Scenario: Group admin edits a match between two of their members
+- **WHEN** a user who admins group G attempts UPDATE on a match where both `player_a_id` AND `player_b_id` are members of G
+- **THEN** `is_group_admin_for_pair` returns TRUE → `can_write_match` returns TRUE → RLS permits the update
+
+#### Scenario: Group admin tries to edit a match with one outside player
+- **WHEN** the same user attempts UPDATE on a match where only one of the participants is a member of any group they admin
+- **THEN** `is_group_admin_for_pair` returns FALSE; unless the caller is also a global / club admin for that pair, RLS rejects
 
 ---
 

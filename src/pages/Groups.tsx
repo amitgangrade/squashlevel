@@ -83,8 +83,15 @@ export function GroupsPage() {
       </div>
       <p className="text-sm text-slate-500">
         Groups are casual circles of players who play often — your WhatsApp/Telegram squash crew.
-        Anyone can start a group and automatically becomes its admin; admins add members and can
-        promote other members to admin too.
+        Anyone can start a group and automatically becomes its admin.
+      </p>
+      <p className="text-sm text-slate-500">
+        <span className="font-medium text-slate-700 dark:text-slate-300">Group admins</span> can
+        rename the group, edit its description, toggle private/public, add or remove members,
+        promote other members to admin (or demote them), and delete the group entirely. They can
+        also edit, delete, or confirm matches where <em>both</em> players are members of the
+        group. Group admin status is scoped to that one group — it grants no rights over
+        players, matches with outside participants, or other groups.
       </p>
 
       {isAdmin && groups.some((g) => g.isPrivate && !roles.has(g.id)) && (

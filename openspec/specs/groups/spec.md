@@ -49,6 +49,10 @@ A user SHALL be considered a **group admin** of group `G` iff: (a) they are a gl
 
 Only group admins MAY edit the group's name/description/visibility, add or remove members, or promote/demote member admin status — all via dedicated RPCs (`update_group`, `delete_group`, `add_group_member`, `remove_group_member`). Direct table writes by non-admins MUST be blocked by RLS.
 
+Group admins additionally MAY update, delete, or confirm matches where **both** participants are members of the group they administer. This is encoded in the `can_write_match` SQL helper via `is_group_admin_for_pair(uid, p_a, p_b)`, and surfaced through the same matches RLS policies + `confirm_match` override that govern global / club admins. See [`auth-permissions/spec.md` §Match RLS](../auth-permissions/spec.md) and [`match-recording/spec.md`](../match-recording/spec.md).
+
+Group admin authority does NOT extend to: editing players (player edits are global / club / self), matches with even one outside participant, other groups, or settings. The authority is per-group and scoped to within-group activity.
+
 #### Scenario: Member promotes another member
 - **WHEN** a group admin calls `add_group_member(g, p, true)` against an existing member row
 - **THEN** the existing row's `is_admin` flag is upserted to `true`
@@ -56,6 +60,14 @@ Only group admins MAY edit the group's name/description/visibility, add or remov
 #### Scenario: Non-admin tries to add a member
 - **WHEN** a group member who is not a group admin calls `add_group_member(...)`
 - **THEN** the RPC raises `group admin only`
+
+#### Scenario: Group admin edits an internal-group match
+- **WHEN** a group admin updates or deletes a `matches` row whose `player_a_id` and `player_b_id` are both members of the group they administer
+- **THEN** RLS permits the write because `can_write_match` returns TRUE via `is_group_admin_for_pair`
+
+#### Scenario: Group admin tries to edit a match with an outside player
+- **WHEN** the same group admin attempts UPDATE on a match where only one participant is a member of any group they administer
+- **THEN** RLS rejects (no path through `can_write_match` for that pair, unless they're also a global / club admin)
 
 ---
 
