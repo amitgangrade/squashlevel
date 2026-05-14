@@ -13,7 +13,7 @@ import { PlayerAvatar } from './PlayerAvatar'
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 export function OnboardingModal() {
-  const { session, completeOnboarding, players } = useStore()
+  const { session, completeOnboarding, signOut, players } = useStore()
   const cityOptions = useMemo(() => distinctValues(players, 'city'), [players])
   const clubOptions = useMemo(() => distinctValues(players, 'club'), [players])
   const initialName =
@@ -172,9 +172,24 @@ export function OnboardingModal() {
   return (
     <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 sm:bg-slate-950/60 sm:dark:bg-slate-950/80 sm:grid sm:place-items-center sm:p-4 overflow-hidden">
       <div className="flex h-full sm:h-auto sm:max-h-[90vh] w-full sm:max-w-md flex-col bg-white dark:bg-slate-950 sm:rounded-lg sm:border sm:border-slate-200 sm:dark:border-slate-800 sm:shadow-2xl">
-        <div className="px-4 sm:px-6 pt-4 sm:pt-6 pt-safe shrink-0">
-          <h2 className="text-xl sm:text-lg font-semibold">Welcome to Boast</h2>
-          <p className="text-sm text-slate-500">A few details to set up your profile. Boast is free, forever.</p>
+        <div className="px-4 sm:px-6 pt-4 sm:pt-6 pt-safe shrink-0 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-xl sm:text-lg font-semibold">Welcome to Boast</h2>
+            <p className="text-sm text-slate-500">A few details to set up your profile. Boast is free, forever.</p>
+          </div>
+          {/* Escape valve. Per openspec/specs/auth-permissions/spec.md the
+              modal blocks the rest of the UI until the profile is created,
+              so the header's "Sign out" button is unreachable. Without this
+              link a user who can't (or doesn't want to) complete onboarding
+              has no in-app way to back out — they'd have to clear cookies. */}
+          <button
+            type="button"
+            onClick={() => { signOut().catch((e) => console.warn('sign out failed', e)) }}
+            className="shrink-0 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 underline whitespace-nowrap"
+            disabled={busy}
+          >
+            Sign out
+          </button>
         </div>
 
         <form onSubmit={onSubmit} className="flex-1 flex flex-col min-h-0">
