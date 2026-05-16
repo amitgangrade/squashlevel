@@ -143,6 +143,33 @@ export function LogMatchPage() {
 
   const levelA = playerA ? recomputed.states.get(playerA.id)?.currentLevel : undefined
   const levelB = playerB ? recomputed.states.get(playerB.id)?.currentLevel : undefined
+
+  // Backdated-match guard rails (see openspec/specs/match-recording §Match
+  // date validation). The server trigger is the authority; this is UX
+  // courtesy so users see the constraint before submitting.
+  const today = todayIso()
+  const dateFloor = (() => {
+    const a = playerA?.createdAt?.slice(0, 10)
+    const b = playerB?.createdAt?.slice(0, 10)
+    if (a && b) return a > b ? a : b
+    return a ?? b ?? undefined
+  })()
+  const lastMatchDateFor = (p: Player | null): string | undefined => {
+    if (!p) return undefined
+    const hist = recomputed.states.get(p.id)?.history ?? []
+    let latest: string | undefined
+    for (const entry of hist) {
+      if (entry.matchId === 'start') continue
+      if (!latest || entry.date > latest) latest = entry.date
+    }
+    return latest
+  }
+  const lastA = lastMatchDateFor(playerA)
+  const lastB = lastMatchDateFor(playerB)
+  const willReorderHistory =
+    !!(lastA && date < lastA) || !!(lastB && date < lastB)
+  const dateOutOfRange =
+    (!!dateFloor && date < dateFloor) || date > today
   const provisionalA = playerA
     ? isProvisional(
         {
@@ -203,6 +230,13 @@ export function LogMatchPage() {
     setError('')
     if (!playerA || !playerB) return setError('Select both players')
     if (playerA.id === playerB.id) return setError('Players must be different')
+    if (date > today) return setError('Match date is in the future')
+    if (dateFloor && date < dateFloor) {
+      return setError(
+        `Match date precedes when one of the players joined Boast (${dateFloor}). ` +
+          `Pick a date on or after ${dateFloor}.`,
+      )
+    }
     const clean = scores.filter((g) => g.a > 0 || g.b > 0)
     if (clean.length === 0) return setError('Enter at least one game score')
     try {
@@ -443,7 +477,27 @@ export function LogMatchPage() {
           </div>
           <div>
             <label className="label label-required">Date</label>
-            <input type="date" className="input w-full" value={date} onChange={(e) => setDate(e.target.value)} required />
+            <input
+              type="date"
+              className="input w-full"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              min={dateFloor}
+              max={today}
+              required
+            />
+            {dateOutOfRange ? (
+              <p className="mt-1 text-xs text-red-600">
+                {date > today
+                  ? 'Match date is in the future.'
+                  : `Match date precedes when one of the players joined Boast (${dateFloor}).`}
+              </p>
+            ) : willReorderHistory ? (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                This is older than a more recent match — saving will reorder match history and levels
+                will need rebuilding (admins see a banner).
+              </p>
+            ) : null}
           </div>
           <div>
             <label className="label">Match type</label>

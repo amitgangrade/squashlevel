@@ -77,6 +77,12 @@ alter table public.players add column if not exists dominant_hand text;
 alter table public.players add column if not exists current_level numeric;
 alter table public.players add column if not exists matches_played integer not null default 0;
 
+-- Flagged when a backdated/non-latest match mutation has happened since the
+-- last full rebuild, signalling that this player's historical match snapshots
+-- (and potentially current_level) may be stale. Cleared by rebuild_levels_finalize.
+-- See migration 2026-05-14-backdated-match-handling.sql.
+alter table public.players add column if not exists levels_stale boolean not null default false;
+
 -- Trigram index for fast ilike search at scale (tens of thousands of players).
 create extension if not exists pg_trgm;
 create index if not exists players_name_trgm_idx on public.players using gin (name gin_trgm_ops);
@@ -655,6 +661,146 @@ create trigger matches_after_levels
   after insert or update or delete on public.matches
   for each row execute function public.matches_after_levels();
 
+-- ---------------------------------------------------------------------------
+-- Split of responsibility between the two AFTER triggers on matches:
+--   matches_after_levels:        applies/reverts the incremental level
+--                                delta on `players.current_level` +
+--                                `matches_played`. CORRECT for the common
+--                                "latest-dated insert" case.
+--   matches_after_date_reorder:  detects when the mutation is NOT strictly
+--                                the latest-dated confirmed match for both
+--                                participants and flags `players.levels_stale`.
+--                                Admins resolve staleness by running the
+--                                full "Rebuild levels" action.
+-- See migration 2026-05-14-backdated-match-handling.sql and
+-- openspec/specs/match-recording/spec.md §Persisted match level columns.
+-- ---------------------------------------------------------------------------
+
+-- matches_validate_date: BEFORE INSERT/UPDATE trigger that rejects matches
+-- dated outside [max(players.created_at::date), current_date]. Grandfather
+-- guard skips the check on UPDATEs that don't change `date`.
+create or replace function public.matches_validate_date()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  a_created date;
+  b_created date;
+  floor_date date;
+begin
+  if tg_op = 'UPDATE' and new.date = old.date then
+    return new;
+  end if;
+
+  if new.date > current_date then
+    raise exception 'match date is in the future (got %, today is %)',
+      new.date, current_date;
+  end if;
+
+  select created_at::date into a_created from public.players where id = new.player_a_id;
+  select created_at::date into b_created from public.players where id = new.player_b_id;
+
+  if a_created is null or b_created is null then
+    return new; -- let FK violation surface the real error
+  end if;
+
+  floor_date := greatest(a_created, b_created);
+  if new.date < floor_date then
+    raise exception 'match date precedes participant''s created_at (date=%, floor=%)',
+      new.date, floor_date;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists matches_validate_date on public.matches;
+create trigger matches_validate_date
+  before insert or update on public.matches
+  for each row execute function public.matches_validate_date();
+
+-- is_latest_match_date: helper used by matches_after_date_reorder. True iff
+-- `the_date` is strictly the latest confirmed-match date for `player_id`
+-- across the matches table, excluding `exclude_match_id` (use NULL to
+-- check globally).
+create or replace function public.is_latest_match_date(
+  the_date date,
+  player_id uuid,
+  exclude_match_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select not exists (
+    select 1
+      from public.matches m
+     where (m.player_a_id = player_id or m.player_b_id = player_id)
+       and (m.status = 'confirmed' or m.status is null)
+       and (exclude_match_id is null or m.id <> exclude_match_id)
+       and m.date >= the_date
+  );
+$$;
+
+grant execute on function public.is_latest_match_date(date, uuid, uuid) to authenticated;
+
+-- matches_after_date_reorder: flag players.levels_stale when a confirmed
+-- match mutation is not strictly the latest for both participants. See
+-- design.md Decision 2 for why this is a flag-only approach (transitive
+-- correctness of a scoped recompute makes synchronous recompute on the
+-- trigger path infeasible).
+create or replace function public.matches_after_date_reorder()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  effective_date date;
+  a_id uuid;
+  b_id uuid;
+  exclude_id uuid;
+  is_rated_now boolean;
+  was_rated boolean;
+begin
+  if tg_op = 'DELETE' then
+    was_rated := (old.status = 'confirmed') and not coalesce(old.unranked, false);
+    if not was_rated then return old; end if;
+    effective_date := old.date;
+    a_id := old.player_a_id;
+    b_id := old.player_b_id;
+    exclude_id := old.id;
+  else
+    is_rated_now := (new.status = 'confirmed') and not coalesce(new.unranked, false);
+    if not is_rated_now then return new; end if;
+    effective_date := new.date;
+    a_id := new.player_a_id;
+    b_id := new.player_b_id;
+    exclude_id := new.id;
+  end if;
+
+  if public.is_latest_match_date(effective_date, a_id, exclude_id)
+     and public.is_latest_match_date(effective_date, b_id, exclude_id) then
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+
+  update public.players
+     set levels_stale = true
+   where id in (a_id, b_id);
+
+  if tg_op = 'DELETE' then return old; else return new; end if;
+end;
+$$;
+
+drop trigger if exists matches_after_date_reorder on public.matches;
+create trigger matches_after_date_reorder
+  after insert or update or delete on public.matches
+  for each row execute function public.matches_after_date_reorder();
+
 -- Backfill on first migration: any existing rows where players.current_level
 -- is still NULL should fall back to starting_level on read. Frontend handles
 -- the fallback, so nothing to do here; run the admin "Rebuild levels" action
@@ -1106,9 +1252,12 @@ begin
   if not public.is_admin(auth.uid()) then
     raise exception 'admin only';
   end if;
+  -- A full rebuild produces canonical level columns for every confirmed
+  -- match, so every player's staleness flag is by definition resolved.
   update public.players p
      set current_level  = ps.current_level,
-         matches_played = ps.matches_played
+         matches_played = ps.matches_played,
+         levels_stale   = false
     from public.level_rebuild_state ps
    where p.id = ps.player_id;
   get diagnostics affected = row_count;

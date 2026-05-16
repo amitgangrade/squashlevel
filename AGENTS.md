@@ -141,7 +141,35 @@ The helper also handles the cloud-lazy-load case where `matchesPlayed`
 is null. Mirrored server-side in `rebuild_levels_chunk` (the plpgsql
 twin); if you tweak the formula in one place, update the other.
 
+`seeded_rating` is read as the player's *current* flag during rebuild
+and applied uniformly to every historical match — so toggling it
+rewrites past `provisional_a/b` columns. `AdminEditProfileModal` gates
+the toggle behind an explicit "I understand this rewrites history"
+checkbox when the linked player has `matchesPlayed > 0`.
+
 See [`openspec/specs/rating/spec.md` §Provisional](openspec/specs/rating/spec.md).
+
+---
+
+## Match dates: `matches_validate_date` + `levels_stale` flag
+
+`matches.date` is the date played (not the date recorded) and is
+constrained to `[max(players.created_at::date), current_date]` by the
+`matches_validate_date` BEFORE INSERT/UPDATE trigger. The trigger
+grandfathers UPDATEs that don't change `date`, so legacy bad rows can
+still be edited in non-date ways. Both `LogMatch` and `EditMatchDialog`
+also enforce the range client-side as UX courtesy, with an inline
+amber warning when the chosen date is older than a participant's most
+recent confirmed match (informational — save still proceeds).
+
+When a confirmed-and-rated mutation isn't strictly the latest for both
+participants, `matches_after_date_reorder` sets `players.levels_stale
+= true`. The admin Rebuild Levels surface shows a banner; running the
+full rebuild clears the flag. We do NOT attempt synchronous scoped
+recompute — transitive correctness makes it effectively a full
+rebuild, which is too expensive on the trigger path.
+
+See [`openspec/specs/match-recording/spec.md` §Match date validation](openspec/specs/match-recording/spec.md).
 
 ---
 

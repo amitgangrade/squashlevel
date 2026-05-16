@@ -20,7 +20,7 @@ export interface EditMatchDialogProps {
  * not on score edits.
  */
 export function EditMatchDialog({ match, players, onClose, onSaved }: EditMatchDialogProps) {
-  const { updateMatch } = useStore()
+  const { updateMatch, recomputed } = useStore()
 
   const [date, setDate] = useState(match.date)
   const [type, setType] = useState<MatchType>(match.type)
@@ -44,6 +44,32 @@ export function EditMatchDialog({ match, players, onClose, onSaved }: EditMatchD
   const playerA = players.find((p) => p.id === match.playerAId) ?? null
   const playerB = players.find((p) => p.id === match.playerBId) ?? null
 
+  // Date guard rails — server trigger is the authority, this is UX courtesy.
+  // See openspec/specs/match-recording §Match date validation.
+  const today = new Date().toISOString().slice(0, 10)
+  const dateFloor = (() => {
+    const a = playerA?.createdAt?.slice(0, 10)
+    const b = playerB?.createdAt?.slice(0, 10)
+    if (a && b) return a > b ? a : b
+    return a ?? b ?? undefined
+  })()
+  const lastMatchDateFor = (p: Player | null): string | undefined => {
+    if (!p) return undefined
+    const hist = recomputed.states.get(p.id)?.history ?? []
+    let latest: string | undefined
+    for (const entry of hist) {
+      if (entry.matchId === 'start' || entry.matchId === match.id) continue
+      if (!latest || entry.date > latest) latest = entry.date
+    }
+    return latest
+  }
+  const lastA = lastMatchDateFor(playerA)
+  const lastB = lastMatchDateFor(playerB)
+  const willReorderHistory =
+    !!(lastA && date < lastA) || !!(lastB && date < lastB)
+  const dateOutOfRange =
+    (!!dateFloor && date < dateFloor) || date > today
+
   const setGame = (i: number, side: 'a' | 'b', val: string) => {
     const n = Math.max(0, Math.floor(Number(val) || 0))
     setScores((prev) => prev.map((g, idx) => (idx === i ? { ...g, [side]: n } : g)))
@@ -54,6 +80,14 @@ export function EditMatchDialog({ match, players, onClose, onSaved }: EditMatchD
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErr(null)
+    if (date > today) { setErr('Match date is in the future'); return }
+    if (dateFloor && date < dateFloor) {
+      setErr(
+        `Match date precedes when one of the players joined Boast (${dateFloor}). ` +
+          `Pick a date on or after ${dateFloor}.`,
+      )
+      return
+    }
     const clean = scores.filter((g) => g.a > 0 || g.b > 0)
     if (clean.length === 0) { setErr('Enter at least one game score'); return }
 
@@ -111,8 +145,22 @@ export function EditMatchDialog({ match, players, onClose, onSaved }: EditMatchD
                 className="input w-full"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                min={dateFloor}
+                max={today}
                 required
               />
+              {dateOutOfRange ? (
+                <p className="mt-1 text-xs text-red-600">
+                  {date > today
+                    ? 'Match date is in the future.'
+                    : `Match date precedes when one of the players joined Boast (${dateFloor}).`}
+                </p>
+              ) : willReorderHistory ? (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                  Older than a more recent match — saving will reorder match history; admin should
+                  run Rebuild levels afterwards.
+                </p>
+              ) : null}
             </div>
             <div>
               <label className="label">Type</label>

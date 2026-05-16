@@ -51,8 +51,21 @@ export function AdminEditProfileModal({ target, onClose, onSaved }: Props) {
   const [dominantHand, setDominantHand] = useState<DominantHand | ''>(target.dominantHand ?? '')
   const [startingLevel, setStartingLevel] = useState(String(target.startingLevel))
   const [seededRating, setSeededRating] = useState<boolean>(target.seededRating ?? false)
+  const [acknowledgedSeededImpact, setAcknowledgedSeededImpact] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // seeded_rating is read as the current flag during rebuild and applied
+  // uniformly to every historical match — so toggling it on a player with
+  // existing match history rewrites past provisional flags on next rebuild.
+  // See openspec/specs/rating §Provisional players.
+  const linkedPlayer = useMemo(
+    () => players.find((p) => p.userId === target.id) ?? null,
+    [players, target.id],
+  )
+  const matchesPlayed = linkedPlayer?.matchesPlayed ?? 0
+  const seededChanged = seededRating !== (target.seededRating ?? false)
+  const needsSeededAck = seededChanged && matchesPlayed > 0
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -65,6 +78,14 @@ export function AdminEditProfileModal({ target, onClose, onSaved }: Props) {
     if (!fullName.trim()) return setErr('Full name is required')
     const lvl = Number(startingLevel)
     if (!Number.isFinite(lvl) || lvl <= 0) return setErr('Starting level must be a positive number')
+    if (needsSeededAck && !acknowledgedSeededImpact) {
+      return setErr(
+        `Toggling Seeded rating on a player with ${matchesPlayed} confirmed match${
+          matchesPlayed === 1 ? '' : 'es'
+        } will rewrite historical provisional flags on the next rebuild. ` +
+          `Tick the acknowledgement box below to proceed.`,
+      )
+    }
     const parsed = parseProfileFields({ birthYear, country, city })
     if (!parsed.ok) return setErr(parsed.error)
     setBusy(true)
@@ -243,7 +264,10 @@ export function AdminEditProfileModal({ target, onClose, onSaved }: Props) {
             <input
               type="checkbox"
               checked={seededRating}
-              onChange={(e) => setSeededRating(e.target.checked)}
+              onChange={(e) => {
+                setSeededRating(e.target.checked)
+                setAcknowledgedSeededImpact(false)
+              }}
               className="mt-0.5"
             />
             <span>
@@ -257,6 +281,25 @@ export function AdminEditProfileModal({ target, onClose, onSaved }: Props) {
               </span>
             </span>
           </label>
+
+          {needsSeededAck && (
+            <label className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={acknowledgedSeededImpact}
+                onChange={(e) => setAcknowledgedSeededImpact(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium">I understand this rewrites history.</span>
+                <span className="block text-xs mt-0.5">
+                  This player has {matchesPlayed} confirmed match{matchesPlayed === 1 ? '' : 'es'}.
+                  On the next <strong>Admin → Rebuild levels</strong>, every one of those matches'
+                  provisional flags will be re-derived against the new Seeded rating value.
+                </span>
+              </span>
+            </label>
+          )}
 
           {err && <div className="text-sm text-red-600">{err}</div>}
         </div>

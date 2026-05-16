@@ -116,6 +116,19 @@ making changes; come back when you're not sure where a behaviour lives.
   no single statement hits the edge proxy timeout. The cursor lives in
   `level_rebuild_state` between chunks. The store retries transient
   errors automatically.
+- `matches` has three triggers, each with a tight responsibility:
+  - `matches_before_insert` — auto-confirm rules + auto-fill `created_by`.
+  - `matches_validate_date` — rejects matches dated outside
+    `[max(players.created_at::date), current_date]`. Grandfathers
+    UPDATEs that don't change `date`.
+  - `matches_after_levels` — applies the incremental level delta to
+    `players.current_level` + `matches_played` on insert/update/delete.
+    Correct for latest-dated inserts; not aware of reorderings.
+  - `matches_after_date_reorder` — when a mutation isn't strictly the
+    latest confirmed match for both participants, flags
+    `players.levels_stale = true`. The admin Rebuild Levels page
+    surfaces stale players as a banner; running the full rebuild
+    clears the flag.
 
 ## What we deliberately don't do
 
