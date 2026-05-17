@@ -234,6 +234,11 @@ export async function createUnclaimedPlayer(args: {
   name: string
   email: string
   startingLevel?: number
+  /** Pass true when the recorder is entering a known external rating
+   *  (SquashLevels.com / LevelTech / coach estimate). When false (default)
+   *  the stub starts at the configured starting_level and is treated as
+   *  provisional until enough matches accrue. */
+  seededRating?: boolean
   club?: string
   city?: string
   country?: string
@@ -247,6 +252,7 @@ export async function createUnclaimedPlayer(args: {
     p_name: args.name,
     p_email: args.email,
     p_starting_level: args.startingLevel ?? 1000,
+    p_seeded_rating: args.seededRating ?? false,
     p_club: args.club ?? null,
     p_city: args.city ?? null,
     p_country: args.country ?? null,
@@ -272,19 +278,21 @@ export async function listPendingUnclaimedMatchesForAdmin(): Promise<Match[]> {
 }
 
 /**
- * Find unclaimed players whose name looks like the given full name. Used at
- * onboarding to suggest "is this you?" so a new user can take over their
- * existing match history instead of starting from scratch.
+ * Find unclaimed players whose email matches the given one, normalised the
+ * same way `ensure_player_for_profile` normalises during auto-claim (Gmail
+ * dot/plus stripping etc). Used at onboarding to suggest "is this you?" so
+ * a new user can claim their existing stub and inherit its match history.
+ *
+ * Email beats name for this lookup: name collisions are common ("Amit",
+ * "John") and produced noisy suggestions; email is unique to the mailbox
+ * and exactly what the server uses to auto-claim on submit, so the UI
+ * suggestion and the actual claim never disagree.
  */
-export async function findUnclaimedNameMatches(fullName: string): Promise<Player[]> {
+export async function findUnclaimedEmailMatches(email: string): Promise<Player[]> {
   const sb = supabase!
-  const q = fullName.trim()
-  if (!q) return []
-  let req = sb.from('players').select('*').is('user_id', null)
-  for (const token of q.split(/\s+/).filter(Boolean)) {
-    req = req.ilike('name', `%${token}%`)
-  }
-  const { data, error } = await req.order('created_at').limit(10)
+  const e = email.trim()
+  if (!e) return []
+  const { data, error } = await sb.rpc('find_unclaimed_by_email', { p_email: e })
   if (error) throw error
   return (data as PlayerRow[]).map(fromPlayerRow)
 }

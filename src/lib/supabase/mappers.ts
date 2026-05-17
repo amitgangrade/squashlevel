@@ -21,6 +21,10 @@ export interface PlayerRow {
   // them and Supabase's upsert leaves the existing column values intact.
   current_level?: number | null
   matches_played?: number | null
+  // Source-of-truth for seeded-rating exemption (also mirrored from
+  // profiles → players by sync_player_from_profile when claimed).
+  // toPlayerRow writes this ONLY when explicitly set on the Player so an
+  // edit that doesn't touch the toggle leaves the existing value intact.
   seeded_rating?: boolean | null
 }
 
@@ -113,6 +117,7 @@ export const toPlayerRow = (p: Player): PlayerRow => ({
   birth_year: p.birthYear ?? null,
   gender: p.gender ?? null,
   dominant_hand: p.dominantHand ?? null,
+  ...(p.seededRating !== undefined ? { seeded_rating: p.seededRating } : {}),
 })
 
 export const toProfileRow = (p: import('../../types').Profile): ProfileRow => ({

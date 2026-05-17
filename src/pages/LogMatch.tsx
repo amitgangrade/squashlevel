@@ -15,9 +15,9 @@ import {
 import { gamesWonBy, isProvisional, winnerSide } from '../lib/rating/levels'
 import { updateLevels } from '../lib/rating/update'
 import { explainPreview } from '../lib/rating/explain'
-import { fmtDelta, fmtLevel, todayIso } from '../lib/format'
+import { fmtDate, fmtDelta, fmtLevel, todayIso } from '../lib/format'
 import { COUNTRIES, distinctValues } from '../lib/places'
-import { parseProfileFields } from '../lib/profile-validation'
+import { SIGNIN_EMAIL_ERROR, SIGNIN_EMAIL_HINT, isSupportedSigninEmail, parseProfileFields } from '../lib/profile-validation'
 import { Alert } from '../components/Alert'
 import { EmptyState } from '../components/EmptyState'
 import { PlayerSearch } from '../components/PlayerSearch'
@@ -71,6 +71,13 @@ export function LogMatchPage() {
     gender: Gender | ''
     dominantHand: DominantHand | ''
     startingLevel: string
+    // 'known' = recorder has a SquashLevels.com/LevelTech/coach number for
+    // this player → seeded, no provisional. 'unknown' = default 1000 and
+    // the player is provisional for their first N matches. Starts null so
+    // the recorder must explicitly choose (provisional has real
+    // consequences for the recorder's own rating swings — see the
+    // settings.provisionalThreshold rules).
+    ratingSource: 'known' | 'unknown' | null
   }
   const [unclaimedDraft, setUnclaimedDraft] = useState<UnclaimedDraft | null>(null)
   const [unclaimedError, setUnclaimedError] = useState<string | null>(null)
@@ -90,6 +97,7 @@ export function LogMatchPage() {
       gender: '',
       dominantHand: '',
       startingLevel: '1000',
+      ratingSource: null,
     })
     setUnclaimedError(null)
   }
@@ -102,8 +110,19 @@ export function LogMatchPage() {
     setUnclaimedError(null)
     if (!unclaimedDraft.name.trim()) return setUnclaimedError('Name is required')
     if (!unclaimedDraft.email.trim()) return setUnclaimedError('Email is required (used to link the account when they sign up)')
-    const lvl = Number(unclaimedDraft.startingLevel)
-    if (!Number.isFinite(lvl) || lvl <= 0) return setUnclaimedError('Starting level must be a positive number')
+    if (!isSupportedSigninEmail(unclaimedDraft.email)) {
+      return setUnclaimedError(SIGNIN_EMAIL_ERROR)
+    }
+    if (!unclaimedDraft.ratingSource) {
+      return setUnclaimedError('Pick whether you have a known rating for this player')
+    }
+    const seeded = unclaimedDraft.ratingSource === 'known'
+    const lvl = seeded ? Number(unclaimedDraft.startingLevel) : 1000
+    if (seeded && (!Number.isFinite(lvl) || lvl <= 0)) {
+      return setUnclaimedError('Enter the player\'s known rating (a positive number)')
+    }
+    if (!unclaimedDraft.country.trim()) return setUnclaimedError('Country is required')
+    if (!unclaimedDraft.city.trim()) return setUnclaimedError('City is required')
     const parsed = parseProfileFields({
       birthYear: unclaimedDraft.birthYear,
       country: unclaimedDraft.country,
@@ -116,6 +135,7 @@ export function LogMatchPage() {
         name: unclaimedDraft.name.trim(),
         email: unclaimedDraft.email.trim(),
         startingLevel: lvl,
+        seededRating: seeded,
         club: unclaimedDraft.club.trim() || undefined,
         city: parsed.values.city,
         country: parsed.values.country,
@@ -148,6 +168,17 @@ export function LogMatchPage() {
   // date validation). The server trigger is the authority; this is UX
   // courtesy so users see the constraint before submitting.
   const today = todayIso()
+  const floorOwner = (() => {
+    const a = playerA?.createdAt?.slice(0, 10)
+    const b = playerB?.createdAt?.slice(0, 10)
+    if (a && b) {
+      if (a === b) return 'both' as const
+      return a > b ? 'a' : 'b'
+    }
+    if (a) return 'a'
+    if (b) return 'b'
+    return null
+  })()
   const dateFloor = (() => {
     const a = playerA?.createdAt?.slice(0, 10)
     const b = playerB?.createdAt?.slice(0, 10)
@@ -324,22 +355,76 @@ export function LogMatchPage() {
                 className="input w-full"
                 value={unclaimedDraft.email}
                 onChange={(e) => updateDraft('email', e.target.value)}
-                placeholder="opponent@email.com"
+                placeholder="opponent@gmail.com"
                 required
               />
+              <p className="mt-1 text-xs text-slate-500">{SIGNIN_EMAIL_HINT}</p>
             </div>
-            <div>
-              <label className="label">Starting level</label>
-              <input
-                className="input w-full"
-                inputMode="numeric"
-                value={unclaimedDraft.startingLevel}
-                onChange={(e) => updateDraft('startingLevel', e.target.value)}
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                Their SquashLevels.com rating if you know it (e.g. 1200). Otherwise leave at 1000 — they
-                can fix it when they sign up.
+            <div className="sm:col-span-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-900/20 space-y-2">
+              <div className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                Starting rating
+              </div>
+              <p className="text-xs text-amber-800 dark:text-amber-200">
+                If you DON'T know their rating, they'll be marked <em>provisional</em> for their
+                first {settings.provisionalThreshold} matches — meaning their level moves but your
+                level (and any other established player's level) is locked when playing them. If
+                you DO know their SquashLevels.com / LevelTech number or have a confident
+                coach-estimate, enter it now and they skip provisional from match 1.
               </p>
+              <fieldset className="space-y-1.5">
+                <legend className="sr-only">Does this player have a known rating?</legend>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="unclaimedRatingSource"
+                    checked={unclaimedDraft.ratingSource === 'known'}
+                    onChange={() => {
+                      updateDraft('ratingSource', 'known')
+                      if (unclaimedDraft.startingLevel === '1000') updateDraft('startingLevel', '')
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">I know their rating</span>
+                    <span className="block text-xs text-slate-600 dark:text-slate-300">
+                      SquashLevels.com / LevelTech / confident coach estimate. They skip provisional.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="unclaimedRatingSource"
+                    checked={unclaimedDraft.ratingSource === 'unknown'}
+                    onChange={() => {
+                      updateDraft('ratingSource', 'unknown')
+                      updateDraft('startingLevel', '1000')
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">I don't know their rating</span>
+                    <span className="block text-xs text-slate-600 dark:text-slate-300">
+                      Start them at 1000 and mark provisional for their first {settings.provisionalThreshold} matches.
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
+              {unclaimedDraft.ratingSource === 'known' && (
+                <div>
+                  <label className="label text-amber-900 dark:text-amber-100" htmlFor="unclaimed-level">
+                    Their rating
+                  </label>
+                  <input
+                    id="unclaimed-level"
+                    className="input w-full"
+                    inputMode="numeric"
+                    value={unclaimedDraft.startingLevel}
+                    onChange={(e) => updateDraft('startingLevel', e.target.value)}
+                    placeholder="e.g. 1200"
+                  />
+                </div>
+              )}
             </div>
             <div>
               <label className="label">Phone <span className="text-slate-400">(optional)</span></label>
@@ -362,23 +447,25 @@ export function LogMatchPage() {
               />
             </div>
             <div>
-              <label className="label">Country <span className="text-slate-400">(optional)</span></label>
+              <label className="label label-required">Country</label>
               <input
                 list="newplayer-country-options"
                 className="input w-full"
                 value={unclaimedDraft.country}
                 onChange={(e) => updateDraft('country', e.target.value)}
                 autoComplete="country-name"
+                required
               />
             </div>
             <div>
-              <label className="label">City <span className="text-slate-400">(optional)</span></label>
+              <label className="label label-required">City</label>
               <input
                 list="newplayer-city-options"
                 className="input w-full"
                 value={unclaimedDraft.city}
                 onChange={(e) => updateDraft('city', e.target.value)}
                 autoComplete="address-level2"
+                required
               />
             </div>
             <div>
@@ -496,6 +583,16 @@ export function LogMatchPage() {
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                 This is older than a more recent match — saving will reorder match history and levels
                 will need rebuilding (admins see a banner).
+              </p>
+            ) : dateFloor ? (
+              <p className="mt-1 text-xs text-slate-500">
+                Earliest: {fmtDate(dateFloor)} ({
+                  floorOwner === 'both'
+                    ? 'when both players joined Boast'
+                    : floorOwner === 'a'
+                      ? `when ${playerA?.name} joined Boast`
+                      : `when ${playerB?.name} joined Boast`
+                })
               </p>
             ) : null}
           </div>

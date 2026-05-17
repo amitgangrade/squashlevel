@@ -83,6 +83,16 @@ alter table public.players add column if not exists matches_played integer not n
 -- See migration 2026-05-14-backdated-match-handling.sql.
 alter table public.players add column if not exists levels_stale boolean not null default false;
 
+-- Email is the primary identity key for players: every claim flow
+-- (auto-claim by email, onboarding suggestion) hinges on it being
+-- unique. The unique index is case-insensitive (lower(email)) and
+-- partial (skips NULL) so legacy unclaimed rows without an email aren't
+-- forced to backfill. Enforced for every write path — direct upsert,
+-- RPC, future backfills — see 2026-05-17-player-email-unique.sql.
+create unique index if not exists players_email_unique
+  on public.players (lower(email))
+  where email is not null;
+
 -- Trigram index for fast ilike search at scale (tens of thousands of players).
 create extension if not exists pg_trgm;
 create index if not exists players_name_trgm_idx on public.players using gin (name gin_trgm_ops);
@@ -1247,13 +1257,29 @@ set search_path = public
 set statement_timeout = '60s'
 as $$
 declare
-  affected int;
+  affected         int;
+  uid              uuid := auth.uid();
+  actor_lbl        text;
+  run_started_at   timestamptz;
+  run_matches      int;
+  finished_at      timestamptz := now();
+  duration_seconds numeric;
 begin
-  if not public.is_admin(auth.uid()) then
+  if not public.is_admin(uid) then
     raise exception 'admin only';
   end if;
-  -- A full rebuild produces canonical level columns for every confirmed
-  -- match, so every player's staleness flag is by definition resolved.
+
+  -- Snapshot run stats before any state mutation so the summary stays
+  -- consistent even if a concurrent caller does anything unexpected.
+  select started_at, matches_processed
+    into run_started_at, run_matches
+    from public.level_rebuild_run where singleton = true;
+
+  -- Suppress per-row audit for the bulk player UPDATE below. Without
+  -- this, a rebuild at N players generates N audit_events rows. The
+  -- chunk function also runs under audit_skip so match updates are
+  -- suppressed too — net result: rebuild produces ONE summary row.
+  perform set_config('boast.audit_skip', 'true', true);
   update public.players p
      set current_level  = ps.current_level,
          matches_played = ps.matches_played,
@@ -1262,6 +1288,39 @@ begin
    where p.id = ps.player_id;
   get diagnostics affected = row_count;
   truncate public.level_rebuild_state;
+  truncate public.level_rebuild_run;
+  perform set_config('boast.audit_skip', 'false', true);
+
+  duration_seconds := case
+    when run_started_at is null then null
+    else extract(epoch from (finished_at - run_started_at))
+  end;
+
+  select coalesce(full_name, '') || ' <' || coalesce(email, '') || '>'
+    into actor_lbl from public.profiles where id = uid;
+  insert into public.audit_events (
+    actor_user_id, actor_label, entity_type, op, summary, changed, privileged
+  ) values (
+    uid, actor_lbl, 'settings', 'update',
+    format(
+      'Rebuilt levels for %s players%s',
+      affected,
+      case
+        when run_matches is null then ''
+        else format(' (%s matches reprocessed)', run_matches)
+      end
+    ),
+    jsonb_strip_nulls(jsonb_build_object(
+      'kind', 'rebuild_levels',
+      'players_affected', affected,
+      'matches_processed', run_matches,
+      'started_at', run_started_at,
+      'finished_at', finished_at,
+      'duration_seconds', duration_seconds
+    )),
+    true
+  );
+
   return affected;
 end;
 $$;
@@ -1769,6 +1828,8 @@ drop function if exists public.create_unclaimed_player(text, text, numeric, text
 --   (c) we have a way to recognise abuse / contact the recorder if needed.
 -- Admins create players via direct INSERT (bypass this RPC) so this gate
 -- only affects the non-admin "log match against someone not on Boast" flow.
+drop function if exists public.create_unclaimed_player(text, text, numeric, text, text, text, text, smallint, text, text);
+
 create or replace function public.create_unclaimed_player(
   p_name text,
   p_email text default null,
@@ -1779,7 +1840,8 @@ create or replace function public.create_unclaimed_player(
   p_phone text default null,
   p_birth_year smallint default null,
   p_gender text default null,
-  p_dominant_hand text default null
+  p_dominant_hand text default null,
+  p_seeded_rating boolean default false
 ) returns public.players
 language plpgsql
 security definer
@@ -1803,6 +1865,14 @@ begin
   if normalized_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' then
     raise exception 'email looks invalid';
   end if;
+  -- Gmail-only restriction (2026-05-17). Boast signs in via Google, so a
+  -- stub registered with a non-Gmail address could never claim itself
+  -- via ensure_player_for_profile. Both gmail.com and googlemail.com
+  -- accepted (Google routes them to the same mailbox; norm_email
+  -- canonicalises). Remove this check when other providers are added.
+  if lower(normalized_email) !~ '@(gmail|googlemail)\.com$' then
+    raise exception 'email must be @gmail.com or @googlemail.com (Boast signs in via Google)';
+  end if;
   if p_gender is not null and p_gender not in ('male','female') then
     raise exception 'gender must be male or female';
   end if;
@@ -1824,12 +1894,13 @@ begin
   end if;
 
   insert into public.players (
-    id, name, starting_level, email, user_id, created_at, created_by,
+    id, name, starting_level, seeded_rating, email, user_id, created_at, created_by,
     club, city, country, phone, birth_year, gender, dominant_hand
   ) values (
     new_id,
     trim(p_name),
     coalesce(p_starting_level, 1000),
+    coalesce(p_seeded_rating, false),
     normalized_email,
     null,
     now(),
@@ -1846,7 +1917,7 @@ begin
   return pl;
 end;
 $$;
-grant execute on function public.create_unclaimed_player(text, text, numeric, text, text, text, text, smallint, text, text) to authenticated;
+grant execute on function public.create_unclaimed_player(text, text, numeric, text, text, text, text, smallint, text, text, boolean) to authenticated;
 
 -- claim_player_by_id: explicit name-based claim during onboarding. The user
 -- (already authenticated) takes over an unclaimed player row whose name
@@ -2872,21 +2943,32 @@ begin
   perform set_config('boast.audit_skip', 'true', true);
 
   if uemail is not null then
-    -- Claim path. The profile's seeded_rating is authoritative — it
-    -- reflects the user's explicit "I have a rating" choice at signup
-    -- and overrides whatever the stub was created with.
+    -- Claim path. The profile (what the user typed in onboarding) is the
+    -- authority for starting_level and seeded_rating; identity fields use
+    -- "claimer wins, stub fills blanks" via coalesce(new.X, players.X) so
+    -- an admin-entered value isn't wiped when the user leaves a field
+    -- blank. If the stub already had matches, the cached current_level
+    -- and per-match level columns were computed against the old
+    -- starting_level — flag levels_stale so admin Rebuild Levels
+    -- resolves both this player and their opponents.
     update public.players
        set user_id = new.id,
            name = new.full_name,
            seeded_rating = new.seeded_rating,
-           phone = coalesce(public.players.phone, new.phone),
-           country = coalesce(public.players.country, new.country),
-           city = coalesce(public.players.city, new.city),
-           club = coalesce(public.players.club, new.club),
-           avatar_url = coalesce(public.players.avatar_url, new.avatar_url),
-           birth_year = coalesce(public.players.birth_year, new.birth_year),
-           gender = coalesce(public.players.gender, new.gender),
-           dominant_hand = coalesce(public.players.dominant_hand, new.dominant_hand)
+           starting_level = new.starting_level,
+           current_level = new.starting_level,
+           levels_stale = case
+             when public.players.matches_played > 0 then true
+             else public.players.levels_stale
+           end,
+           phone = coalesce(new.phone, public.players.phone),
+           country = coalesce(new.country, public.players.country),
+           city = coalesce(new.city, public.players.city),
+           club = coalesce(new.club, public.players.club),
+           avatar_url = coalesce(new.avatar_url, public.players.avatar_url),
+           birth_year = coalesce(new.birth_year, public.players.birth_year),
+           gender = coalesce(new.gender, public.players.gender),
+           dominant_hand = coalesce(new.dominant_hand, public.players.dominant_hand)
      where id = (
        select id from public.players
        where user_id is null
@@ -2915,11 +2997,21 @@ begin
 end;
 $$;
 
--- ---------- rebuild_levels: include seeded_rating --------------------
--- Seed it into level_rebuild_state and use it when computing per-match
--- provisional flags. Without this, a Rebuild Levels would re-mark every
--- seeded player as provisional for their first 5 matches, undoing the
--- exemption.
+-- ---------- rebuild_levels: include seeded_rating + audit-suppressed
+-- The chunk + finalize functions suppress per-row audit (see
+-- audit/spec.md §One audit row per logical user action) and finalize
+-- emits a single summary row with stats captured in
+-- `level_rebuild_run`. Together: a rebuild at any scale → exactly one
+-- audit_events row.
+
+create table if not exists public.level_rebuild_run (
+  singleton boolean primary key default true check (singleton),
+  started_at timestamptz not null default now(),
+  started_by uuid references auth.users(id) on delete set null,
+  matches_processed int not null default 0
+);
+alter table public.level_rebuild_run enable row level security;
+-- No policies → only SECURITY DEFINER funcs touch this table.
 
 create or replace function public.rebuild_levels_start()
 returns void
@@ -2933,14 +3025,14 @@ begin
     raise exception 'admin only';
   end if;
   truncate public.level_rebuild_state;
+  truncate public.level_rebuild_run;
+  insert into public.level_rebuild_run (singleton, started_at, started_by)
+    values (true, now(), auth.uid());
   insert into public.level_rebuild_state (player_id, current_level, matches_played, seeded_rating)
     select id, starting_level, 0, seeded_rating from public.players;
 end;
 $$;
 
--- The chunk function. Only the `pa`/`pb` computation changes; everything
--- else is identical to the audit-log migration's version. Kept inline so
--- the migration is self-contained and re-runnable.
 create or replace function public.rebuild_levels_chunk(
   p_after_date date,
   p_after_id   uuid,
@@ -2982,6 +3074,12 @@ begin
     raise exception 'admin only';
   end if;
 
+  -- Suppress per-row audit for every match update done in this chunk.
+  -- Rebuild is a deterministic recompute of derived columns
+  -- (level_*_before/after, delta_*, provisional_*) — auditing each row
+  -- is double-bookkeeping. One summary row is emitted by finalize().
+  perform set_config('boast.audit_skip', 'true', true);
+
   select * into s from public.settings where id = 'app';
   damping_k := coalesce((s.data->>'dampingK')::numeric, 0.12);
   pw        := coalesce((s.data->>'pointsWeight')::numeric, 0.5);
@@ -3014,7 +3112,6 @@ begin
       continue;
     end if;
 
-    -- NEW: seeded players bypass provisional from match 1.
     pa := (ma_played < pt) and not coalesce(seeded_a, false);
     pb := (mb_played < pt) and not coalesce(seeded_b, false);
 
@@ -3054,6 +3151,8 @@ begin
     last_id   := m.id;
     proc := proc + 1;
   end loop;
+
+  update public.level_rebuild_run set matches_processed = matches_processed + proc where singleton = true;
 
   return query select
     proc,
@@ -3154,3 +3253,35 @@ as $$
 $$;
 
 grant execute on function public.list_my_group_admin_scope() to authenticated;
+
+-- ===========================================================================
+-- find_unclaimed_by_email: onboarding suggestion lookup
+-- ---------------------------------------------------------------------------
+-- The onboarding modal calls this once on mount to surface "this looks like
+-- a stub of yours — claim it?" using the *same* email-match logic that
+-- `ensure_player_for_profile` uses to auto-claim on profile insert. Going
+-- through `norm_email` keeps Gmail dot/plus normalisation consistent
+-- between the suggestion (client-visible) and the server-side claim, so
+-- the user never sees a stub claimed silently that the UI didn't first
+-- offer.
+--
+-- Returns up to 5 candidates. In practice it's ≤1 because
+-- `create_unclaimed_player` dedupes by email.
+-- ===========================================================================
+create or replace function public.find_unclaimed_by_email(p_email text)
+returns setof public.players
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select *
+  from public.players
+  where user_id is null
+    and email is not null
+    and public.norm_email(email) = public.norm_email(p_email)
+  order by created_at asc
+  limit 5;
+$$;
+
+grant execute on function public.find_unclaimed_by_email(text) to authenticated;

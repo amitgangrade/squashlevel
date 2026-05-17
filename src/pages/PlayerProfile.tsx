@@ -16,6 +16,7 @@ import { movingAverage } from '../lib/rating/recompute'
 import { gamesWonBy, isProvisional, winnerSide } from '../lib/rating/levels'
 import { fetchProfile } from '../lib/supabase/profile'
 import { AdminEditProfileModal } from '../components/AdminEditProfileModal'
+import { PlayerFormModal } from '../components/PlayerFormModal'
 import { Alert } from '../components/Alert'
 import { BackLink } from '../components/BackLink'
 import { EmptyState } from '../components/EmptyState'
@@ -104,6 +105,11 @@ export function PlayerProfilePage() {
   // not the profile.
   const [adminEditOpen, setAdminEditOpen] = useState(false)
   const [adminEditProfile, setAdminEditProfile] = useState<Profile | null>(null)
+  // For unclaimed stubs (no profile row) the admin edits the player row
+  // directly via PlayerFormModal — same flow club admins use on the club
+  // roster. AdminEditProfileModal can't be used because it operates on
+  // `profiles` and there's no profile until the user signs up.
+  const [playerFormOpen, setPlayerFormOpen] = useState(false)
   const [adminEditLoading, setAdminEditLoading] = useState(false)
   const [adminEditError, setAdminEditError] = useState<string | null>(null)
 
@@ -324,8 +330,12 @@ export function PlayerProfilePage() {
   const hasOwnerHistory = ownerSeriesPoints.length > 1
 
   const onAdminEdit = async () => {
-    if (!player.userId) return
     setAdminEditError(null)
+    if (!player.userId) {
+      // Unclaimed stub: edit the player row directly.
+      setPlayerFormOpen(true)
+      return
+    }
     setAdminEditLoading(true)
     try {
       const p = await fetchProfile(player.userId)
@@ -342,7 +352,8 @@ export function PlayerProfilePage() {
     }
   }
 
-  const showAdminEdit = isAdmin && !isMe && !!player.userId
+  const showAdminEdit = isAdmin && !isMe
+  const adminEditLabel = player.userId ? 'Edit profile (admin)' : 'Edit player (admin)'
 
   return (
     <div className="space-y-6">
@@ -385,6 +396,7 @@ export function PlayerProfilePage() {
                 <ProfileOverflowMenu
                   busy={adminEditLoading}
                   onAdminEdit={onAdminEdit}
+                  label={adminEditLabel}
                 />
               )}
             </div>
@@ -397,6 +409,7 @@ export function PlayerProfilePage() {
                 <ProfileOverflowMenu
                   busy={adminEditLoading}
                   onAdminEdit={onAdminEdit}
+                  label={adminEditLabel}
                 />
               </div>
             )}
@@ -623,6 +636,12 @@ export function PlayerProfilePage() {
           onSaved={(updated) => setAdminEditProfile(updated)}
         />
       )}
+      {playerFormOpen && (
+        <PlayerFormModal
+          player={player}
+          onClose={() => setPlayerFormOpen(false)}
+        />
+      )}
     </div>
   )
 }
@@ -643,7 +662,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
  * actions — merge players, transfer matches, etc. — slot in without bloating
  * the main header layout.
  */
-function ProfileOverflowMenu({ busy, onAdminEdit }: { busy: boolean; onAdminEdit: () => void }) {
+function ProfileOverflowMenu({ busy, onAdminEdit, label }: { busy: boolean; onAdminEdit: () => void; label: string }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -690,7 +709,7 @@ function ProfileOverflowMenu({ busy, onAdminEdit }: { busy: boolean; onAdminEdit
               onAdminEdit()
             }}
           >
-            {busy ? 'Loading…' : 'Edit profile (admin)'}
+            {busy ? 'Loading…' : label}
           </button>
         </div>
       )}

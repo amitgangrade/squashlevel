@@ -204,7 +204,7 @@ export function MatchCard({
                 </div>
                 {left && <PlayerMetaLinks player={left} className="hidden sm:inline" />}
                 <LevelChange before={leftBefore} after={leftAfter} delta={leftDelta} unranked={m.unranked} />
-                {viewerInMatch && !m.unranked && (
+                {viewerInMatch && (
                   <div>
                     {drew ? (
                       <ResultBadge variant="draw">Drew</ResultBadge>

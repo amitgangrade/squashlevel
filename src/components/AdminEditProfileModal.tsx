@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../state/store'
 import { updateProfile } from '../lib/supabase/profile'
 import { COUNTRIES, distinctValues } from '../lib/places'
+import { fmtDate } from '../lib/format'
 import { parseProfileFields } from '../lib/profile-validation'
 import {
   DOMINANT_HAND_LABEL,
@@ -253,6 +254,11 @@ export function AdminEditProfileModal({ target, onClose, onSaved }: Props) {
               value={startingLevel}
               onChange={(e) => setStartingLevel(e.target.value)}
             />
+            {linkedPlayer?.createdAt && (
+              <p className="mt-1 text-xs text-slate-500">
+                Anchored on {fmtDate(linkedPlayer.createdAt)} — the player's start date on Boast.
+              </p>
+            )}
             <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
               Heads up — changing the starting level after matches have been
               played requires <strong>Admin → Rebuild levels</strong> to keep

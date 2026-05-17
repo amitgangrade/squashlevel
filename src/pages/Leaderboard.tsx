@@ -14,6 +14,7 @@ import { SkeletonRow } from '../components/Skeleton'
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ProvisionalTag } from '../components/ProvisionalTag'
+import { UnclaimedTag } from '../components/UnclaimedTag'
 
 const AUTO_CONFIRM_KICK_KEY = 'sl_auto_confirm_kicked_at'
 const AUTO_CONFIRM_KICK_INTERVAL_MS = 60 * 60 * 1000 // 1h
@@ -233,6 +234,7 @@ export function LeaderboardPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <PlayerLink id={r.id} name={r.name} className="font-medium truncate" />
+                          {!r.player.userId && <UnclaimedTag />}
                           {r.provisional && <ProvisionalTag />}
                           {isMe && <span className="tag-brand">you</span>}
                         </div>
@@ -279,6 +281,7 @@ export function LeaderboardPage() {
                               <div className="min-w-0">
                                 <div className="font-medium truncate">
                                   <PlayerLink id={r.id} name={r.name} />
+                                  {!r.player.userId && <span className="ml-2 inline-block"><UnclaimedTag /></span>}
                                   {r.provisional && <span className="ml-2 inline-block"><ProvisionalTag /></span>}
                                 </div>
                               </div>

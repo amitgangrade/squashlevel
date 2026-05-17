@@ -48,11 +48,30 @@ Each row SHALL record:
 
 ### Requirement: One audit row per logical user action
 
-Cascade triggers SHALL NOT produce additional audit rows for writes
-they fire on behalf of a parent action. Specifically:
-`ensure_player_for_profile` and `sync_player_from_profile` SHALL wrap
-their `players` writes in a `boast.audit_skip = 'true'` session-local
-GUC, which `audit_row_change` honours by returning early.
+Cascade triggers and bulk admin operations SHALL NOT produce additional
+audit rows for the per-row writes they fire on behalf of a parent
+action. Specifically:
+
+- `ensure_player_for_profile` and `sync_player_from_profile` SHALL wrap
+  their `players` writes in a `boast.audit_skip = 'true'` session-local
+  GUC, which `audit_row_change` honours by returning early.
+- `rebuild_levels_chunk` and `rebuild_levels_finalize` SHALL both run
+  under `boast.audit_skip = 'true'`. Chunks update potentially every
+  `matches` row in the database (`level_*_before/after`, `delta_*`,
+  `provisional_*`); finalize updates every `players` row
+  (`current_level`, `matches_played`, `levels_stale`). Both are
+  deterministic recomputes of derived columns, not user-meaningful
+  changes — per-row audit would be double-bookkeeping with no forensic
+  value (the same numbers are derivable from match history via
+  `recomputeAll`). `rebuild_levels_finalize` SHALL emit a single
+  summary `audit_events` row with `entity_type='settings'`,
+  `op='update'`, `summary='Rebuilt levels for N players (M matches
+  reprocessed)'`, `privileged=true`, and a `changed` jsonb containing
+  `{kind: 'rebuild_levels', players_affected, matches_processed,
+  started_at, finished_at, duration_seconds}`. Run-level stats are
+  accumulated in the singleton `public.level_rebuild_run` table across
+  chunks. Net result: a rebuild at any scale produces exactly one
+  audit row, regardless of player or match count.
 
 #### Scenario: User edits their profile
 - **WHEN** a user updates their own profile row
@@ -61,6 +80,10 @@ GUC, which `audit_row_change` honours by returning early.
 #### Scenario: User signs up
 - **WHEN** a profile is inserted and `ensure_player_for_profile` creates or claims a `players` row
 - **THEN** exactly one audit row is written, with `entity_type='profiles', op='insert'`; the player create/claim produces no audit row
+
+#### Scenario: Admin rebuilds levels
+- **WHEN** a global admin completes a Rebuild Levels run that processes 6000 matches across 1500 players in 42 seconds
+- **THEN** exactly one audit row is written, with `entity_type='settings'`, `op='update'`, `summary='Rebuilt levels for 1500 players (6000 matches reprocessed)'`, `privileged=true`, and `changed.duration_seconds≈42`; the 6000 per-match and 1500 per-player UPDATEs produce no audit rows
 
 ---
 

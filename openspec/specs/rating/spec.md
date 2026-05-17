@@ -9,6 +9,8 @@ A player's level SHALL be a positive number (`> 0`). New players SHALL start at 
 
 `starting_level` SHALL represent the player's level at `players.created_at`. The full recomputation walks match history forward from `starting_level` in `(date, id)` order; admitting any match dated earlier than `players.created_at` would treat `starting_level` as a mid-history checkpoint and is therefore disallowed (see `match-recording` §Match date validation for the enforcement trigger).
 
+For a player who was first created as an unclaimed stub (by an admin or by another user logging a match against them via `create_unclaimed_player`) and then later claimed by the real user signing up, `players.created_at` MUST remain the stub's original creation timestamp — NOT the claim moment. This preserves the date floor for matches logged against the stub during the pre-claim window. See `player-claim` §Auto-create-or-claim at first profile insert for the trigger that enforces this.
+
 For seeded players (`seeded_rating = true`), `starting_level` SHOULD be set during onboarding from the user's reported SquashLevels.com / LevelTech rating; for unseeded players it defaults to the system-wide configured value.
 
 #### Scenario: Default starting level

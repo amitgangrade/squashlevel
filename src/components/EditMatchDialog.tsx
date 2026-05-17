@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../state/store'
 import { MATCH_TYPE_KEYS, MATCH_TYPE_LABEL, type GameScore, type Match, type MatchType, type Player } from '../types'
+import { fmtDate } from '../lib/format'
 import { TrashIcon } from './Icons'
 
 export interface EditMatchDialogProps {
@@ -47,6 +48,17 @@ export function EditMatchDialog({ match, players, onClose, onSaved }: EditMatchD
   // Date guard rails — server trigger is the authority, this is UX courtesy.
   // See openspec/specs/match-recording §Match date validation.
   const today = new Date().toISOString().slice(0, 10)
+  const floorOwner = (() => {
+    const a = playerA?.createdAt?.slice(0, 10)
+    const b = playerB?.createdAt?.slice(0, 10)
+    if (a && b) {
+      if (a === b) return 'both' as const
+      return a > b ? 'a' : 'b'
+    }
+    if (a) return 'a'
+    if (b) return 'b'
+    return null
+  })()
   const dateFloor = (() => {
     const a = playerA?.createdAt?.slice(0, 10)
     const b = playerB?.createdAt?.slice(0, 10)
@@ -159,6 +171,16 @@ export function EditMatchDialog({ match, players, onClose, onSaved }: EditMatchD
                 <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                   Older than a more recent match — saving will reorder match history; admin should
                   run Rebuild levels afterwards.
+                </p>
+              ) : dateFloor ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Earliest: {fmtDate(dateFloor)} ({
+                    floorOwner === 'both'
+                      ? 'when both players joined Boast'
+                      : floorOwner === 'a'
+                        ? `when ${playerA?.name} joined Boast`
+                        : `when ${playerB?.name} joined Boast`
+                  })
                 </p>
               ) : null}
             </div>

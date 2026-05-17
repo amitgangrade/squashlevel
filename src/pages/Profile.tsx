@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
-import { fmtLevel, initialsFor } from '../lib/format'
+import { fmtDate, fmtLevel, initialsFor } from '../lib/format'
 import { isProvisional } from '../lib/rating/levels'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { uploadAvatar } from '../lib/supabase/profile'
@@ -207,7 +207,14 @@ export function ProfilePage() {
               <Field label="Year of birth" value={profile.birthYear ? String(profile.birthYear) : '—'} />
               <Field label="Gender" value={profile.gender ? GENDER_LABEL[profile.gender] : '—'} />
               <Field label="Dominant hand" value={profile.dominantHand ? DOMINANT_HAND_LABEL[profile.dominantHand] : '—'} />
-              <Field label="Starting rating" value={String(profile.startingLevel)} />
+              <Field
+                label="Starting rating"
+                value={
+                  myPlayer?.createdAt
+                    ? `${profile.startingLevel} · anchored ${fmtDate(myPlayer.createdAt)}`
+                    : String(profile.startingLevel)
+                }
+              />
               <button className="btn-secondary mt-3" onClick={() => setEditing(true)}>Edit</button>
             </div>
           ) : (
@@ -299,7 +306,12 @@ export function ProfilePage() {
               <div>
                 <label className="label">Starting rating</label>
                 <input inputMode="numeric" className="input w-full" value={draftLevel} onChange={(e) => setDraftLevel(e.target.value)} />
-                <p className="mt-1 text-xs text-slate-500">Note: this is your seed/starting level. Your live level is computed from match history.</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Note: this is your seed/starting level. Your live level is computed from match history.
+                  {myPlayer?.createdAt && (
+                    <> Anchored on {fmtDate(myPlayer.createdAt)} — when you joined Boast.</>
+                  )}
+                </p>
               </div>
               {isAdmin && (
                 <label className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50/60 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40 cursor-pointer">
@@ -337,7 +349,11 @@ export function ProfilePage() {
           <div className="card grid grid-cols-3 gap-3 text-center">
             <Stat label="Current level" value={fmtLevel(currentLevel) ?? '—'} sub={provisional ? 'provisional' : undefined} />
             <Stat label="Matches" value={String(matchesPlayed)} />
-            <Stat label="Starting level" value={fmtLevel(myPlayer.startingLevel) ?? '—'} />
+            <Stat
+              label="Starting level"
+              value={fmtLevel(myPlayer.startingLevel) ?? '—'}
+              sub={myPlayer.createdAt ? fmtDate(myPlayer.createdAt) : undefined}
+            />
           </div>
         </section>
       )}

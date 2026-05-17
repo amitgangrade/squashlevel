@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../state/store'
 import { COUNTRIES, distinctValues } from '../lib/places'
-import { parseProfileFields } from '../lib/profile-validation'
+import { fmtDate } from '../lib/format'
+import { SIGNIN_EMAIL_ERROR, SIGNIN_EMAIL_HINT, isSupportedSigninEmail, parseProfileFields } from '../lib/profile-validation'
 import {
   DOMINANT_HAND_LABEL,
   GENDER_LABEL,
@@ -37,7 +38,7 @@ interface Props {
  * (e.g. correcting a starting_level that the user can't undo themselves).
  */
 export function PlayerFormModal({ player, defaultClub, onClose, onSaved }: Props) {
-  const { players, addPlayer, updatePlayer } = useStore()
+  const { players, settings, addPlayer, updatePlayer } = useStore()
   const cityOptions = useMemo(() => distinctValues(players, 'city'), [players])
   const clubOptions = useMemo(() => distinctValues(players, 'club'), [players])
 
@@ -53,6 +54,13 @@ export function PlayerFormModal({ player, defaultClub, onClose, onSaved }: Props
   const [gender, setGender] = useState<Gender | ''>(player?.gender ?? '')
   const [dominantHand, setDominantHand] = useState<DominantHand | ''>(player?.dominantHand ?? '')
   const [notes, setNotes] = useState(player?.notes ?? '')
+  // 'known' = SquashLevels.com / coach estimate → seeded, skips provisional.
+  // 'unknown' = no rating known → unseeded, provisional for the first N
+  // matches. Starts null in ADD mode so the recorder picks consciously;
+  // pre-filled from the existing flag in EDIT mode.
+  const [ratingSource, setRatingSource] = useState<'known' | 'unknown' | null>(
+    editing ? (player?.seededRating ? 'known' : 'unknown') : null,
+  )
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -66,18 +74,28 @@ export function PlayerFormModal({ player, defaultClub, onClose, onSaved }: Props
     e.preventDefault()
     setErr(null)
     if (!name.trim()) return setErr('Name is required')
-    const lvl = Number(startingLevel)
-    if (!Number.isFinite(lvl) || lvl <= 0) return setErr('Starting level must be a positive number')
+    if (!ratingSource) return setErr('Pick whether you have a known rating for this player')
+    const seeded = ratingSource === 'known'
+    const lvl = seeded ? Number(startingLevel) : 1000
+    if (seeded && (!Number.isFinite(lvl) || lvl <= 0)) {
+      return setErr('Enter the player\'s known rating (a positive number)')
+    }
     const trimmedEmail = email.trim()
     if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       return setErr('Email looks invalid')
     }
+    if (trimmedEmail && !isSupportedSigninEmail(trimmedEmail)) {
+      return setErr(SIGNIN_EMAIL_ERROR)
+    }
+    if (!country.trim()) return setErr('Country is required')
+    if (!city.trim()) return setErr('City is required')
     const parsed = parseProfileFields({ birthYear, country, city })
     if (!parsed.ok) return setErr(parsed.error)
 
     const data = {
       name: name.trim(),
       startingLevel: lvl,
+      seededRating: seeded,
       email: trimmedEmail || undefined,
       phone: phone.trim() || undefined,
       country: parsed.values.country,
@@ -156,28 +174,88 @@ export function PlayerFormModal({ player, defaultClub, onClose, onSaved }: Props
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label" htmlFor="pf-level">Starting level</label>
-                <input
-                  id="pf-level"
-                  className="input w-full"
-                  inputMode="numeric"
-                  value={startingLevel}
-                  onChange={(e) => setStartingLevel(e.target.value)}
-                />
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-900/20 space-y-2">
+              <div className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                Starting rating
               </div>
-              <div>
-                <label className="label" htmlFor="pf-email">Email</label>
-                <input
-                  id="pf-email"
-                  type="email"
-                  className="input w-full"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="player@example.com"
-                />
-              </div>
+              <p className="text-xs text-amber-800 dark:text-amber-200">
+                Without a known rating they're marked <em>provisional</em> for their first{' '}
+                {settings.provisionalThreshold} matches — their level moves but established
+                opponents' levels stay put. With a known rating (SquashLevels.com / LevelTech /
+                confident coach estimate) they're seeded and skip provisional from match 1.
+              </p>
+              <fieldset className="space-y-1.5">
+                <legend className="sr-only">Does this player have a known rating?</legend>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pfRatingSource"
+                    checked={ratingSource === 'known'}
+                    onChange={() => {
+                      setRatingSource('known')
+                      if (startingLevel === '1000') setStartingLevel('')
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">I know their rating</span>
+                    <span className="block text-xs text-slate-600 dark:text-slate-300">
+                      SquashLevels.com / LevelTech / confident coach estimate. Skips provisional.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pfRatingSource"
+                    checked={ratingSource === 'unknown'}
+                    onChange={() => {
+                      setRatingSource('unknown')
+                      setStartingLevel('1000')
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">I don't know their rating</span>
+                    <span className="block text-xs text-slate-600 dark:text-slate-300">
+                      Start at 1000, provisional for first {settings.provisionalThreshold} matches.
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
+              {ratingSource === 'known' && (
+                <div>
+                  <label className="label text-amber-900 dark:text-amber-100" htmlFor="pf-level">
+                    Their rating
+                  </label>
+                  <input
+                    id="pf-level"
+                    className="input w-full"
+                    inputMode="numeric"
+                    value={startingLevel}
+                    onChange={(e) => setStartingLevel(e.target.value)}
+                    placeholder="e.g. 1200"
+                  />
+                  {editing && player?.createdAt && (
+                    <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                      Anchored on {fmtDate(player.createdAt)} — when {player.name} joined Boast.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="label" htmlFor="pf-email">Email</label>
+              <input
+                id="pf-email"
+                type="email"
+                className="input w-full"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="player@gmail.com"
+              />
+              <p className="mt-1 text-xs text-slate-500">{SIGNIN_EMAIL_HINT}</p>
             </div>
 
             <div>
@@ -205,7 +283,7 @@ export function PlayerFormModal({ player, defaultClub, onClose, onSaved }: Props
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label" htmlFor="pf-country">Country</label>
+                <label className="label label-required" htmlFor="pf-country">Country</label>
                 <input
                   id="pf-country"
                   list="pf-country-options"
@@ -213,10 +291,11 @@ export function PlayerFormModal({ player, defaultClub, onClose, onSaved }: Props
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
                   autoComplete="country-name"
+                  required
                 />
               </div>
               <div>
-                <label className="label" htmlFor="pf-city">City</label>
+                <label className="label label-required" htmlFor="pf-city">City</label>
                 <input
                   id="pf-city"
                   list="pf-city-options"
@@ -224,6 +303,7 @@ export function PlayerFormModal({ player, defaultClub, onClose, onSaved }: Props
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   autoComplete="address-level2"
+                  required
                 />
               </div>
             </div>

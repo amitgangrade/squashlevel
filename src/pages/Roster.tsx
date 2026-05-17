@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react'
 import { Pagination } from '../components/Pagination'
 import { Link } from 'react-router-dom'
 import { useStore } from '../state/store'
-import { fmtLevel, playerAge } from '../lib/format'
+import { fmtDate, fmtLevel, playerAge } from '../lib/format'
 import { isProvisional } from '../lib/rating/levels'
 import { COUNTRIES, distinctValues } from '../lib/places'
-import { parseProfileFields } from '../lib/profile-validation'
+import { SIGNIN_EMAIL_ERROR, SIGNIN_EMAIL_HINT, isSupportedSigninEmail, parseProfileFields } from '../lib/profile-validation'
 import { filterByTokens, joinHay } from '../lib/search'
 import {
   DOMINANT_HAND_LABEL,
@@ -21,6 +21,11 @@ import { ProvisionalTag } from '../components/ProvisionalTag'
 interface FormState {
   name: string
   startingLevel: string
+  // 'known' = recorder has a real rating (SquashLevels.com / LevelTech /
+  // confident coach estimate) → seeded, skips provisional.
+  // 'unknown' = no rating → default 1000, provisional for the first N
+  // matches. null in add mode forces the recorder to choose.
+  ratingSource: 'known' | 'unknown' | null
   email: string
   phone: string
   country: string
@@ -35,6 +40,7 @@ interface FormState {
 const emptyForm: FormState = {
   name: '',
   startingLevel: '1000',
+  ratingSource: null,
   email: '',
   phone: '',
   country: '',
@@ -46,10 +52,24 @@ const emptyForm: FormState = {
   notes: '',
 }
 
+// Supabase rejects with a PostgrestError plain object (not an Error
+// instance), so default `(err as Error).message` is `undefined` and the
+// UI renders "[object Object]" via stringification. Read `.message`
+// defensively across both shapes.
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'object' && err && 'message' in err) {
+    const m = (err as { message: unknown }).message
+    if (typeof m === 'string') return m
+  }
+  return 'Something went wrong.'
+}
+
 function fromPlayer(p: Player): FormState {
   return {
     name: p.name,
     startingLevel: String(p.startingLevel),
+    ratingSource: p.seededRating ? 'known' : 'unknown',
     email: p.email ?? '',
     phone: p.phone ?? '',
     country: p.country ?? '',
@@ -85,18 +105,28 @@ export function RosterPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const lvl = Number(form.startingLevel)
     if (!form.name.trim()) return setError('Name is required')
-    if (!Number.isFinite(lvl) || lvl <= 0) return setError('Starting level must be a positive number')
+    if (!form.ratingSource) return setError('Pick whether you have a known rating for this player')
+    const seeded = form.ratingSource === 'known'
+    const lvl = seeded ? Number(form.startingLevel) : 1000
+    if (seeded && (!Number.isFinite(lvl) || lvl <= 0)) {
+      return setError('Enter the player\'s known rating (a positive number)')
+    }
     const trimmedEmail = form.email.trim()
     if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       return setError('Email looks invalid')
     }
+    if (trimmedEmail && !isSupportedSigninEmail(trimmedEmail)) {
+      return setError(SIGNIN_EMAIL_ERROR)
+    }
+    if (!form.country.trim()) return setError('Country is required')
+    if (!form.city.trim()) return setError('City is required')
     const parsed = parseProfileFields({ birthYear: form.birthYear, country: form.country, city: form.city })
     if (!parsed.ok) return setError(parsed.error)
     const data = {
       name: form.name.trim(),
       startingLevel: lvl,
+      seededRating: seeded,
       email: trimmedEmail || undefined,
       phone: form.phone.trim() || undefined,
       country: parsed.values.country,
@@ -116,7 +146,7 @@ export function RosterPage() {
       }
       reset()
     } catch (err) {
-      setError((err as Error).message)
+      setError(errMessage(err))
     }
   }
 
@@ -153,7 +183,7 @@ export function RosterPage() {
     try {
       await removePlayer(p.id)
     } catch (err) {
-      setError((err as Error).message)
+      setError(errMessage(err))
     }
   }
 
@@ -184,18 +214,78 @@ export function RosterPage() {
                   <label className="label" htmlFor="name">Name</label>
                   <input id="name" className="input w-full" value={form.name} onChange={(e) => update('name', e.target.value)} autoFocus />
                 </div>
-                <div>
-                  <label className="label" htmlFor="level">Starting level</label>
-                  <input
-                    id="level"
-                    className="input w-full"
-                    inputMode="numeric"
-                    value={form.startingLevel}
-                    onChange={(e) => update('startingLevel', e.target.value)}
-                  />
-                  <p className="mt-1 text-xs text-slate-500">
-                    Use the player's SquashLevels.com rating if known (e.g. 1200), otherwise 1000.
+                <div className="sm:col-span-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-900/20 space-y-2">
+                  <div className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                    Starting rating
+                  </div>
+                  <p className="text-xs text-amber-800 dark:text-amber-200">
+                    Without a known rating they're marked <em>provisional</em> for their first{' '}
+                    {settings.provisionalThreshold} matches — their level moves but established
+                    opponents' levels stay put. With a known rating (SquashLevels.com / LevelTech /
+                    confident coach estimate) they're seeded and skip provisional from match 1.
                   </p>
+                  <fieldset className="space-y-1.5">
+                    <legend className="sr-only">Does this player have a known rating?</legend>
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        name="rosterRatingSource"
+                        checked={form.ratingSource === 'known'}
+                        onChange={() => {
+                          update('ratingSource', 'known')
+                          if (form.startingLevel === '1000') update('startingLevel', '')
+                        }}
+                        className="mt-1"
+                      />
+                      <span>
+                        <span className="font-medium">I know their rating</span>
+                        <span className="block text-xs text-slate-600 dark:text-slate-300">
+                          SquashLevels.com / LevelTech / confident coach estimate. Skips provisional.
+                        </span>
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        name="rosterRatingSource"
+                        checked={form.ratingSource === 'unknown'}
+                        onChange={() => {
+                          update('ratingSource', 'unknown')
+                          update('startingLevel', '1000')
+                        }}
+                        className="mt-1"
+                      />
+                      <span>
+                        <span className="font-medium">I don't know their rating</span>
+                        <span className="block text-xs text-slate-600 dark:text-slate-300">
+                          Start at 1000, provisional for first {settings.provisionalThreshold} matches.
+                        </span>
+                      </span>
+                    </label>
+                  </fieldset>
+                  {form.ratingSource === 'known' && (
+                    <div>
+                      <label className="label text-amber-900 dark:text-amber-100" htmlFor="level">
+                        Their rating
+                      </label>
+                      <input
+                        id="level"
+                        className="input w-full"
+                        inputMode="numeric"
+                        value={form.startingLevel}
+                        onChange={(e) => update('startingLevel', e.target.value)}
+                        placeholder="e.g. 1200"
+                      />
+                      {editingId && (() => {
+                        const existing = players.find((p) => p.id === editingId)
+                        return existing?.createdAt
+                          ? <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                              Anchored on {fmtDate(existing.createdAt)} — when {existing.name} joined Boast.
+                            </p>
+                          : null
+                      })()}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="label" htmlFor="email">Email</label>
@@ -205,8 +295,9 @@ export function RosterPage() {
                     className="input w-full"
                     value={form.email}
                     onChange={(e) => update('email', e.target.value)}
-                    placeholder="player@example.com"
+                    placeholder="player@gmail.com"
                   />
+                  <p className="mt-1 text-xs text-slate-500">{SIGNIN_EMAIL_HINT}</p>
                 </div>
                 <div>
                   <label className="label" htmlFor="phone">Phone</label>
@@ -217,12 +308,12 @@ export function RosterPage() {
                   <input id="club" list="roster-club-options" className="input w-full" value={form.club} onChange={(e) => update('club', e.target.value)} placeholder="e.g. Singapore Cricket Club" />
                 </div>
                 <div>
-                  <label className="label" htmlFor="country">Country</label>
-                  <input id="country" list="roster-country-options" className="input w-full" value={form.country} onChange={(e) => update('country', e.target.value)} placeholder="Singapore" autoComplete="country-name" />
+                  <label className="label label-required" htmlFor="country">Country</label>
+                  <input id="country" list="roster-country-options" className="input w-full" value={form.country} onChange={(e) => update('country', e.target.value)} placeholder="Singapore" autoComplete="country-name" required />
                 </div>
                 <div>
-                  <label className="label" htmlFor="city">City</label>
-                  <input id="city" list="roster-city-options" className="input w-full" value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Singapore" autoComplete="address-level2" />
+                  <label className="label label-required" htmlFor="city">City</label>
+                  <input id="city" list="roster-city-options" className="input w-full" value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Singapore" autoComplete="address-level2" required />
                 </div>
                 <datalist id="roster-country-options">
                   {COUNTRIES.map((c) => <option key={c} value={c} />)}

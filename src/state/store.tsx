@@ -93,6 +93,39 @@ interface StoreCtx {
 
 const Ctx = createContext<StoreCtx | null>(null)
 
+/**
+ * Translate the Postgres unique-constraint violation on
+ * `players_email_unique` (case-insensitive lower(email)) into a clean
+ * message admins can act on. Other errors pass through unchanged so we
+ * don't swallow unrelated failures.
+ *
+ * Supabase rejects with a PostgrestError plain object (not an Error
+ * instance), so we read `.message` / `.code` defensively rather than
+ * via `instanceof Error`. Without this, `String(err)` returned
+ * "[object Object]" and the email-uniqueness detection silently failed.
+ */
+function mapPlayerWriteError(err: unknown, email?: string): Error {
+  const obj = (typeof err === 'object' && err) ? (err as Record<string, unknown>) : null
+  const msg = typeof obj?.message === 'string'
+    ? obj.message
+    : err instanceof Error
+      ? err.message
+      : String(err)
+  const code = typeof obj?.code === 'string' ? obj.code : ''
+  const looksLikeEmailDupe =
+    msg.includes('players_email_unique') ||
+    /duplicate key.*email/i.test(msg) ||
+    (code === '23505' && msg.toLowerCase().includes('email'))
+  if (looksLikeEmailDupe) {
+    return new Error(
+      email
+        ? `A player already exists with the email ${email}. Email is a player's identity on Boast — open that player to edit them, or use a different email.`
+        : 'A player already exists with this email. Email is a player\'s identity on Boast — open that player to edit them, or use a different email.',
+    )
+  }
+  return err instanceof Error ? err : new Error(msg)
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [players, setPlayers] = useState<Player[]>([])
   const [matches, setMatches] = useState<Match[]>([])
@@ -393,14 +426,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (data.userId) throw new Error('Club admins can only add unclaimed players.')
     }
     const player: Player = { ...data, id: uuid(), createdAt: new Date().toISOString() }
-    await backend.putPlayer(player)
+    try {
+      await backend.putPlayer(player)
+    } catch (e) {
+      throw mapPlayerWriteError(e, data.email)
+    }
     setPlayers((prev) => [...prev, player])
     return player
   }
 
   const updatePlayer: StoreCtx['updatePlayer'] = async (p) => {
     if (!canWritePlayer(p)) throw new Error('You can only edit players in your club.')
-    await backend.putPlayer(p)
+    try {
+      await backend.putPlayer(p)
+    } catch (e) {
+      throw mapPlayerWriteError(e, p.email)
+    }
     setPlayers((prev) => prev.map((x) => (x.id === p.id ? p : x)))
     if (myPlayer && myPlayer.id === p.id) setMyPlayer(p)
   }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import {
   claimUnclaimedPlayer,
-  findUnclaimedNameMatches,
+  findUnclaimedEmailMatches,
   suggestUsername,
 } from '../lib/supabase/profile'
 import { COUNTRIES, distinctValues } from '../lib/places'
@@ -13,7 +13,7 @@ import { PlayerAvatar } from './PlayerAvatar'
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 export function OnboardingModal() {
-  const { session, completeOnboarding, signOut, players } = useStore()
+  const { session, completeOnboarding, signOut, players, settings } = useStore()
   const cityOptions = useMemo(() => distinctValues(players, 'city'), [players])
   const clubOptions = useMemo(() => distinctValues(players, 'club'), [players])
   const initialName =
@@ -27,7 +27,10 @@ export function OnboardingModal() {
     null
 
   const [fullName, setFullName] = useState(initialName)
-  const [email, setEmail] = useState(initialEmail)
+  // Profile email is locked to the Google sign-in email — auth identity ==
+  // profile identity, no editable "contact email" alongside it. Kept as a
+  // const (not state) so nothing in the form can drift it out of sync.
+  const email = initialEmail
   const [phone, setPhone] = useState('')
   const [country, setCountry] = useState('')
   const [city, setCity] = useState('')
@@ -36,11 +39,16 @@ export function OnboardingModal() {
   const [gender, setGender] = useState<Gender | ''>('')
   const [dominantHand, setDominantHand] = useState<DominantHand | ''>('')
   const [startingLevel, setStartingLevel] = useState('1000')
-  // Tri-state, deliberately starts null so the user has to make an explicit
-  // choice. A wrong starting rating wastes their first ~5 matches and
-  // destabilises their opponents' levels too — we'd rather have a moment of
-  // friction than silently default to 1000.
-  const [hasExistingRating, setHasExistingRating] = useState<'yes' | 'no' | null>(null)
+  // Deliberately starts null so the user has to make an explicit choice. A
+  // wrong starting rating wastes their first ~provisionalThreshold matches
+  // and destabilises their opponents' levels too — we'd rather have a moment
+  // of friction than silently default to 1000.
+  //   'official' — has a SquashLevels.com / LevelTech number → seeded
+  //   'estimate' — coach / strong club mate placed them → seeded (trust-based)
+  //   'none'     — no idea → unseeded, starts at 1000, provisional
+  type RatingSource = 'official' | 'estimate' | 'none'
+  const [ratingSource, setRatingSource] = useState<RatingSource | null>(null)
+  const needsRatingNumber = ratingSource === 'official' || ratingSource === 'estimate'
 
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(initialAvatar)
@@ -49,25 +57,36 @@ export function OnboardingModal() {
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // Unclaimed-name suggestions: when the user types a full name, look for any
-  // existing unclaimed player rows with a matching name. Once they pick one
-  // and submit onboarding, we claim it after createProfileAndPlayer so all
-  // their match history sticks with them.
+  // Unclaimed-stub suggestion by email. The signed-in user's auth email is
+  // the same key the server uses to auto-claim on profile insert, so the
+  // suggestion shown here always matches whatever would happen on submit.
+  // Names collide all the time ("Amit", "John") — email is the only key
+  // that uniquely identifies a real person.
+  //
+  // The claim is *mandatory* when there's a match: Google has verified the
+  // user owns this email, the stub is tagged with that email, so the stub
+  // IS them — there's nothing to opt out of. The server-side
+  // `ensure_player_for_profile` trigger would claim it on submit anyway,
+  // so showing a "None of these" escape hatch would mislead the user.
+  // We auto-select the (oldest) match and lock the choice.
   const [suggestions, setSuggestions] = useState<Player[]>([])
   const [claimId, setClaimId] = useState<string | null>(null)
   useEffect(() => {
-    const t = fullName.trim()
-    if (t.length < 3) { setSuggestions([]); return }
-    const handle = setTimeout(async () => {
+    const e = initialEmail.trim()
+    if (!e) { setSuggestions([]); return }
+    let cancelled = false
+    ;(async () => {
       try {
-        const list = await findUnclaimedNameMatches(t)
+        const list = await findUnclaimedEmailMatches(e)
+        if (cancelled) return
         setSuggestions(list)
+        if (list.length > 0) setClaimId(list[0].id)
       } catch {
         // non-fatal — onboarding still works without suggestions.
       }
-    }, 300)
-    return () => clearTimeout(handle)
-  }, [fullName])
+    })()
+    return () => { cancelled = true }
+  }, [initialEmail])
 
   // When the user picks an existing player, prefill form fields from that
   // player's row so they don't have to re-enter starting level, club, country,
@@ -78,7 +97,7 @@ export function OnboardingModal() {
     if (!claimId) return
     const p = suggestions.find((s) => s.id === claimId)
     if (!p) return
-    if (p.email) setEmail(p.email)
+    // Email is locked to the Google sign-in — don't prefill from the stub.
     if (Number.isFinite(p.startingLevel)) {
       // Avoid trailing ".0" when the rating is a clean integer.
       setStartingLevel(
@@ -86,10 +105,10 @@ export function OnboardingModal() {
           ? String(p.startingLevel)
           : p.startingLevel.toFixed(2),
       )
-      // If the existing player has a non-default rating, treat that as "yes,
-      // I have a rating". A 1000 stub is ambiguous so leave the choice null
-      // and let the user pick.
-      if (p.startingLevel !== 1000) setHasExistingRating('yes')
+      // If the existing player has a non-default rating, treat that as
+      // an official/known rating. A 1000 stub is ambiguous so leave the
+      // choice null and let the user pick.
+      if (p.startingLevel !== 1000) setRatingSource('official')
     }
     if (p.phone) setPhone(p.phone)
     if (p.country) setCountry(p.country)
@@ -126,15 +145,17 @@ export function OnboardingModal() {
     setErr(null)
     if (!fullName.trim()) return setErr('Full name is required')
     if (!email.trim()) return setErr('Email is required')
-    if (!hasExistingRating) {
-      return setErr('Please tell us whether you have an existing SquashLevels.com / LevelTech rating')
+    if (!ratingSource) {
+      return setErr('Please pick how you want to start your rating')
     }
-    // 'no' branch always saves 1000; the form forces that value when picked.
-    // 'yes' branch must be a real positive number entered by the user.
-    const lvl = hasExistingRating === 'no' ? 1000 : Number(startingLevel)
-    if (hasExistingRating === 'yes' && (!Number.isFinite(lvl) || lvl <= 0)) {
-      return setErr('Enter your SquashLevels.com / LevelTech rating, or pick "I don\'t have one yet"')
+    // 'none' branch always saves 1000; the form forces that value when picked.
+    // 'official' / 'estimate' must be a real positive number entered by the user.
+    const lvl = ratingSource === 'none' ? 1000 : Number(startingLevel)
+    if (needsRatingNumber && (!Number.isFinite(lvl) || lvl <= 0)) {
+      return setErr('Enter a positive starting rating, or pick "I don\'t have a rating yet"')
     }
+    if (!country.trim()) return setErr('Country is required')
+    if (!city.trim()) return setErr('City is required')
     const parsed = parseProfileFields({ birthYear, country, city })
     if (!parsed.ok) return setErr(parsed.error)
     setBusy(true)
@@ -143,10 +164,11 @@ export function OnboardingModal() {
         fullName: fullName.trim(),
         email: email.trim(),
         startingLevel: lvl,
-        // Seeded only when the user explicitly picked "I have a rating".
-        // The "I don't have one yet" branch saves 1000 and stays
-        // provisional-eligible until they've played enough matches.
-        seededRating: hasExistingRating === 'yes',
+        // Seeded when the user entered a real number — either from an
+        // official rating or a coach/club-mate estimate. The "no rating"
+        // branch saves 1000 and stays provisional-eligible until they've
+        // played enough matches.
+        seededRating: needsRatingNumber,
         phone: phone.trim() || undefined,
         country: parsed.values.country,
         city: parsed.values.city,
@@ -245,45 +267,42 @@ export function OnboardingModal() {
               {suggestions.length > 0 && (
                 <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-900/20 space-y-2">
                   <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                    {claimId ? 'You picked an existing player — your match history will follow you.' : 'Are any of these you? Pick one to take over their match history.'}
+                    We already have a player linked to this email — your match history and profile
+                    data will follow you. (Email is your identity on Boast; you can't register a
+                    second account against the same email.)
                   </p>
                   <ul className="space-y-1">
-                    {suggestions.map((s) => (
-                      <li key={s.id}>
-                        <button
-                          type="button"
-                          onClick={() => setClaimId(claimId === s.id ? null : s.id)}
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${claimId === s.id ? 'bg-amber-200 dark:bg-amber-900/60' : 'hover:bg-amber-100 dark:hover:bg-amber-900/30'}`}
-                        >
-                          <PlayerAvatar name={s.name} avatarUrl={s.avatarUrl} size={28} />
-                          <span className="flex-1 min-w-0 truncate font-medium">{s.name}</span>
-                          {[s.club, s.city].filter(Boolean).length > 0 && (
-                            <span className="text-xs text-slate-500 truncate">
-                              {[s.club, s.city].filter(Boolean).join(' · ')}
-                            </span>
-                          )}
-                          {claimId === s.id && <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Selected ✓</span>}
-                        </button>
+                    {suggestions.slice(0, 1).map((s) => (
+                      <li
+                        key={s.id}
+                        className="flex w-full items-center gap-2 rounded-md bg-amber-200/70 px-2 py-1.5 text-sm dark:bg-amber-900/60"
+                      >
+                        <PlayerAvatar name={s.name} avatarUrl={s.avatarUrl} size={28} />
+                        <span className="flex-1 min-w-0 truncate font-medium">{s.name}</span>
+                        {[s.club, s.city].filter(Boolean).length > 0 && (
+                          <span className="text-xs text-slate-500 truncate">
+                            {[s.club, s.city].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
-                  {claimId && (
-                    <button
-                      type="button"
-                      className="text-xs text-amber-800 dark:text-amber-200 underline"
-                      onClick={() => setClaimId(null)}
-                    >
-                      None of these — I'm new to Boast
-                    </button>
-                  )}
                 </div>
               )}
             </div>
             <div>
               <label className="label" htmlFor="email">Email</label>
-              <input id="email" type="email" className="input w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <input
+                id="email"
+                type="email"
+                className="input w-full bg-slate-50 text-slate-600 dark:bg-slate-900/40 dark:text-slate-300 cursor-not-allowed"
+                value={initialEmail}
+                readOnly
+                aria-readonly
+              />
               <p className="mt-1 text-xs text-slate-500">
-                Used for your profile. You'll always sign in with your Google account ({initialEmail || 'this one'}).
+                Locked to your Google sign-in — email is your identity on Boast. To use a
+                different email, sign out and sign in with that Google account.
               </p>
             </div>
             <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-900/20 p-4 space-y-3">
@@ -292,22 +311,24 @@ export function OnboardingModal() {
                   Starting rating — please get this right
                 </div>
                 <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
-                  This is the level you'll start at. If it's far off,
-                  your first few matches won't reflect your real ability —
-                  and your opponents' levels will swing more than usual when
-                  they play you.
+                  Boast works on the honour system. There's no trophy for
+                  inflating your rating (we checked the cabinet — empty) and
+                  sandbagging just means more matches climbing back to where
+                  you actually are. Enter your honest level and the maths
+                  settles fast; fudge it and you'll spend weeks getting
+                  beaten up — or beating people up — until reality catches up.
                 </p>
               </div>
 
               <fieldset className="space-y-2">
-                <legend className="sr-only">Do you have an existing rating?</legend>
+                <legend className="sr-only">How are you starting your rating?</legend>
                 <label className="flex items-start gap-2 text-sm cursor-pointer">
                   <input
                     type="radio"
                     name="startingRatingSource"
-                    checked={hasExistingRating === 'yes'}
+                    checked={ratingSource === 'official'}
                     onChange={() => {
-                      setHasExistingRating('yes')
+                      setRatingSource('official')
                       // Clear the default 1000 so they have to type a real
                       // number; preserve any value they've already typed.
                       if (startingLevel === '1000') setStartingLevel('')
@@ -317,7 +338,8 @@ export function OnboardingModal() {
                   <span>
                     <span className="font-medium">I have a SquashLevels.com / LevelTech rating</span>
                     <span className="block text-xs text-slate-600 dark:text-slate-300">
-                      Use the number from your account on those sites.
+                      Use the number from your account on those sites. You'll start at that level
+                      and skip provisional status.
                     </span>
                   </span>
                 </label>
@@ -325,28 +347,48 @@ export function OnboardingModal() {
                   <input
                     type="radio"
                     name="startingRatingSource"
-                    checked={hasExistingRating === 'no'}
+                    checked={ratingSource === 'estimate'}
                     onChange={() => {
-                      setHasExistingRating('no')
+                      setRatingSource('estimate')
+                      if (startingLevel === '1000') setStartingLevel('')
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">I have a solid estimate from a coach or strong club mate</span>
+                    <span className="block text-xs text-slate-600 dark:text-slate-300">
+                      Someone with a known rating has placed you, or you regularly play people whose
+                      ratings you know. Enter that estimate; you'll skip provisional status.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="startingRatingSource"
+                    checked={ratingSource === 'none'}
+                    onChange={() => {
+                      setRatingSource('none')
                       setStartingLevel('1000')
                     }}
                     className="mt-1"
                   />
                   <span>
-                    <span className="font-medium">I don't have one yet</span>
+                    <span className="font-medium">I don't have a rating yet</span>
                     <span className="block text-xs text-slate-600 dark:text-slate-300">
-                      We'll start you at 1000. If a club coach or strong club
-                      mate can give you an honest estimate, use that instead —
-                      it'll save a lot of unstable early matches.
+                      We'll start you at 1000 and mark you <em>provisional</em> for your first{' '}
+                      {settings.provisionalThreshold} matches. While provisional, your level moves
+                      after every match but your opponents' levels don't — so you don't drag
+                      established players around while we figure out where you actually sit.
                     </span>
                   </span>
                 </label>
               </fieldset>
 
-              {hasExistingRating === 'yes' && (
+              {needsRatingNumber && (
                 <div>
                   <label className="label text-amber-900 dark:text-amber-100" htmlFor="level">
-                    Your rating
+                    {ratingSource === 'official' ? 'Your rating' : 'Your best-estimate rating'}
                   </label>
                   <input
                     id="level"
@@ -356,19 +398,37 @@ export function OnboardingModal() {
                     onChange={(e) => setStartingLevel(e.target.value)}
                     placeholder="e.g. 1200"
                   />
-                  <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
-                    Don't know your rating?{' '}
-                    <a
-                      href="https://www.squashlevels.com"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline font-medium"
-                    >
-                      Look it up at squashlevels.com →
-                    </a>
-                  </p>
+                  {ratingSource === 'official' ? (
+                    <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                      Don't know your rating?{' '}
+                      <a
+                        href="https://www.squashlevels.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline font-medium"
+                      >
+                        Look it up at squashlevels.com →
+                      </a>
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                      Pick the number that best reflects how you'd fare against players you know.
+                      You can always ask an admin to re-seed it later if you got it wrong.
+                    </p>
+                  )}
                 </div>
               )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label label-required" htmlFor="country">Country</label>
+                <input id="country" list="country-options" className="input w-full" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Singapore" autoComplete="country-name" required />
+              </div>
+              <div>
+                <label className="label label-required" htmlFor="city">City</label>
+                <input id="city" list="city-options" className="input w-full" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Singapore" autoComplete="address-level2" required />
+              </div>
             </div>
 
             {/* Optional section */}
@@ -378,16 +438,6 @@ export function OnboardingModal() {
                 <div>
                   <label className="label" htmlFor="phone">Phone</label>
                   <input id="phone" type="tel" className="input w-full" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+65 9123 4567" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="label" htmlFor="country">Country</label>
-                    <input id="country" list="country-options" className="input w-full" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Singapore" autoComplete="country-name" />
-                  </div>
-                  <div>
-                    <label className="label" htmlFor="city">City</label>
-                    <input id="city" list="city-options" className="input w-full" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Singapore" autoComplete="address-level2" />
-                  </div>
                 </div>
                 <div>
                   <label className="label" htmlFor="club">Club</label>

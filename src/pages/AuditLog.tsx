@@ -195,11 +195,88 @@ function AuditRow({ event }: { event: AuditEvent }) {
         </span>
       </button>
       {open && (
-        <pre className="mt-2 text-xs overflow-x-auto rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-2 whitespace-pre-wrap break-words">
+        isObjectDiff(event.changed) ? (
+          <DiffView before={event.changed.before} after={event.changed.after} />
+        ) : (
+          <pre className="mt-2 text-xs overflow-x-auto rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-2 whitespace-pre-wrap break-words">
 {JSON.stringify(event.changed, null, 2)}
-        </pre>
+          </pre>
+        )
       )}
     </li>
+  )
+}
+
+function isObjectDiff(c: unknown): c is { before: Record<string, unknown>; after: Record<string, unknown> } {
+  return !!c && typeof c === 'object' && 'before' in c && 'after' in c
+}
+
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a == null && b == null) return true
+  if (a == null || b == null) return false
+  if (typeof a !== typeof b) return false
+  if (typeof a === 'object') {
+    try { return JSON.stringify(a) === JSON.stringify(b) } catch { return false }
+  }
+  return false
+}
+
+function fmtValue(v: unknown): string {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'boolean') return v ? 'true' : 'false'
+  if (typeof v === 'number') return String(v)
+  if (typeof v === 'string') {
+    if (v.length > 80) return v.slice(0, 77) + '…'
+    return v || '(empty)'
+  }
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
+/**
+ * Per-field diff view. Shows only fields that actually changed, formatted
+ * `key: before → after`. Falls back to a "Show full before / after" details
+ * disclosure for the raw JSON, since occasionally an audit row will surface
+ * derived fields (e.g. `levels_stale`, `current_level`) that the viewer
+ * wants to confirm alongside the user-driven change.
+ */
+function DiffView({ before, after }: { before: Record<string, unknown>; after: Record<string, unknown> }) {
+  const keys = useMemo(() => {
+    const set = new Set([...Object.keys(before), ...Object.keys(after)])
+    const out: Array<{ key: string; b: unknown; a: unknown }> = []
+    for (const k of set) {
+      const b = before[k], a = after[k]
+      if (!valuesEqual(b, a)) out.push({ key: k, b, a })
+    }
+    out.sort((x, y) => x.key.localeCompare(y.key))
+    return out
+  }, [before, after])
+
+  return (
+    <div className="mt-2 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-2 text-xs space-y-1.5">
+      {keys.length === 0 ? (
+        <div className="text-slate-500">No field changes (trigger fired without a value change).</div>
+      ) : (
+        <ul className="space-y-1">
+          {keys.map(({ key, b, a }) => (
+            <li key={key} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="font-mono text-slate-700 dark:text-slate-300">{key}:</span>
+              <span className="font-mono text-red-700 dark:text-red-400 line-through opacity-80 break-all">{fmtValue(b)}</span>
+              <span className="text-slate-400" aria-hidden>→</span>
+              <span className="font-mono text-green-700 dark:text-green-400 break-all">{fmtValue(a)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <details className="pt-1">
+        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+          Show full before / after
+        </summary>
+        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words">
+{JSON.stringify({ before, after }, null, 2)}
+        </pre>
+      </details>
+    </div>
   )
 }
 

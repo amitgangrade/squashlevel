@@ -1,5 +1,26 @@
 import { isValidCityName, normalizeCountry } from './places'
 
+/**
+ * Boast signs in via Google only (2026-05-17). The auth flow will
+ * never produce a session for a non-Google account, so any stub
+ * registered with a non-Gmail email could never claim itself — the
+ * `ensure_player_for_profile` email match in onboarding won't fire.
+ * Both `gmail.com` and `googlemail.com` are accepted because they
+ * route to the same Google mailbox (and `norm_email` canonicalises
+ * them to the same key on the server). When we add more providers,
+ * flip this off — the constraint is intentionally narrow rather
+ * than a generic configurable allow-list.
+ */
+export function isSupportedSigninEmail(email: string): boolean {
+  return /@(?:gmail|googlemail)\.com$/i.test(email.trim())
+}
+
+export const SIGNIN_EMAIL_HINT =
+  'Boast signs in via Google — only @gmail.com / @googlemail.com addresses work today.'
+
+export const SIGNIN_EMAIL_ERROR =
+  'Email must be @gmail.com or @googlemail.com. Boast signs in via Google, so other providers can\'t claim the account.'
+
 export interface ProfileFieldDraft {
   birthYear?: string
   country?: string
