@@ -17,23 +17,49 @@ import { UnrankedTag } from './UnrankedTag'
  * drift, and means future tweaks to match presentation only need to land in
  * one place.
  *
- * Layout:
- *   [date · type · venue]                       [optional status pill]
- *   [avatar  name]              [3 - 1]              [opp name  avatar]
- *   [before→after Δ]                                 [before→after Δ]
- *   [Won/Lost badge — only when viewerId is set]
- *   [per-game tiles — colour-tinted by per-game winner, full-width row]
- *   ─────────────────────────────────────────────────────────────
- *   Expected perf: X% · Actual: Y%   (only when level data exists)
- *   [optional hint line]
- *   [optional action row — Confirm/Dispute/Delete buttons, etc.]
+ * Layout — responsive flip at sm:
  *
- * When `viewerId` is provided, that player is forced onto the LEFT side and
- * gets a Won/Lost/Drew badge. This makes long lists on a profile page easy to
- * scan — your eye doesn't have to figure out "which side am I" each card.
+ *   Mobile (< sm), stacked:
+ *     [date · type · venue]                       [optional status pill]
+ *     ┌──────────────────────────────────────┐
+ *     │ avatar  name                  score  │
+ *     │         before→after Δ        Won    │  ← subtle row tint
+ *     ├──────────────────────────────────────┤
+ *     │ avatar  name                  score  │
+ *     │         before→after Δ        Lost   │
+ *     └──────────────────────────────────────┘
+ *     [per-game tiles band]
+ *     [Expected · Actual · Why these numbers?]
+ *     [optional action row]
  *
- * When `viewerId` is omitted, player A goes on the left (no flipping), no
- * Won/Lost badge appears, and both names are clickable links.
+ *   Desktop (sm+), horizontal:
+ *     [date stamp] [date · type · venue]          [optional status pill]
+ *     [avatar  name]              [3 - 1]              [opp name  avatar]
+ *     [before→after Δ]                                 [before→after Δ]
+ *     [Won/Lost badge — only when viewerId is set]
+ *     ─────────────────────────────────────────────────────────────
+ *     [per-game tiles — colour-tinted by per-game winner, full-width row]
+ *     ─────────────────────────────────────────────────────────────
+ *     Expected perf: X% · Actual: Y%   (only when level data exists)
+ *     [optional hint line]
+ *     [optional action row — Confirm/Dispute/Delete buttons, etc.]
+ *
+ * Mobile rationale: at 390px a five-element horizontal row
+ * (avatar | name | score | name | avatar) crushes names to "sacchi…".
+ * Stacking lets each name take the full card width minus the avatar +
+ * side score, so it wraps naturally instead of truncating. The big
+ * centred score plate disappears on mobile — the per-side score number
+ * already lives where the eye is looking (on the player's row).
+ *
+ * When `viewerId` is provided, that player is forced onto the LEFT side
+ * and gets a Won/Lost/Drew badge in the desktop layout. This makes long
+ * lists on a profile page easy to scan — your eye doesn't have to
+ * figure out "which side am I" each card. On mobile the badge is shown
+ * per row regardless (the stack already separates "you" from
+ * "opponent" by position).
+ *
+ * When `viewerId` is omitted, player A goes on the left (no flipping),
+ * and both names are clickable links.
  */
 export interface MatchCardProps {
   match: Match
@@ -180,29 +206,52 @@ export function MatchCard({
             {statusBadge && <span className="ml-auto shrink-0">{statusBadge}</span>}
           </div>
 
-          {/* Player row: left identity · score plate · right identity. The
-              per-game tiles get their own full-width row below — squeezing
-              them into the centre column on a 375px phone forced them to
-              wrap into a multi-line stack and made the whole card lopsided.
+          {/* MOBILE: stacked player rows. Each player gets a full-width row
+              with avatar + name + level change on the left, side score +
+              Won/Lost on the right. Subtle row tint by win/loss. Names wrap
+              instead of truncating because the row has room. */}
+          <div className="sm:hidden space-y-2">
+            <MobilePlayerRow
+              player={left}
+              name={leftName}
+              isViewer={viewerInMatch && leftId === viewerId}
+              before={leftBefore}
+              after={leftAfter}
+              delta={leftDelta}
+              gamesWon={leftGames}
+              outcome={drew ? 'draw' : leftWon ? 'win' : 'loss'}
+              unranked={m.unranked}
+            />
+            <MobilePlayerRow
+              player={right}
+              name={rightName}
+              isViewer={viewerInMatch && rightId === viewerId}
+              before={rightBefore}
+              after={rightAfter}
+              delta={rightDelta}
+              gamesWon={rightGames}
+              outcome={drew ? 'draw' : rightWon ? 'win' : 'loss'}
+              unranked={m.unranked}
+            />
+          </div>
 
-              Player meta chips (club · city · country) are hidden on mobile.
-              On a 390px phone with a 3-col layout each side gets ~95px of
-              inner space, which is not enough for "Singapore Cricket Club ·
-              Singapore · Singapore · age 45" — it wrapped to 4-5 lines and
-              made the card grotesquely tall. The name links to the full
-              profile where all that info lives. */}
-          <div className="flex items-center gap-1.5 sm:gap-3">
-            <div className="flex items-start gap-2 flex-1 min-w-0">
-              {left && <PlayerAvatar name={left.name} avatarUrl={left.avatarUrl} size={36} />}
+          {/* DESKTOP: horizontal layout — kept from prior version, with
+              name wrapping (break-words instead of truncate), a smaller
+              score plate (text-2xl instead of text-3xl), and a divider
+              between this row and the per-game tile band so they don't
+              visually collide. */}
+          <div className="hidden sm:flex items-start gap-4">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              {left && <PlayerAvatar name={left.name} avatarUrl={left.avatarUrl} size={40} />}
               <div className="min-w-0 space-y-1">
-                <div className="font-semibold truncate text-slate-900 dark:text-slate-100">
+                <div className="font-semibold text-slate-900 dark:text-slate-100 break-words">
                   {viewerInMatch && leftId === viewerId ? (
                     leftName
                   ) : (
                     <PlayerLink id={leftId} name={leftName} />
                   )}
                 </div>
-                {left && <PlayerMetaLinks player={left} className="hidden sm:inline" />}
+                {left && <PlayerMetaLinks player={left} />}
                 <LevelChange before={leftBefore} after={leftAfter} delta={leftDelta} unranked={m.unranked} />
                 {viewerInMatch && (
                   <div>
@@ -220,22 +269,22 @@ export function MatchCard({
 
             <div
               className={clsx(
-                'shrink-0 rounded-md border px-2 sm:px-3 py-1 sm:py-1.5 font-mono text-xl sm:text-3xl leading-none tabular-nums',
+                'shrink-0 rounded-md border px-3 py-1.5 font-mono text-2xl leading-none tabular-nums self-center',
                 plateTone,
               )}
             >
               <span className={clsx(leftWon && 'font-bold')}>{leftGames}</span>
-              <span className="text-slate-400 mx-1 sm:mx-1.5">–</span>
+              <span className="text-slate-400 mx-1.5">–</span>
               <span className={clsx(rightWon && 'font-bold')}>{rightGames}</span>
             </div>
 
-            <div className="flex items-start gap-2 flex-1 min-w-0 justify-end">
+            <div className="flex items-start gap-3 flex-1 min-w-0 justify-end">
               <div className="min-w-0 text-right space-y-1">
-                <div className="font-medium truncate text-slate-600 dark:text-slate-400">
+                <div className="font-medium text-slate-600 dark:text-slate-400 break-words">
                   <PlayerLink id={rightId} name={rightName} />
                 </div>
                 {right && (
-                  <div className="hidden sm:flex justify-end">
+                  <div className="flex justify-end">
                     <PlayerMetaLinks player={right} />
                   </div>
                 )}
@@ -247,16 +296,17 @@ export function MatchCard({
                   align="right"
                 />
               </div>
-              {right && <PlayerAvatar name={right.name} avatarUrl={right.avatarUrl} size={36} />}
+              {right && <PlayerAvatar name={right.name} avatarUrl={right.avatarUrl} size={40} />}
             </div>
           </div>
 
-          {/* Per-game tiles — full-width row from the left side's perspective.
-              Tints green/red/slate by per-game winner so the eye can scan game
-              rhythm at a glance. Hidden when there's only one "game" with a
-              0-0 score (rare, but possible mid-edit). */}
+          {/* Per-game tiles — its own band with a top divider so the
+              aggregate score (above) and the per-game breakdown (here)
+              feel like distinct pieces of information rather than one
+              cramped block. Tints green/red/slate by per-game winner so
+              the eye can scan game rhythm at a glance. */}
           {m.games.length > 0 && (
-            <div className="flex justify-center">
+            <div className="flex justify-center border-t border-slate-100 dark:border-slate-800 pt-3">
               <GameScores games={m.games} viewerSide={leftSide} size="sm" />
             </div>
           )}
@@ -295,6 +345,75 @@ export function MatchCard({
 
 function ResultBadge({ variant, children }: { variant: 'win' | 'loss' | 'draw'; children: ReactNode }) {
   return <StatusPill variant={variant}>{children}</StatusPill>
+}
+
+/**
+ * Mobile-only stacked player row. Avatar + name + level change on the
+ * left, big side score + Won/Lost pill on the right. Subtle background
+ * tint by outcome — green for the winner row, red for the loser, slate
+ * for a draw — gives at-a-glance scanability that the old centred score
+ * plate was trying to do but lost in the cramming.
+ */
+function MobilePlayerRow({
+  player,
+  name,
+  isViewer,
+  before,
+  after,
+  delta,
+  gamesWon,
+  outcome,
+  unranked,
+}: {
+  player: Player | null
+  name: string
+  isViewer: boolean
+  before?: number
+  after?: number
+  delta?: number
+  gamesWon: number
+  outcome: 'win' | 'loss' | 'draw'
+  unranked?: boolean
+}) {
+  const tone =
+    outcome === 'win'
+      ? 'bg-green-50/70 border-green-200/60 dark:bg-green-900/15 dark:border-green-900/30'
+      : outcome === 'loss'
+        ? 'bg-red-50/70 border-red-200/60 dark:bg-red-900/15 dark:border-red-900/30'
+        : 'bg-slate-50/70 border-slate-200/60 dark:bg-slate-900/30 dark:border-slate-800'
+  return (
+    <div
+      className={clsx(
+        'flex items-center gap-2.5 rounded-md border px-2.5 py-2',
+        tone,
+      )}
+    >
+      {player && <PlayerAvatar name={player.name} avatarUrl={player.avatarUrl} size={36} />}
+      <div className="flex-1 min-w-0 space-y-0.5">
+        <div className="font-semibold text-slate-900 dark:text-slate-100 break-words leading-tight">
+          {isViewer ? name : <PlayerLink id={player?.id ?? ''} name={name} />}
+        </div>
+        <LevelChange before={before} after={after} delta={delta} unranked={unranked} />
+      </div>
+      <div className="shrink-0 flex flex-col items-end gap-1">
+        <div
+          className={clsx(
+            'font-mono text-2xl leading-none tabular-nums',
+            outcome === 'win' && 'font-bold text-green-700 dark:text-green-300',
+            outcome === 'loss' && 'text-slate-500',
+          )}
+        >
+          {gamesWon}
+        </div>
+        {!unranked && outcome !== 'draw' && (
+          <ResultBadge variant={outcome === 'win' ? 'win' : 'loss'}>
+            {outcome === 'win' ? 'Won' : 'Lost'}
+          </ResultBadge>
+        )}
+        {!unranked && outcome === 'draw' && <ResultBadge variant="draw">Drew</ResultBadge>}
+      </div>
+    </div>
+  )
 }
 
 /**
