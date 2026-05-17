@@ -8,7 +8,8 @@ import { summarizeMatch } from '../lib/match-summary'
 import { Alert } from '../components/Alert'
 import { BackLink } from '../components/BackLink'
 import { EmptyState } from '../components/EmptyState'
-import { HistoryIcon, UsersIcon } from '../components/Icons'
+import { HistoryIcon, InfoIcon, UsersIcon } from '../components/Icons'
+import { LevelHelpPanel } from '../components/LevelHelpPanel'
 import { MatchCard } from '../components/MatchCard'
 import { OrgAvatar } from '../components/OrgAvatar'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -40,6 +41,7 @@ export function GroupProfilePage() {
   const [members, setMembers] = useState<GroupMember[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const [levelHelpOpen, setLevelHelpOpen] = useState(false)
 
   const refresh = () => {
     if (!supabaseEnabled) {
@@ -289,7 +291,20 @@ export function GroupProfilePage() {
       )}
 
       <section>
-        <h2 className="mb-2">Group leaderboard</h2>
+        <div className="flex items-center gap-2 mb-2">
+          <h2 className="!mb-0">Group leaderboard</h2>
+          <button
+            type="button"
+            onClick={() => setLevelHelpOpen((v) => !v)}
+            aria-expanded={levelHelpOpen}
+            aria-controls="level-help-panel"
+            className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline-offset-2 hover:underline"
+          >
+            <InfoIcon className="h-4 w-4" />
+            <span>How levels work</span>
+          </button>
+        </div>
+        {levelHelpOpen && <LevelHelpPanel onClose={() => setLevelHelpOpen(false)} />}
         {rows.length === 0 ? (
           <EmptyState
             icon={<UsersIcon className="h-6 w-6" />}
@@ -303,7 +318,19 @@ export function GroupProfilePage() {
                 <tr>
                   <th className="px-3 py-2 text-left">#</th>
                   <th className="px-3 py-2 text-left">Player</th>
-                  <th className="px-3 py-2 text-right">Level</th>
+                  <th className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setLevelHelpOpen((v) => !v)}
+                      aria-expanded={levelHelpOpen}
+                      aria-controls="level-help-panel"
+                      className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                      title="How levels work"
+                    >
+                      Level
+                      <InfoIcon className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </th>
                   <th className="px-3 py-2 text-right hidden sm:table-cell">4-match avg</th>
                   <th className="px-3 py-2 text-right">Matches</th>
                   {isGroupAdmin && <th className="px-3 py-2" />}

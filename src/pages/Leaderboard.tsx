@@ -8,7 +8,8 @@ import { movingAverage } from '../lib/rating/recompute'
 import { isProvisional } from '../lib/rating/levels'
 import { filterByTokens, joinHay } from '../lib/search'
 import { EmptyState } from '../components/EmptyState'
-import { UsersIcon } from '../components/Icons'
+import { InfoIcon, UsersIcon } from '../components/Icons'
+import { LevelHelpPanel } from '../components/LevelHelpPanel'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonRow } from '../components/Skeleton'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -44,6 +45,11 @@ export function LeaderboardPage() {
 
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
+  // Toggleable explainer panel for the Level column. Discoverability lives
+  // next to the heading + as a small info icon in the desktop table header;
+  // both target the same disclosure so the explanation is one source of
+  // truth rather than a brittle tooltip-on-th.
+  const [levelHelpOpen, setLevelHelpOpen] = useState(false)
   const PAGE_SIZE = 50
 
   const filters = useMemo(() => {
@@ -143,7 +149,19 @@ export function LeaderboardPage() {
 
         <section>
           <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-            <h1>Leaderboard</h1>
+            <div className="flex items-center gap-2">
+              <h1>Leaderboard</h1>
+              <button
+                type="button"
+                onClick={() => setLevelHelpOpen((v) => !v)}
+                aria-expanded={levelHelpOpen}
+                aria-controls="level-help-panel"
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline-offset-2 hover:underline"
+              >
+                <InfoIcon className="h-4 w-4" />
+                <span>How levels work</span>
+              </button>
+            </div>
             {/* Log-match CTA lives in the header for both desktop (button) and
                 mobile (FAB), so we don't duplicate it here. Add-player stays
                 because it's an admin-only contextual action. */}
@@ -153,6 +171,8 @@ export function LeaderboardPage() {
               </div>
             )}
           </div>
+
+          {levelHelpOpen && <LevelHelpPanel onClose={() => setLevelHelpOpen(false)} />}
 
           {activeFilters.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -263,7 +283,19 @@ export function LeaderboardPage() {
                       <th className="px-3 py-2 text-left">City</th>
                       <th className="px-3 py-2 text-right">Age</th>
                       <th className="px-3 py-2 text-right">Matches</th>
-                      <th className="px-3 py-2 text-right">Level</th>
+                      <th className="px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setLevelHelpOpen((v) => !v)}
+                          aria-expanded={levelHelpOpen}
+                          aria-controls="level-help-panel"
+                          className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                          title="How levels work"
+                        >
+                          Level
+                          <InfoIcon className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -325,3 +357,4 @@ export function LeaderboardPage() {
     </PullToRefresh>
   )
 }
+

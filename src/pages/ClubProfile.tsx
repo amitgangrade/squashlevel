@@ -8,7 +8,8 @@ import { isProvisional } from '../lib/rating/levels'
 import { BackLink } from '../components/BackLink'
 import { EditMatchDialog } from '../components/EditMatchDialog'
 import { EmptyState } from '../components/EmptyState'
-import { HistoryIcon, UsersIcon } from '../components/Icons'
+import { HistoryIcon, InfoIcon, UsersIcon } from '../components/Icons'
+import { LevelHelpPanel } from '../components/LevelHelpPanel'
 import { MatchCard } from '../components/MatchCard'
 import { OrgAvatar } from '../components/OrgAvatar'
 import { PlayerAvatar } from '../components/PlayerAvatar'
@@ -42,6 +43,7 @@ export function ClubProfilePage() {
   // Admins for THIS club (not the viewer). Each is a player who admins this
   // club via club_admins (joined to players via user_id).
   const [adminUserIds, setAdminUserIds] = useState<string[]>([])
+  const [levelHelpOpen, setLevelHelpOpen] = useState(false)
   useEffect(() => {
     if (!slug) { setAdminUserIds([]); return }
     listClubAdminUserIds(slug).then(setAdminUserIds).catch((err) => {
@@ -206,20 +208,45 @@ export function ClubProfilePage() {
 
       <section>
         <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
-          <h2 className="!mb-0">Leaderboard</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="!mb-0">Leaderboard</h2>
+            <button
+              type="button"
+              onClick={() => setLevelHelpOpen((v) => !v)}
+              aria-expanded={levelHelpOpen}
+              aria-controls="level-help-panel"
+              className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline-offset-2 hover:underline"
+            >
+              <InfoIcon className="h-4 w-4" />
+              <span>How levels work</span>
+            </button>
+          </div>
           {iAdminThisClub && (
             <button className="btn-secondary text-xs" onClick={() => setAddingPlayer(true)}>
               + Add player
             </button>
           )}
         </div>
+        {levelHelpOpen && <LevelHelpPanel onClose={() => setLevelHelpOpen(false)} />}
         <div className="card overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500">
               <tr>
                 <th className="px-3 py-2 text-left">#</th>
                 <th className="px-3 py-2 text-left">Player</th>
-                <th className="px-3 py-2 text-right">Level</th>
+                <th className="px-3 py-2 text-right">
+                  <button
+                    type="button"
+                    onClick={() => setLevelHelpOpen((v) => !v)}
+                    aria-expanded={levelHelpOpen}
+                    aria-controls="level-help-panel"
+                    className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                    title="How levels work"
+                  >
+                    Level
+                    <InfoIcon className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </th>
                 <th className="px-3 py-2 text-right hidden sm:table-cell">4-match avg</th>
                 <th className="px-3 py-2 text-right">Matches</th>
                 {iAdminThisClub && <th className="px-3 py-2" />}
