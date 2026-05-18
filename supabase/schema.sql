@@ -178,19 +178,46 @@ as $$
   select coalesce((select is_admin from public.profiles where id = uid), false);
 $$;
 
+-- Admin-only key/value config table. Used for runtime values we don't want
+-- to bake into source — currently just `owner_email` (consumed by the
+-- bootstrap_admin trigger below). RLS denies read AND write to anyone who
+-- isn't a global admin; the trigger bypasses RLS via SECURITY DEFINER.
+create table if not exists public.app_config (
+  key text primary key,
+  value text,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.app_config enable row level security;
+
+drop policy if exists "admin read app_config" on public.app_config;
+create policy "admin read app_config" on public.app_config
+  for select to authenticated
+  using (public.is_admin(auth.uid()));
+
+drop policy if exists "admin write app_config" on public.app_config;
+create policy "admin write app_config" on public.app_config
+  for all to authenticated
+  using (public.is_admin(auth.uid()))
+  with check (public.is_admin(auth.uid()));
+
 -- Auto-promote the configured owner the first time they appear in profiles.
 --
--- The owner email is read from the `app.owner_email` Postgres setting
--- (a custom GUC) rather than baked into source — keeps the maintainer's
--- personal email out of the public repo. Operators set the value once
--- per database with:
+-- The owner email is read from `app_config` at trigger time rather than
+-- baked into source — keeps the maintainer's personal email out of the
+-- public repo. Operators set the value once per database with:
 --
---   alter database postgres set app.owner_email = 'owner@example.com';
+--   insert into public.app_config (key, value)
+--   values ('owner_email', 'owner@example.com')
+--   on conflict (key) do update set value = excluded.value, updated_at = now();
 --
--- The second arg `true` to current_setting makes it return NULL when
--- unset, so the trigger fail-closed (no one gets auto-promoted) if the
--- GUC is missing. Existing admins are unaffected — this only runs on
--- BEFORE INSERT, never on rows already in profiles.
+-- (Supabase SQL Editor runs as the postgres role and bypasses RLS, so the
+-- initial insert works even though only admins can read/write app_config
+-- via the API.)
+--
+-- If the row is missing or empty, the trigger fail-closes — no one gets
+-- auto-promoted. Existing admins are unaffected; this runs only on BEFORE
+-- INSERT of new profiles.
 create or replace function public.bootstrap_admin()
 returns trigger
 language plpgsql
@@ -198,8 +225,12 @@ security definer
 set search_path = public
 as $$
 declare
-  owner_email text := nullif(trim(coalesce(current_setting('app.owner_email', true), '')), '');
+  owner_email text;
 begin
+  select nullif(trim(value), '') into owner_email
+  from public.app_config
+  where key = 'owner_email';
+
   if owner_email is not null and lower(new.email) = lower(owner_email) then
     new.is_admin := true;
   end if;

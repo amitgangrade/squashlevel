@@ -63,17 +63,23 @@ The `public.players` table SHALL carry an optional `user_id uuid unique referenc
 
 ### Requirement: Admin election
 
-The first profile inserted whose email matches the value of the `app.owner_email` Postgres custom setting (configured per database via `ALTER DATABASE … SET app.owner_email = '…'`) SHALL be promoted to `is_admin = true` automatically by the `profiles_bootstrap_admin` BEFORE INSERT trigger. Email comparison is case-insensitive. If `app.owner_email` is unset or empty, no profile SHALL be auto-promoted (the trigger fail-closes). All other profiles SHALL be inserted with `is_admin = false`. The flag MAY only be changed thereafter via the admin-only `set_admin(target_id, value)` RPC.
+The first profile inserted whose email matches the `owner_email` row in the admin-only `public.app_config` table SHALL be promoted to `is_admin = true` automatically by the `profiles_bootstrap_admin` BEFORE INSERT trigger. Email comparison is case-insensitive. If the row is missing or empty, no profile SHALL be auto-promoted (the trigger fail-closes). All other profiles SHALL be inserted with `is_admin = false`. The flag MAY only be changed thereafter via the admin-only `set_admin(target_id, value)` RPC.
 
-The literal owner email MUST NOT be checked into source. Keeping it in Postgres configuration instead of `schema.sql` keeps the maintainer's personal email out of the public repo.
+The `public.app_config` table SHALL have RLS enabled with **admin-only read and admin-only write**. The bootstrap_admin trigger reads the value via SECURITY DEFINER and therefore bypasses RLS, so it works for anonymous profile inserts at sign-up time while keeping the owner email hidden from API clients.
+
+The literal owner email MUST NOT be checked into source. Keeping it in `app_config` instead of `schema.sql` keeps the maintainer's personal email out of the public repo.
 
 #### Scenario: Configured owner signs in for the first time
-- **WHEN** a user whose email (case-insensitively) matches `current_setting('app.owner_email')` signs in and inserts their profile
+- **WHEN** a user whose email (case-insensitively) matches the `owner_email` row in `app_config` signs in and inserts their profile
 - **THEN** the trigger flips `is_admin` to `true` before the row is committed
 
 #### Scenario: Owner email is not configured
-- **WHEN** the `app.owner_email` setting is unset or empty and any user signs in for the first time
+- **WHEN** the `owner_email` row in `app_config` is missing or empty and any user signs in for the first time
 - **THEN** the trigger leaves `is_admin = false` for every profile — no auto-promotion occurs and an existing admin must use `set_admin` to promote them manually
+
+#### Scenario: Non-admin reads app_config
+- **WHEN** an authenticated non-admin (or anonymous request) selects from `public.app_config`
+- **THEN** RLS returns no rows; the owner email is not visible via the API
 
 #### Scenario: Non-owner attempts to insert with is_admin=true
 - **WHEN** any other user attempts an insert with `is_admin: true` in the payload
