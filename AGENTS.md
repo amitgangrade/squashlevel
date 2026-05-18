@@ -273,18 +273,29 @@ we call `store.refresh()` afterwards to bust the in-memory player cache.
   non-club players, group memberships, challenges) is too wide. Enforced by
   the `admin delete player` RLS policy and by `requireAdmin()` in
   `store.removePlayer`.
-- The Roster Delete action is **state-aware**:
-  - Claimed (`user_id` set) → routes through the `admin_delete_user` RPC so
-    `auth.users` + `profiles` + `players` all go. Otherwise the user can
-    still sign in (their profile survives) but has no player row.
-  - Unclaimed (`user_id IS NULL`) → plain `DELETE FROM players`; cascades
-    handle the rest.
+- `store.removePlayer(id, mode)` takes a `mode: 'soft' | 'hard'` (default
+  `'soft'`). The Roster / Settings → Admins Delete action opens
+  `DeleteUserModal` to make the choice explicit:
+  - **Claimed + `'soft'` (default)** → `admin_soft_delete_user` drops only
+    `auth.users` + `profiles`. The players row stays alive with `user_id`
+    flipped to NULL via the on-delete-set-null FK, so it becomes unclaimed.
+    Matches / challenges / group memberships are preserved. **Identity
+    fields stay** so the same person can sign back in and auto-claim. No
+    rebuild needed.
+  - **Claimed + `'hard'`** → existing `admin_delete_user` cascades
+    everything (player + matches + challenges + group_members + profile +
+    auth). Opponents' levels drift until "Rebuild levels" runs. Reserved
+    for spam accounts and the merged-from side of a profile-merge.
+  - **Unclaimed (`user_id IS NULL`)** → plain `DELETE FROM players`;
+    cascades handle the rest. `mode` is ignored — there's no auth/profile
+    to soft-detach from.
 - **Never** call `backend.deletePlayer(id)` directly on a claimed player —
-  the resulting orphan state is the bug we just fixed.
-- After any player deletion, opponents' `current_level` / `matches_played`
+  the resulting orphan state was the original bug. Go through the store.
+- After a **hard** delete, opponents' `current_level` / `matches_played`
   are stale until **Admin → Rebuild levels** runs. The History page already
-  surfaces this hint; Roster does not (acceptable trade-off — deleting from
-  Roster is rare).
+  surfaces this hint; Roster does not (acceptable trade-off — hard delete
+  from Roster is rare). Soft delete leaves opponents' levels valid.
+- Full contract: openspec/specs/auth-permissions/spec.md → "Player RLS".
 
 ---
 

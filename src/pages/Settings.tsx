@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { downloadExport, restoreFromJson } from '../lib/storage/import-export'
 import { DEFAULT_SETTINGS, type Profile, type Settings } from '../types'
-import { deleteUserCompletely, listAllProfiles, searchProfilesForAdmin, setAdminFlag } from '../lib/supabase/profile'
+import { deleteUserCompletely, listAllProfiles, searchProfilesForAdmin, setAdminFlag, softDeleteUser } from '../lib/supabase/profile'
 import { listClubAdminsForAdmin, setClubAdmin, summarizeClubs } from '../lib/supabase/clubs'
 import { deleteGroup, listGroups } from '../lib/supabase/groups'
 import type { Group } from '../types'
 import { supabaseEnabled } from '../lib/supabase/client'
 import { filterByTokens, joinHay } from '../lib/search'
 import { PlayerAvatar } from '../components/PlayerAvatar'
+import { DeleteUserModal } from '../components/DeleteUserModal'
 import type { ClubAdmin } from '../types'
 
 export function SettingsPage() {
@@ -516,6 +517,11 @@ function AdminManager() {
   const [search, setSearch] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  // Open the soft/hard chooser modal. `null` = closed.
+  const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Toast for the post-soft-delete reminder. Auto-clears.
+  const [deleteToast, setDeleteToast] = useState<string | null>(null)
   const PAGE_LIMIT = 25
 
   // Server-side typeahead. Debounced so we don't fire an RPC on every
@@ -544,24 +550,42 @@ function AdminManager() {
     }
   }
 
-  const remove = async (p: Profile) => {
-    const confirmed = window.confirm(
-      `Permanently delete ${p.fullName} (${p.email})?\n\n` +
-      `This removes their account, profile, player record, and every match, ` +
-      `group membership, and challenge they were part of. ` +
-      `Levels for opponents will be stale until you run "Rebuild levels".\n\n` +
-      `This cannot be undone.`,
-    )
-    if (!confirmed) return
+  // Open the soft/hard chooser. AdminManager only ever lists claimed users
+  // (profiles), so the modal always shows both options.
+  const openDelete = (p: Profile) => {
+    setDeleteError(null)
+    setDeleteTarget(p)
+  }
+
+  // The modal calls back with the chosen mode. We talk to the RPC layer
+  // directly (AdminManager manages its own `profiles` list, not the store's
+  // `players`) and then refresh() to sync players/matches everywhere else.
+  const onDeleteConfirm = async (mode: 'soft' | 'hard') => {
+    if (!deleteTarget) return
+    const p = deleteTarget
     setBusyId(p.id)
-    setErr(null)
+    setDeleteError(null)
     try {
-      await deleteUserCompletely(p.id)
+      if (mode === 'soft') {
+        await softDeleteUser(p.id)
+      } else {
+        await deleteUserCompletely(p.id)
+      }
+      // The profile row is gone in both cases — drop it from this list.
+      // (Soft delete leaves the players row, but the players list isn't
+      // shown here; full sync happens via refresh().)
       setProfiles((prev) => prev?.filter((x) => x.id !== p.id) ?? null)
-      // Sync the rest of the app so the deleted user disappears from leaderboards etc.
+      setDeleteTarget(null)
+      if (mode === 'soft') {
+        setDeleteToast(
+          'Account deleted. Their player record remains unclaimed and can be ' +
+          'reclaimed by signing in again with the same email.',
+        )
+        setTimeout(() => setDeleteToast(null), 8000)
+      }
       refresh().catch(() => {})
     } catch (e) {
-      setErr((e as Error).message)
+      setDeleteError((e as Error).message)
     } finally {
       setBusyId(null)
     }
@@ -625,9 +649,9 @@ function AdminManager() {
                 {!isMe && (
                   <button
                     className="btn-link-danger"
-                    onClick={() => remove(p)}
+                    onClick={() => openDelete(p)}
                     disabled={busyId === p.id}
-                    title="Delete this user permanently"
+                    title="Delete this user"
                   >
                     Delete
                   </button>
@@ -640,6 +664,23 @@ function AdminManager() {
       {isCapped && (
         <div className="text-xs text-slate-500 text-center pt-1">
           Showing first {PAGE_LIMIT} — type to refine.
+        </div>
+      )}
+
+      <DeleteUserModal
+        open={deleteTarget !== null}
+        onClose={() => { if (busyId === null) setDeleteTarget(null) }}
+        onConfirm={onDeleteConfirm}
+        displayName={deleteTarget?.fullName ?? ''}
+        email={deleteTarget?.email}
+        isClaimed
+        busy={busyId !== null && busyId === deleteTarget?.id}
+        error={deleteError}
+      />
+
+      {deleteToast && (
+        <div className="fixed bottom-4 right-4 max-w-sm card text-sm shadow-lg">
+          {deleteToast}
         </div>
       )}
     </div>

@@ -488,6 +488,82 @@ $$;
 
 grant execute on function public.search_profiles_for_admin(text, int) to authenticated;
 
+-- ---------------------------------------------------------------------------
+-- Admin user-deletion RPCs. Two explicit modes; see openspec/specs/
+-- auth-permissions/spec.md → "Player RLS" for the contract.
+--
+--   admin_delete_user       — HARD delete. Drops the linked players row
+--                              first (cascading every match / challenge /
+--                              group_membership), then deletes auth.users
+--                              (cascading the profile). Opponents' levels
+--                              become stale until "Rebuild levels" runs.
+--                              Reserved for spam accounts and the
+--                              merged-from side of a future profile-merge.
+--
+--   admin_soft_delete_user  — SOFT delete (default admin action). Deletes
+--                              only auth.users (cascading the profile).
+--                              The players row survives with user_id set
+--                              to NULL via the existing on-delete-set-null
+--                              FK, so it becomes unclaimed and history is
+--                              preserved. Identity fields are NOT
+--                              anonymized — the same person can re-sign-in
+--                              with the same email and auto-claim the
+--                              player back via profiles_ensure_player.
+--
+-- Both refuse self-delete and non-admin callers. NULL target raises.
+-- ---------------------------------------------------------------------------
+create or replace function public.admin_delete_user(target_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+set statement_timeout = '60s'
+as $$
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  if target_user_id = auth.uid() then
+    raise exception 'cannot delete yourself';
+  end if;
+  if target_user_id is null then
+    raise exception 'target_user_id is required';
+  end if;
+
+  delete from public.players where user_id = target_user_id;
+  delete from auth.users    where id      = target_user_id;
+end;
+$$;
+
+grant execute on function public.admin_delete_user(uuid) to authenticated;
+
+create or replace function public.admin_soft_delete_user(target_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+set statement_timeout = '30s'
+as $$
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'admin only';
+  end if;
+  if target_user_id = auth.uid() then
+    raise exception 'cannot delete yourself';
+  end if;
+  if target_user_id is null then
+    raise exception 'target_user_id is required';
+  end if;
+
+  -- Only auth.users. Profile cascades; players row stays alive with
+  -- user_id flipped to NULL via the on-delete-set-null FK. Matches,
+  -- challenges, group_members untouched.
+  delete from auth.users where id = target_user_id;
+end;
+$$;
+
+grant execute on function public.admin_soft_delete_user(uuid) to authenticated;
+
 -- ===========================================================================
 -- Match confirmation
 -- ===========================================================================

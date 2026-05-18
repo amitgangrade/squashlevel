@@ -347,9 +347,30 @@ export async function setAdminFlag(profileId: string, value: boolean): Promise<P
  * Admin-only: completely delete a user (auth.users + profile + player + their
  * matches/memberships/challenges via FK cascades). Server enforces admin and
  * blocks self-delete.
+ *
+ * Reserved for spam accounts and the merged-from side of a future
+ * profile-merge flow. For the common "user leaves" case, prefer
+ * {@link softDeleteUser}.
  */
 export async function deleteUserCompletely(userId: string): Promise<void> {
   const sb = supabase!
   const { error } = await sb.rpc('admin_delete_user', { target_user_id: userId })
+  if (error) throw error
+}
+
+/**
+ * Admin-only: soft-delete a user. Removes only auth.users (cascading the
+ * profile row); the linked `players` row survives with `user_id` set to NULL
+ * via the on-delete-set-null FK, so it becomes unclaimed and ALL match,
+ * challenge, and group_membership history is preserved.
+ *
+ * The player's identity fields (name, email, club, …) are intentionally NOT
+ * anonymized — if the same person later signs back in with the same email,
+ * `profiles_ensure_player` auto-claims their original player. Server
+ * enforces admin and blocks self-delete.
+ */
+export async function softDeleteUser(userId: string): Promise<void> {
+  const sb = supabase!
+  const { error } = await sb.rpc('admin_soft_delete_user', { target_user_id: userId })
   if (error) throw error
 }

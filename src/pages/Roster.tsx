@@ -17,6 +17,7 @@ import {
 import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ProvisionalTag } from '../components/ProvisionalTag'
+import { DeleteUserModal } from '../components/DeleteUserModal'
 
 interface FormState {
   name: string
@@ -90,6 +91,10 @@ export function RosterPage() {
   const [showForm, setShowForm] = useState(false)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
+  // Soft/hard chooser modal target. `null` = closed.
+  const [deleteTarget, setDeleteTarget] = useState<Player | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const PAGE_SIZE = 100
   const cityOptions = useMemo(() => distinctValues(players, 'city'), [players])
   const clubOptions = useMemo(() => distinctValues(players, 'club'), [players])
@@ -158,33 +163,39 @@ export function RosterPage() {
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const remove = async (p: Player) => {
-    // Wording mirrors the destructiveness of the underlying action:
-    //   • Claimed → full user delete via admin_delete_user (auth + profile +
-    //     player cascade). Match the language used in Settings → Admins.
-    //   • Unclaimed → drop the stub player row; matches cascade.
-    let msg: string
-    if (p.userId) {
-      msg =
-        `Permanently delete ${p.name}${p.email ? ` (${p.email})` : ''}?\n\n` +
-        `This removes their account, profile, player record, and every match, ` +
-        `group membership, and challenge they were part of. ` +
-        `Levels for opponents will be stale until you run "Rebuild levels".\n\n` +
-        `This cannot be undone.`
-    } else {
-      const hasMatches = recomputed.matches.some(
-        (m) => m.playerAId === p.id || m.playerBId === p.id,
-      )
-      msg = hasMatches
-        ? `${p.name} has matches logged. Remove the player AND all their matches?`
-        : `Remove ${p.name}?`
-    }
-    if (!window.confirm(msg)) return
+  // Three cases — see openspec/specs/auth-permissions/spec.md "Player RLS":
+  //   • Claimed (userId set)   → open the soft/hard chooser modal. Default
+  //     soft preserves matches; hard requires a second click-through.
+  //   • Unclaimed (no userId)  → there's no auth/profile to detach from, so
+  //     soft doesn't apply. Open the same modal in unclaimed-only mode,
+  //     which collapses to a single confirm of the existing wording.
+  const beginRemove = (p: Player) => {
+    setDeleteError(null)
+    setDeleteTarget(p)
+  }
+
+  const onDeleteConfirm = async (mode: 'soft' | 'hard') => {
+    if (!deleteTarget) return
+    const p = deleteTarget
+    setDeleteBusy(true)
+    setDeleteError(null)
     try {
-      await removePlayer(p.id)
+      // For unclaimed players the store ignores `mode`; we still pass 'hard'
+      // for clarity since cascade is the only option.
+      await removePlayer(p.id, p.userId ? mode : 'hard')
+      setDeleteTarget(null)
     } catch (err) {
-      setError(errMessage(err))
+      setDeleteError(errMessage(err))
+    } finally {
+      setDeleteBusy(false)
     }
+  }
+
+  const unclaimedExtraFor = (p: Player) => {
+    const n = recomputed.matches.filter(
+      (m) => m.playerAId === p.id || m.playerBId === p.id,
+    ).length
+    return n > 0 ? `${n} logged match${n === 1 ? '' : 'es'} will also be removed.` : undefined
   }
 
   const filteredPlayers = useMemo(
@@ -462,7 +473,7 @@ export function RosterPage() {
                       {isAdmin && (
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <button className="btn-link" onClick={() => beginEdit(p)}>Edit</button>
-                          <button className="btn-link-danger ml-1" onClick={() => remove(p)}>Delete</button>
+                          <button className="btn-link-danger ml-1" onClick={() => beginRemove(p)}>Delete</button>
                         </td>
                       )}
                     </tr>
@@ -481,6 +492,18 @@ export function RosterPage() {
           </>
         )}
       </section>
+
+      <DeleteUserModal
+        open={deleteTarget !== null}
+        onClose={() => { if (!deleteBusy) setDeleteTarget(null) }}
+        onConfirm={onDeleteConfirm}
+        displayName={deleteTarget?.name ?? ''}
+        email={deleteTarget?.email}
+        isClaimed={!!deleteTarget?.userId}
+        busy={deleteBusy}
+        error={deleteError}
+        unclaimedExtra={deleteTarget ? unclaimedExtraFor(deleteTarget) : undefined}
+      />
     </div>
   )
 }

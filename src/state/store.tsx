@@ -13,6 +13,7 @@ import { fromMatchRow, type MatchRow } from '../lib/supabase/mappers'
 import {
   createProfileAndPlayer,
   deleteUserCompletely,
+  softDeleteUser,
   fetchPlayerForUser,
   fetchProfile,
   updateProfile as updateProfileApi,
@@ -59,7 +60,7 @@ interface StoreCtx {
   saveProfile: (p: Profile) => Promise<void>
   addPlayer: (data: Omit<Player, 'id' | 'createdAt'>) => Promise<Player>
   updatePlayer: (p: Player) => Promise<void>
-  removePlayer: (id: string) => Promise<void>
+  removePlayer: (id: string, mode?: 'soft' | 'hard') => Promise<void>
   addMatch: (data: Omit<Match, 'id'>) => Promise<Match>
   updateMatch: (m: Match) => Promise<void>
   removeMatch: (id: string) => Promise<void>
@@ -446,21 +447,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (myPlayer && myPlayer.id === p.id) setMyPlayer(p)
   }
 
-  const removePlayer: StoreCtx['removePlayer'] = async (id) => {
+  const removePlayer: StoreCtx['removePlayer'] = async (id, mode = 'soft') => {
     const target = players.find((p) => p.id === id)
     if (!target) throw new Error('Player not found.')
-    // Per spec (auth-permissions §Player RLS, 2026-05-11): player deletion is
-    // global-admin only. Club admins keep edit rights but not delete — the
-    // FK-cascade blast radius (matches against non-club players, group
-    // memberships, challenges) is too wide for club-scoped authority.
+    // Per spec (auth-permissions §Player RLS): player deletion is global-admin
+    // only. Club admins keep edit rights but not delete — the FK-cascade
+    // blast radius (matches against non-club players, group memberships,
+    // challenges) is too wide for club-scoped authority.
     requireAdmin()
-    // State-aware delete:
-    //   • Unclaimed (no user_id) → drop the player row; FK cascades handle
-    //     matches / group_members / challenges. No auth/profile to remove.
-    //   • Claimed (user_id set)  → admin_delete_user RPC removes the entire
-    //     user (auth.users + profile + player via cascades). Avoids the
-    //     orphaned-account state where a deleted user could still sign in
-    //     because their profile + auth row survived.
+    // Three cases — see openspec/specs/auth-permissions/spec.md "Player RLS":
+    //   • Claimed (user_id set) + mode='soft' (default)  → admin_soft_delete_user:
+    //     drops only auth.users + profile; player row stays alive with
+    //     user_id=NULL (becomes unclaimed). Matches / challenges /
+    //     group_members preserved → opponents' levels stay valid. The same
+    //     person can sign back in with the same email and auto-claim the
+    //     player again via profiles_ensure_player.
+    //   • Claimed + mode='hard'  → admin_delete_user: cascades everything
+    //     (player + matches + challenges + group_members + profile + auth).
+    //     Opponents' levels drift until "Rebuild levels" runs. Reserved for
+    //     spam accounts and the merged-from side of a profile-merge.
+    //   • Unclaimed (no user_id) → backend.deletePlayer: drops the player
+    //     row; FK cascades handle matches / group_members / challenges. No
+    //     auth/profile exists to detach from, so `mode` is ignored (soft
+    //     doesn't apply — there's nothing to soft-detach).
+    if (target.userId && mode === 'soft') {
+      await softDeleteUser(target.userId)
+      // Player survives — flip userId to null locally so the UI reflects
+      // the unclaimed state. Matches stay intact; do NOT filter them.
+      setPlayers((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, userId: undefined } : p)),
+      )
+      if (myPlayer && myPlayer.id === id) setMyPlayer(null)
+      return
+    }
     if (target.userId) {
       await deleteUserCompletely(target.userId)
     } else {
