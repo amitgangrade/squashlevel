@@ -26,6 +26,7 @@ import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerMetaLinks } from '../components/PlayerLinks'
 import { PlayerSearch } from '../components/PlayerSearch'
 import { ProvisionalTag } from '../components/ProvisionalTag'
+import { UnclaimedTag } from '../components/UnclaimedTag'
 import { ChallengeButton } from '../components/ChallengeButton'
 import { ShareButton } from '../components/ShareButton'
 import { SkeletonMatchCard } from '../components/Skeleton'
@@ -369,6 +370,7 @@ export function PlayerProfilePage() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="!mb-0 text-xl sm:text-2xl truncate">{player.name}</h1>
+                {!player.userId && <UnclaimedTag variant="full" />}
                 {provisional && <ProvisionalTag variant="full" />}
                 {isMe && (
                   <span className="tag-brand">you</span>
