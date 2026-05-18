@@ -63,11 +63,17 @@ The `public.players` table SHALL carry an optional `user_id uuid unique referenc
 
 ### Requirement: Admin election
 
-The first profile inserted for the original-owner email (`amit.gangrade@gmail.com`) SHALL be promoted to `is_admin = true` automatically by the `profiles_bootstrap_admin` BEFORE INSERT trigger. All other profiles SHALL be inserted with `is_admin = false`. The flag MAY only be changed thereafter via the admin-only `set_admin(target_id, value)` RPC.
+The first profile inserted whose email matches the value of the `app.owner_email` Postgres custom setting (configured per database via `ALTER DATABASE … SET app.owner_email = '…'`) SHALL be promoted to `is_admin = true` automatically by the `profiles_bootstrap_admin` BEFORE INSERT trigger. Email comparison is case-insensitive. If `app.owner_email` is unset or empty, no profile SHALL be auto-promoted (the trigger fail-closes). All other profiles SHALL be inserted with `is_admin = false`. The flag MAY only be changed thereafter via the admin-only `set_admin(target_id, value)` RPC.
 
-#### Scenario: Owner signs in for the first time
-- **WHEN** the owner email signs in and inserts their profile
+The literal owner email MUST NOT be checked into source. Keeping it in Postgres configuration instead of `schema.sql` keeps the maintainer's personal email out of the public repo.
+
+#### Scenario: Configured owner signs in for the first time
+- **WHEN** a user whose email (case-insensitively) matches `current_setting('app.owner_email')` signs in and inserts their profile
 - **THEN** the trigger flips `is_admin` to `true` before the row is committed
+
+#### Scenario: Owner email is not configured
+- **WHEN** the `app.owner_email` setting is unset or empty and any user signs in for the first time
+- **THEN** the trigger leaves `is_admin = false` for every profile — no auto-promotion occurs and an existing admin must use `set_admin` to promote them manually
 
 #### Scenario: Non-owner attempts to insert with is_admin=true
 - **WHEN** any other user attempts an insert with `is_admin: true` in the payload

@@ -178,15 +178,29 @@ as $$
   select coalesce((select is_admin from public.profiles where id = uid), false);
 $$;
 
--- Auto-promote the original owner the first time they appear in profiles.
+-- Auto-promote the configured owner the first time they appear in profiles.
+--
+-- The owner email is read from the `app.owner_email` Postgres setting
+-- (a custom GUC) rather than baked into source — keeps the maintainer's
+-- personal email out of the public repo. Operators set the value once
+-- per database with:
+--
+--   alter database postgres set app.owner_email = 'owner@example.com';
+--
+-- The second arg `true` to current_setting makes it return NULL when
+-- unset, so the trigger fail-closed (no one gets auto-promoted) if the
+-- GUC is missing. Existing admins are unaffected — this only runs on
+-- BEFORE INSERT, never on rows already in profiles.
 create or replace function public.bootstrap_admin()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  owner_email text := nullif(trim(coalesce(current_setting('app.owner_email', true), '')), '');
 begin
-  if new.email = 'amit.gangrade@gmail.com' then
+  if owner_email is not null and lower(new.email) = lower(owner_email) then
     new.is_admin := true;
   end if;
   return new;

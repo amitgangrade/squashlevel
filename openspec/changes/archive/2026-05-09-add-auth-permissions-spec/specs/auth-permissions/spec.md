@@ -60,7 +60,7 @@ The `public.players` table SHALL carry an optional `user_id uuid unique referenc
 
 ### Requirement: Admin election
 
-The first profile inserted for the original-owner email (`amit.gangrade@gmail.com`) SHALL be promoted to `is_admin = true` automatically by the `profiles_bootstrap_admin` BEFORE INSERT trigger. All other profiles SHALL be inserted with `is_admin = false`. The flag MAY only be changed thereafter via the admin-only `set_admin(target_id, value)` RPC.
+The first profile inserted for the configured owner email SHALL be promoted to `is_admin = true` automatically by the `profiles_bootstrap_admin` BEFORE INSERT trigger. All other profiles SHALL be inserted with `is_admin = false`. The flag MAY only be changed thereafter via the admin-only `set_admin(target_id, value)` RPC. (Original-owner email literal value redacted from this archive; see the current `auth-permissions` spec for the GUC-based mechanism.)
 
 #### Scenario: Owner signs in for the first time
 - **WHEN** the owner email signs in and inserts their profile
