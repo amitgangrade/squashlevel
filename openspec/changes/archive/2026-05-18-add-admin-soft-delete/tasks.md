@@ -2,7 +2,7 @@
 
 - [x] 1.1 Create migration `supabase/migrations/2026-05-18-admin-soft-delete-user-rpc.sql` defining `public.admin_soft_delete_user(target_user_id uuid)` as SECURITY DEFINER, `search_path = public`, `statement_timeout = '30s'`. Body: admin check, self-delete check, null check, then `delete from auth.users where id = target_user_id`. Grant execute to `authenticated`.
 - [x] 1.2 Append the same `create or replace function … admin_soft_delete_user …` + grant to `supabase/schema.sql` so rebuilds-from-zero match the migration. Place it adjacent to the existing `admin_delete_user` definition for discoverability. (Also folded `admin_delete_user` itself into `schema.sql` — it was previously migration-only.)
-- [ ] 1.3 Manually verify in Supabase SQL editor that (a) calling as a non-admin raises `admin only`, (b) calling with `target_user_id = auth.uid()` raises `cannot delete yourself`, (c) calling with NULL raises, (d) calling as admin on a real test user deletes only auth/profile and leaves the player row with `user_id IS NULL`. _[Deferred — manual user step.]_
+- [x] 1.3 Manually verify in Supabase SQL editor that (a) calling as a non-admin raises `admin only`, (b) calling with `target_user_id = auth.uid()` raises `cannot delete yourself`, (c) calling with NULL raises, (d) calling as admin on a real test user deletes only auth/profile and leaves the player row with `user_id IS NULL`. _(User-verified against live Supabase 2026-05-18.)_
 
 ## 2. Client lib
 
@@ -49,10 +49,10 @@
 
 - [x] 8.1 Type-check passes (`npx tsc -b` — clean).
 - [x] 8.2 Build passes (`npm run build` — green; 789 modules, ~1.5s).
-- [ ] 8.3 Manual UI test in browser dev server:
+- [x] 8.3 Manual UI test in browser dev server:
   - As admin, soft-delete a test user from Settings → Admins. Verify: their profile row disappears from the admin list; their player row appears as unclaimed in Roster; their matches still show on the leaderboard with the same player name; opponents' levels unchanged.
   - As admin, sign in as that user again with the same Google email; OnboardingModal should auto-claim the surviving player and historical matches should appear in their profile.
   - As admin, hard-delete a different test user. Verify: profile, player, and all their matches are gone; opponents' levels drift until Rebuild.
   - As admin, attempt to soft-delete yourself — UI hides the Delete button on your own row; if the RPC is invoked directly it should reject with `cannot delete yourself`.
-  _[Deferred — manual user step.]_
+  _(User-verified end-to-end against live app 2026-05-18, including the re-sign-in auto-claim round-trip.)_
 - [x] 8.4 Run the project's `openspec validate add-admin-soft-delete` (or equivalent OpenSpec validation) and ensure it passes before requesting archive. _(Passed: `Change 'add-admin-soft-delete' is valid`.)_
