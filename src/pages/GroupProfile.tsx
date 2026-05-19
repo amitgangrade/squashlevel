@@ -16,6 +16,7 @@ import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { PlayerSearch } from '../components/PlayerSearch'
 import { ProvisionalTag } from '../components/ProvisionalTag'
+import { RankChip } from '../components/RankChip'
 import { SkeletonMatchCard } from '../components/Skeleton'
 import {
   addGroupMember,
@@ -338,8 +339,8 @@ export function GroupProfilePage() {
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                  <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800 even:bg-slate-50/60 dark:even:bg-slate-900/30">
+                    <td className="px-3 py-2"><RankChip rank={i + 1} /></td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-3 min-w-0">
                         <Link to={playerUrl(r.id)} aria-label={`View ${r.player.name}'s profile`}>
@@ -357,7 +358,7 @@ export function GroupProfilePage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold">{fmtLevel(r.level)}</td>
+                    <td className="px-3 py-2 text-right font-bold tabular-nums text-accent-700 dark:text-accent-400">{fmtLevel(r.level)}</td>
                     <td className="px-3 py-2 text-right hidden sm:table-cell">{fmtLevel(r.ranking)}</td>
                     <td className="px-3 py-2 text-right text-slate-500">{r.played}</td>
                     {isGroupAdmin && (

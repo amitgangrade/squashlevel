@@ -16,6 +16,7 @@ import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ProvisionalTag } from '../components/ProvisionalTag'
 import { UnclaimedTag } from '../components/UnclaimedTag'
+import { RankChip } from '../components/RankChip'
 import { SignedOutHero } from '../components/SignedOutHero'
 
 const AUTO_CONFIRM_KICK_KEY = 'sl_auto_confirm_kicked_at'
@@ -264,7 +265,7 @@ export function LeaderboardPage() {
                         isMe && 'ring-2 ring-brand-500/40',
                       )}
                     >
-                      <div className="w-6 text-center text-sm font-semibold text-slate-400 shrink-0">{rank}</div>
+                      <RankChip rank={rank} />
                       <Link to={playerUrl(r.id)} aria-label={`View ${r.name}'s profile`}>
                         <PlayerAvatar name={r.name} avatarUrl={r.player.avatarUrl} size={36} />
                       </Link>
@@ -280,7 +281,7 @@ export function LeaderboardPage() {
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-lg font-semibold leading-none tabular-nums">{fmtLevel(r.level)}</div>
+                        <div className="text-lg font-bold leading-none tabular-nums text-accent-700 dark:text-accent-400">{fmtLevel(r.level)}</div>
                         <div className="text-[10px] text-slate-400 mt-1 tabular-nums">{r.played} {r.played === 1 ? 'match' : 'matches'}</div>
                       </div>
                     </li>
@@ -319,9 +320,18 @@ export function LeaderboardPage() {
                     {visibleRows.map((r, i) => {
                       const rank = page * PAGE_SIZE + i + 1
                       const age = playerAge(r.player.birthYear)
+                      const isMe = myPlayer?.id === r.id
                       return (
-                        <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 text-slate-400">{rank}</td>
+                        <tr
+                          key={r.id}
+                          className={clsx(
+                            'border-t border-slate-100 dark:border-slate-800 even:bg-slate-50/60 dark:even:bg-slate-900/30',
+                            isMe && 'bg-brand-50/80 dark:bg-brand-900/30 ring-1 ring-inset ring-brand-500/30',
+                          )}
+                        >
+                          <td className="px-3 py-2">
+                            <RankChip rank={rank} />
+                          </td>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-3 min-w-0">
                               <Link to={playerUrl(r.id)} aria-label={`View ${r.name}'s profile`}>
@@ -332,6 +342,7 @@ export function LeaderboardPage() {
                                   <PlayerLink id={r.id} name={r.name} />
                                   {!r.player.userId && <span className="ml-2 inline-block"><UnclaimedTag /></span>}
                                   {r.provisional && <span className="ml-2 inline-block"><ProvisionalTag /></span>}
+                                  {isMe && <span className="ml-2 inline-block tag-brand">you</span>}
                                 </div>
                               </div>
                             </div>
@@ -353,7 +364,7 @@ export function LeaderboardPage() {
                           </td>
                           <td className="px-3 py-2 text-right text-slate-500">{age ?? ''}</td>
                           <td className="px-3 py-2 text-right text-slate-500">{r.played}</td>
-                          <td className="px-3 py-2 text-right font-semibold">{fmtLevel(r.level)}</td>
+                          <td className="px-3 py-2 text-right font-bold tabular-nums text-accent-700 dark:text-accent-400">{fmtLevel(r.level)}</td>
                         </tr>
                       )
                     })}
