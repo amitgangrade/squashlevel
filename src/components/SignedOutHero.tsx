@@ -14,9 +14,11 @@ interface Props {
 /**
  * Above-the-fold framing for first-time visitors. Only renders when the
  * user is signed out — returning/signed-in users go straight to the
- * leaderboard. Mobile-first: the hero should fit one phone screen with
- * the first leaderboard row peeking, so visitors learn what Boast is
- * AND see that real data exists underneath.
+ * leaderboard. Charcoal "court-floor" background with squash-ball-yellow
+ * accents — leans into the brand identity defined in tailwind.config.js
+ * (brand = charcoal, accent = pro double-yellow-dot ball, tin = court
+ * tin red). Mobile-first: the hero should fit one phone screen with the
+ * first leaderboard row peeking.
  */
 export function SignedOutHero({ onLearnMore, playerCount }: Props) {
   const { signInWithGoogle } = useStore()
@@ -38,30 +40,37 @@ export function SignedOutHero({ onLearnMore, playerCount }: Props) {
   return (
     <section
       aria-label="What is Boast?"
-      className="rounded-2xl bg-gradient-to-br from-brand-50 via-white to-brand-50/60 ring-1 ring-brand-100 p-5 sm:p-8 dark:from-brand-900/20 dark:via-slate-950 dark:to-brand-900/10 dark:ring-brand-900/30"
+      className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-700 to-brand-800 text-white p-5 sm:p-8 shadow-lg ring-1 ring-brand-600/40"
     >
-      <h1 className="!mb-0 text-2xl sm:text-4xl font-bold tracking-tight leading-tight">
+      {/* Decorative pro double-yellow-dot squash ball, top-right corner.
+          Hidden on small screens to keep the headline area uncluttered. */}
+      <div aria-hidden className="hidden sm:flex absolute top-6 right-7 gap-1.5 opacity-80">
+        <span className="h-2.5 w-2.5 rounded-full bg-accent-500 shadow-[0_0_12px_rgba(245,224,0,0.6)]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-accent-500 shadow-[0_0_12px_rgba(245,224,0,0.6)]" />
+      </div>
+
+      <h1 className="!mb-0 text-3xl sm:text-5xl font-bold tracking-tight leading-[1.05] text-white">
         Real squash ratings.<br className="sm:hidden" />{' '}
-        <span className="text-brand-700 dark:text-brand-300">Free forever.</span>
+        <span className="text-accent-400">Free forever.</span>
       </h1>
 
-      <p className="mt-3 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl">
+      <p className="mt-3 sm:mt-4 text-base sm:text-lg text-slate-300 max-w-2xl">
         Log matches with friends or your club. Watch your level update with every game — same algorithm as SquashLevels.com, no subscription.
       </p>
 
-      <div className="mt-5 flex flex-wrap items-center gap-3">
+      <div className="mt-5 sm:mt-6 flex flex-wrap items-center gap-4">
         <button
           type="button"
-          className="btn-primary text-base px-5 py-2.5"
           onClick={onSignIn}
           disabled={busy}
+          className="inline-flex items-center gap-2 rounded-md bg-accent-500 hover:bg-accent-400 text-brand-900 font-semibold text-base px-5 py-2.5 shadow-md ring-1 ring-accent-600/30 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {busy ? 'Signing in…' : 'Sign in with Google'}
         </button>
         <button
           type="button"
           onClick={onLearnMore}
-          className="text-sm font-medium text-slate-700 hover:text-brand-700 dark:text-slate-300 dark:hover:text-brand-300 underline-offset-4 hover:underline"
+          className="text-sm font-medium text-slate-200 hover:text-accent-300 underline-offset-4 hover:underline"
         >
           How does the rating work? ↓
         </button>
@@ -73,7 +82,7 @@ export function SignedOutHero({ onLearnMore, playerCount }: Props) {
         </div>
       )}
 
-      <ul className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 max-w-3xl">
+      <ul className="mt-7 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 max-w-3xl">
         <FeatureTile icon="🏸" title="30-second match log">
           Pick your opponent, enter scores, done.
         </FeatureTile>
@@ -89,8 +98,9 @@ export function SignedOutHero({ onLearnMore, playerCount }: Props) {
       </ul>
 
       {playerCount > 0 && (
-        <p className="mt-5 text-xs text-slate-500 dark:text-slate-400">
-          Live leaderboard below — {playerCount.toLocaleString()} {playerCount === 1 ? 'player' : 'players'} rated.
+        <p className="mt-6 text-xs text-slate-400 flex items-center gap-2">
+          <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(74,222,128,0.7)] animate-pulse" />
+          Live leaderboard below — <span className="text-slate-200 font-medium">{playerCount.toLocaleString()}</span> {playerCount === 1 ? 'player' : 'players'} rated.
         </p>
       )}
     </section>
@@ -107,13 +117,13 @@ function FeatureTile({
   children: React.ReactNode
 }) {
   return (
-    <li className="flex items-start gap-3 rounded-lg bg-white/70 dark:bg-slate-900/40 ring-1 ring-slate-200/70 dark:ring-slate-800 px-3 py-2.5">
-      <span aria-hidden className="text-xl shrink-0 leading-none mt-0.5">
+    <li className="flex items-start gap-3 rounded-lg bg-brand-800/60 ring-1 ring-brand-600/40 px-3.5 py-3 transition-colors hover:bg-brand-800/80 hover:ring-accent-500/30">
+      <span aria-hidden className="text-2xl shrink-0 leading-none mt-0.5">
         {icon}
       </span>
       <div className="min-w-0">
-        <div className="font-semibold text-sm">{title}</div>
-        <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+        <div className="font-semibold text-sm text-white">{title}</div>
+        <div className="text-xs text-slate-300 mt-0.5">
           {children}
         </div>
       </div>
