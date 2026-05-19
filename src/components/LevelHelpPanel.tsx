@@ -38,7 +38,7 @@ export function LevelHelpPanel({ onClose }: { onClose: () => void }) {
           </p>
           <p>
             <span className="font-semibold">
-              <span className="tag mr-1">P</span> Provisional
+              <span className="tag-pending mr-1">P</span> Provisional
             </span>{' '}
             — a new player who hasn't entered a seed rating. Their first few matches only adjust
             their own level; established opponents are insulated so a new player can't accidentally
@@ -46,7 +46,7 @@ export function LevelHelpPanel({ onClose }: { onClose: () => void }) {
           </p>
           <p>
             <span className="font-semibold">
-              <span className="tag mr-1">stub</span> Not yet signed up
+              <span className="tag-info mr-1">Unregistered</span> Not yet signed up
             </span>{' '}
             — someone added them so a match could be logged against them, but they haven't claimed
             their account on Boast yet. When they sign in with the matching email, the player and

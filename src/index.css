@@ -120,6 +120,12 @@
   .tag-brand {
     @apply tag bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200;
   }
+  /* Soft-blue informational tag. Used for "Unregistered" players and
+     other neutral, non-warning state — different enough from amber
+     (warning) and brand (identity) that the eye doesn't blur them. */
+  .tag-info {
+    @apply tag bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-200;
+  }
   /* Inline alert with icon + text. Use .alert-error for form/validation errors,
      .alert-info for neutral context blocks. */
   .alert {

@@ -17,7 +17,7 @@ export function ProvisionalTag({ variant = 'compact' }: { variant?: 'compact' | 
   const threshold = settings.provisionalThreshold
   return (
     <span
-      className="tag"
+      className="tag-pending"
       title={`Provisional — level is still settling for the first ${threshold} rated ${threshold === 1 ? 'match' : 'matches'}. Provisional players only move their own level; opponents are unaffected.`}
     >
       {variant === 'full' ? 'Provisional' : 'P'}

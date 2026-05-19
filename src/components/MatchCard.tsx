@@ -169,6 +169,19 @@ export function MatchCard({
     : ring === 'brand' ? 'ring-1 ring-brand-200/60 dark:ring-brand-900/40'
     : ''
 
+  // Result stripe on the card's left edge — only when the viewer is in
+  // this match (otherwise "win" / "loss" isn't a meaningful direction
+  // and we'd be picking a side at random). Lets the eye scan a long
+  // list of matches on a profile page and see the W/L rhythm at the
+  // card edge without reading scores. leftWon == viewer won because
+  // the viewer is forced into the left slot when viewerInMatch.
+  const resultStripe =
+    viewerInMatch && !drew
+      ? leftWon
+        ? 'border-l-4 border-l-green-500 dark:border-l-green-400'
+        : 'border-l-4 border-l-tin-500 dark:border-l-tin-400'
+      : ''
+
   // Score-plate tint conveys "did the left side win" at a glance. Subtle
   // 50/20-level backgrounds — strong enough to register peripherally when
   // scrolling, light enough that the per-game tiles and level deltas
@@ -180,7 +193,7 @@ export function MatchCard({
     : 'bg-slate-50 border-slate-200 dark:bg-slate-800/60 dark:border-slate-700'
 
   return (
-    <div className={clsx('card', ringClass, className)}>
+    <div className={clsx('card', ringClass, resultStripe, className)}>
       {/* Outer two-column layout: date stamp on the left (desktop only),
           everything else in the right column. Mirrors the visual structure
           of a tear-off calendar — the stamp anchors the eye when scanning
