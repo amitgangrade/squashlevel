@@ -16,6 +16,7 @@ import { PlayerAvatar } from '../components/PlayerAvatar'
 import { PlayerLink, PlayerMetaLinks } from '../components/PlayerLinks'
 import { ProvisionalTag } from '../components/ProvisionalTag'
 import { UnclaimedTag } from '../components/UnclaimedTag'
+import { SignedOutHero } from '../components/SignedOutHero'
 
 const AUTO_CONFIRM_KICK_KEY = 'sl_auto_confirm_kicked_at'
 const AUTO_CONFIRM_KICK_INTERVAL_MS = 60 * 60 * 1000 // 1h
@@ -127,9 +128,25 @@ export function LeaderboardPage() {
 
   const activeFilters = FILTER_KEYS.filter((k) => filters[k])
 
+  // Open the existing LevelHelpPanel and scroll it into view. Used by the
+  // signed-out hero's "How does the rating work?" link so the explainer
+  // lives in one place (not duplicated in a marketing section).
+  const openLevelHelp = () => {
+    setLevelHelpOpen(true)
+    requestAnimationFrame(() => {
+      document
+        .getElementById('level-help-panel')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
+
   return (
     <PullToRefresh onRefresh={refresh}>
       <div className="space-y-6">
+        {!signedIn && (
+          <SignedOutHero onLearnMore={openLevelHelp} playerCount={players.length} />
+        )}
+
         {pendingForMe.length > 0 && (
           <Link
             to="/activity"
