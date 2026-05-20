@@ -454,20 +454,25 @@ create trigger profiles_protect_is_admin
   for each row execute function public.protect_profiles_is_admin();
 
 -- protect_profile_columns():
--- Additional BEFORE UPDATE trigger that locks three more sensitive
--- columns on profiles. Kept as a separate trigger from
--- protect_profiles_is_admin so each rule reads independently:
+-- Additional BEFORE UPDATE trigger that locks the sensitive columns
+-- on profiles. Kept as a separate trigger from
+-- protect_profiles_is_admin so each rule reads independently. Rules
+-- (all use IS DISTINCT FROM so a profile UPDATE that re-sends the
+-- existing values is unaffected — only an actual value change trips
+-- the check):
 --   - email: locked for EVERYONE (including admins). profile.email is
 --     a mirror of auth.users.email and is the auto-claim key in
 --     profiles_ensure_player; any drift is a takeover vector.
+--   - username: only the row owner may change it (canonical handle
+--     backing shareable URLs). Admins editing another user cannot
+--     touch this per spec.
+--   - avatar_url: only the row owner may change it (avatar bucket is
+--     owner-write only per spec). Admins editing another user
+--     cannot swap someone else's avatar.
 --   - starting_level: admin-only post-create. Owners set it at
 --     onboarding (INSERT, not blocked by this trigger); after that,
 --     only admins may amend.
 --   - seeded_rating: admin-only post-create. Same rationale.
--- Uses IS DISTINCT FROM so a profile UPDATE that re-sends the
--- existing values (common — most clients send all editable columns
--- whether changed or not) is unaffected. Only an actual value
--- change trips the check.
 create or replace function public.protect_profile_columns()
 returns trigger
 language plpgsql
@@ -481,6 +486,16 @@ begin
 
   if old.email is distinct from new.email then
     raise exception 'profiles.email is locked — it mirrors auth.users.email and is the auto-claim key';
+  end if;
+
+  if old.username is distinct from new.username
+     and new.id <> auth.uid() then
+    raise exception 'profiles.username can only be changed by the row owner';
+  end if;
+
+  if old.avatar_url is distinct from new.avatar_url
+     and new.id <> auth.uid() then
+    raise exception 'profiles.avatar_url can only be changed by the row owner';
   end if;
 
   if old.starting_level is distinct from new.starting_level

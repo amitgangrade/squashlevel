@@ -135,6 +135,14 @@ The literal owner email MUST NOT be checked into source. Keeping it in `app_conf
 - **WHEN** a signed-in non-admin attempts to change `profiles.starting_level` or `profiles.seeded_rating` via direct UPDATE
 - **THEN** the `profiles_protect_columns` BEFORE UPDATE trigger raises an exception and the update is rejected; the user can only set those fields at onboarding (INSERT) or have an admin amend them later
 
+#### Scenario: Admin attempts to change another user's username or avatar_url
+- **WHEN** an admin updates a profile row where `id <> auth.uid()` and the payload changes `username` or `avatar_url`
+- **THEN** the `profiles_protect_columns` trigger raises `profiles.username/avatar_url can only be changed by the row owner` and the update is rejected; the canonical handle and avatar remain owner-write only
+
+#### Scenario: Owner changes their own avatar
+- **WHEN** the row owner updates their own `profiles.avatar_url` (e.g. after uploading to the avatar bucket)
+- **THEN** the trigger sees `new.id = auth.uid()` and allows the change; the existing upload-avatar flow keeps working
+
 #### Scenario: Profile UPDATE that re-sends unchanged sensitive values
 - **WHEN** a signed-in non-admin updates their profile (e.g. changes their phone) and the client payload re-sends `email`, `starting_level`, `seeded_rating` unchanged (the common case — clients send all editable columns)
 - **THEN** the trigger checks `IS DISTINCT FROM` on each protected column, finds no actual change, and allows the update — the protection has no false-positive on legitimate edits to other fields
