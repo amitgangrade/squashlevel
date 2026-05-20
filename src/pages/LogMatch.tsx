@@ -673,8 +673,15 @@ export function LogMatchPage() {
           {/* Column headers so the eye associates each input column with a
               player. On mobile the player cards are scrolled off-screen by
               the time the user reaches the score section, so this is the
-              load-bearing label. */}
-          <div className="grid grid-cols-[24px_1fr_auto_1fr_36px] items-center gap-1.5 sm:gap-2 mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+              load-bearing label.
+
+              Grid template uses minmax(0, 1fr) so the input columns can
+              shrink below their content's intrinsic min-width. Without
+              this, the <input>'s default (~150-200px from the size
+              attribute) prevents shrinkage and the row overflows the
+              card on narrow viewports. Pair with `w-full min-w-0` on
+              the inputs so they actually fill the (smaller) cell. */}
+          <div className="grid grid-cols-[20px_minmax(0,1fr)_auto_minmax(0,1fr)_32px] items-center gap-1.5 mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wider text-slate-500">
             <span />
             <span className="text-center truncate">{shortName(playerA?.name) || 'You'}</span>
             <span />
@@ -686,13 +693,13 @@ export function LogMatchPage() {
             {scores.map((g, i) => (
               <div
                 key={i}
-                className="grid grid-cols-[24px_1fr_auto_1fr_36px] items-center gap-1.5 sm:gap-2"
+                className="grid grid-cols-[20px_minmax(0,1fr)_auto_minmax(0,1fr)_32px] items-center gap-1.5"
               >
                 <span className="text-xs font-medium text-slate-400 text-center select-none tabular-nums">
                   {i + 1}
                 </span>
                 <input
-                  className="input h-14 text-center text-2xl font-bold tabular-nums"
+                  className="input w-full min-w-0 h-14 px-1 text-center text-2xl font-bold tabular-nums"
                   inputMode="numeric"
                   pattern="[0-9]*"
                   maxLength={2}
@@ -702,9 +709,9 @@ export function LogMatchPage() {
                   placeholder="0"
                   aria-label={`Game ${i + 1} ${playerA?.name || 'player A'} score`}
                 />
-                <span className="text-slate-300 text-xl select-none">–</span>
+                <span className="text-slate-300 text-xl select-none px-0.5">–</span>
                 <input
-                  className="input h-14 text-center text-2xl font-bold tabular-nums"
+                  className="input w-full min-w-0 h-14 px-1 text-center text-2xl font-bold tabular-nums"
                   inputMode="numeric"
                   pattern="[0-9]*"
                   maxLength={2}
@@ -718,7 +725,7 @@ export function LogMatchPage() {
                   <button
                     type="button"
                     aria-label={`Remove game ${i + 1}`}
-                    className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:text-tin-600 hover:bg-tin-50 dark:hover:bg-tin-900/30"
+                    className="grid h-8 w-8 place-items-center rounded-md text-slate-400 hover:text-tin-600 hover:bg-tin-50 dark:hover:bg-tin-900/30"
                     onClick={() => removeGame(i)}
                   >
                     <TrashIcon className="h-4 w-4" />
