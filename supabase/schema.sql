@@ -419,9 +419,45 @@ create trigger profiles_sync_player
   after update on public.profiles
   for each row execute function public.sync_player_from_profile();
 
+-- protect_profiles_is_admin():
+-- BEFORE UPDATE trigger that rejects is_admin flips by non-admins. The
+-- "self update profile" RLS policy is row-level only and doesn't
+-- column-restrict, so without this trigger any signed-in user could run
+-- `update profiles set is_admin = true where id = auth.uid()` and grant
+-- themselves global-admin. set_admin keeps working: it's SECURITY
+-- DEFINER and auth.uid() inside the trigger still resolves to the
+-- original caller (already verified admin by set_admin's own check).
+create or replace function public.protect_profiles_is_admin()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Skip when there is no authenticated caller (auth.uid() is NULL) —
+  -- that's the case for direct superuser SQL (migrations, manual seed
+  -- from the Supabase SQL editor as `postgres`), which is already
+  -- trusted. PostgREST requests always carry a JWT so auth.uid() is
+  -- never NULL for an attacker.
+  if old.is_admin is distinct from new.is_admin
+     and auth.uid() is not null
+     and not public.is_admin(auth.uid()) then
+    raise exception 'is_admin can only be changed via set_admin(...)';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_protect_is_admin on public.profiles;
+create trigger profiles_protect_is_admin
+  before update on public.profiles
+  for each row execute function public.protect_profiles_is_admin();
+
 -- set_admin(target_id, value): admin-only RPC to promote / demote another
 -- profile. Throws if caller isn't admin or target doesn't exist. Allows an
 -- admin to demote themselves but not the last admin (safety guard).
+-- This is the *only* path that can flip is_admin — direct UPDATEs are
+-- blocked by the profiles_protect_is_admin BEFORE UPDATE trigger above.
 create or replace function public.set_admin(target_id uuid, value boolean)
 returns public.profiles
 language plpgsql

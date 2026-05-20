@@ -63,7 +63,7 @@ The `public.players` table SHALL carry an optional `user_id uuid unique referenc
 
 ### Requirement: Admin election
 
-The first profile inserted whose email matches the `owner_email` row in the admin-only `public.app_config` table SHALL be promoted to `is_admin = true` automatically by the `profiles_bootstrap_admin` BEFORE INSERT trigger. Email comparison is case-insensitive. If the row is missing or empty, no profile SHALL be auto-promoted (the trigger fail-closes). All other profiles SHALL be inserted with `is_admin = false`. The flag MAY only be changed thereafter via the admin-only `set_admin(target_id, value)` RPC.
+The first profile inserted whose email matches the `owner_email` row in the admin-only `public.app_config` table SHALL be promoted to `is_admin = true` automatically by the `profiles_bootstrap_admin` BEFORE INSERT trigger. Email comparison is case-insensitive. If the row is missing or empty, no profile SHALL be auto-promoted (the trigger fail-closes). All other profiles SHALL be inserted with `is_admin = false`. The flag MAY only be changed thereafter via the admin-only `set_admin(target_id, value)` RPC. Direct UPDATEs of the `is_admin` column on `public.profiles` SHALL be rejected by the `profiles_protect_is_admin` BEFORE UPDATE trigger unless `auth.uid()` is already an admin — so `set_admin` (SECURITY DEFINER, validates caller is admin before issuing the UPDATE) remains the only path for privilege changes.
 
 The `public.app_config` table SHALL have RLS enabled with **admin-only read and admin-only write**. The bootstrap_admin trigger reads the value via SECURITY DEFINER and therefore bypasses RLS, so it works for anonymous profile inserts at sign-up time while keeping the owner email hidden from API clients.
 
@@ -84,6 +84,18 @@ The literal owner email MUST NOT be checked into source. Keeping it in `app_conf
 #### Scenario: Non-owner attempts to insert with is_admin=true
 - **WHEN** any other user attempts an insert with `is_admin: true` in the payload
 - **THEN** the trigger leaves `is_admin = false` (or RLS rejects the write — see Profile RLS)
+
+#### Scenario: Non-admin attempts to escalate via direct UPDATE
+- **WHEN** a signed-in non-admin issues `update public.profiles set is_admin = true where id = auth.uid()` directly via the Supabase client / PostgREST (bypassing the `set_admin` RPC)
+- **THEN** the `profiles_protect_is_admin` BEFORE UPDATE trigger sees `auth.uid()` is non-null and `is_admin(auth.uid()) = false`, raises `is_admin can only be changed via set_admin(...)`, and the update is rejected; the user remains a non-admin
+
+#### Scenario: Maintainer seeds the first admin via direct SQL
+- **WHEN** a maintainer connected as the `postgres` superuser (Supabase SQL editor, psql migration) issues `update public.profiles set is_admin = true where id = '<owner-uuid>'`
+- **THEN** `auth.uid()` is NULL in that context, the trigger's null-guard skips the check, and the update succeeds — the trigger does not interfere with bootstrap or recovery operations performed at the trusted superuser tier
+
+#### Scenario: set_admin flips the flag normally
+- **WHEN** an admin calls `set_admin(target_id, true)` against a non-admin target
+- **THEN** the RPC's own check confirms the caller is admin, the UPDATE runs, the trigger sees `is_admin(auth.uid()) = true` (caller is still the original admin even inside SECURITY DEFINER), allows the change, and the target's flag flips to true
 
 #### Scenario: Last admin tries to demote themselves
 - **WHEN** an admin calls `set_admin(self_id, false)` and they are the only remaining admin
