@@ -303,16 +303,31 @@ export function ProfilePage() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="label">Starting rating</label>
-                <input inputMode="numeric" className="input w-full" value={draftLevel} onChange={(e) => setDraftLevel(e.target.value)} />
-                <p className="mt-1 text-xs text-slate-500">
-                  Note: this is your seed/starting level. Your live level is computed from match history.
-                  {myPlayer?.createdAt && (
-                    <> Anchored on {fmtDate(myPlayer.createdAt)} — when you joined Boast.</>
-                  )}
-                </p>
-              </div>
+              {isAdmin ? (
+                <div>
+                  <label className="label">Starting rating</label>
+                  <input inputMode="numeric" className="input w-full" value={draftLevel} onChange={(e) => setDraftLevel(e.target.value)} />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Admin edit. Note: this is the seed/starting level. Live level is computed from match history.
+                    {myPlayer?.createdAt && (
+                      <> Anchored on {fmtDate(myPlayer.createdAt)}.</>
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-medium">Starting rating:</span>
+                    <span className="tabular-nums">{profile.startingLevel}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Set at onboarding and not user-editable afterwards. Ask an admin to amend it if your seed was wrong.
+                    {myPlayer?.createdAt && (
+                      <> Anchored on {fmtDate(myPlayer.createdAt)}.</>
+                    )}
+                  </p>
+                </div>
+              )}
               {isAdmin && (
                 <label className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50/60 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40 cursor-pointer">
                   <input

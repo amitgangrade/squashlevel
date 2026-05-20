@@ -127,6 +127,18 @@ The literal owner email MUST NOT be checked into source. Keeping it in `app_conf
 - **WHEN** a non-admin user updates a profile row where `id <> auth.uid()`
 - **THEN** RLS rejects the update
 
+#### Scenario: Non-admin attempts to change their own email
+- **WHEN** a signed-in non-admin (or admin) attempts to change `profiles.email` via direct UPDATE (e.g. `update profiles set email = 'other@gmail.com' where id = auth.uid()`)
+- **THEN** the `profiles_protect_columns` BEFORE UPDATE trigger raises `profiles.email is locked …` and the update is rejected; `profile.email` cannot drift from `auth.users.email`, closing the auto-claim hijack vector
+
+#### Scenario: Non-admin attempts to inflate their own starting_level or seeded_rating
+- **WHEN** a signed-in non-admin attempts to change `profiles.starting_level` or `profiles.seeded_rating` via direct UPDATE
+- **THEN** the `profiles_protect_columns` BEFORE UPDATE trigger raises an exception and the update is rejected; the user can only set those fields at onboarding (INSERT) or have an admin amend them later
+
+#### Scenario: Profile UPDATE that re-sends unchanged sensitive values
+- **WHEN** a signed-in non-admin updates their profile (e.g. changes their phone) and the client payload re-sends `email`, `starting_level`, `seeded_rating` unchanged (the common case — clients send all editable columns)
+- **THEN** the trigger checks `IS DISTINCT FROM` on each protected column, finds no actual change, and allows the update — the protection has no false-positive on legitimate edits to other fields
+
 #### Scenario: Global admin edits another user's profile
 - **WHEN** a global admin updates a profile row for a different `auth.users.id`, modifying any of `full_name`, `phone`, `country`, `city`, `club`, `birth_year`, `gender`, `dominant_hand`, `starting_level`
 - **THEN** RLS permits the update and the `profiles_sync_player` AFTER UPDATE trigger mirrors the changed identity fields onto the target's linked player row. The admin SHALL NOT change `username` (canonical handle backing shareable URLs), `email` (auth.users canonical + auto-claim key), `avatar_url` (avatar bucket is owner-write only), or `is_admin` (gated by the separate `set_admin` RPC).

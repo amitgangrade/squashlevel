@@ -453,6 +453,55 @@ create trigger profiles_protect_is_admin
   before update on public.profiles
   for each row execute function public.protect_profiles_is_admin();
 
+-- protect_profile_columns():
+-- Additional BEFORE UPDATE trigger that locks three more sensitive
+-- columns on profiles. Kept as a separate trigger from
+-- protect_profiles_is_admin so each rule reads independently:
+--   - email: locked for EVERYONE (including admins). profile.email is
+--     a mirror of auth.users.email and is the auto-claim key in
+--     profiles_ensure_player; any drift is a takeover vector.
+--   - starting_level: admin-only post-create. Owners set it at
+--     onboarding (INSERT, not blocked by this trigger); after that,
+--     only admins may amend.
+--   - seeded_rating: admin-only post-create. Same rationale.
+-- Uses IS DISTINCT FROM so a profile UPDATE that re-sends the
+-- existing values (common — most clients send all editable columns
+-- whether changed or not) is unaffected. Only an actual value
+-- change trips the check.
+create or replace function public.protect_profile_columns()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    return new;
+  end if;
+
+  if old.email is distinct from new.email then
+    raise exception 'profiles.email is locked — it mirrors auth.users.email and is the auto-claim key';
+  end if;
+
+  if old.starting_level is distinct from new.starting_level
+     and not public.is_admin(auth.uid()) then
+    raise exception 'profiles.starting_level can only be changed by an admin';
+  end if;
+
+  if old.seeded_rating is distinct from new.seeded_rating
+     and not public.is_admin(auth.uid()) then
+    raise exception 'profiles.seeded_rating can only be changed by an admin';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_protect_columns on public.profiles;
+create trigger profiles_protect_columns
+  before update on public.profiles
+  for each row execute function public.protect_profile_columns();
+
 -- set_admin(target_id, value): admin-only RPC to promote / demote another
 -- profile. Throws if caller isn't admin or target doesn't exist. Allows an
 -- admin to demote themselves but not the last admin (safety guard).
