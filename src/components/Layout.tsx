@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import clsx from 'clsx'
 import { supabaseEnabled } from '../lib/supabase/client'
@@ -29,7 +29,7 @@ const desktopNav = [
 ]
 
 export function Layout() {
-  const { mode, session, profile, isAdmin, myClubAdminSlugs, needsOnboarding, pendingForMe, incomingChallengeCount, signInWithGoogle, signOut } = useStore()
+  const { mode, session, profile, isAdmin, myClubAdminSlugs, needsOnboarding, pendingForMe, incomingChallengeCount, signInWithGoogle, signOut, findPlayerByRouteParam, myPlayer } = useStore()
   // Audit log surfaces to global admins and club admins. Group-only admins
   // can still reach /audit by URL — the page filters server-side either way.
   const canSeeAudit = isAdmin || myClubAdminSlugs.length > 0
@@ -54,6 +54,19 @@ export function Layout() {
   }
 
   const showFab = !!session && location.pathname !== '/log'
+
+  // When the user is on a /players/<slug> profile (and that profile isn't
+  // their own), the Log-match CTAs (mobile FAB + desktop button) pre-fill
+  // ?opponent=<that-player-id> so tapping it starts a match against them.
+  // Player A is already defaulted to myPlayer by the LogMatch page itself.
+  const logHref = useMemo(() => {
+    const m = location.pathname.match(/^\/players\/([^/?#]+)/)
+    if (!m) return '/log'
+    const slug = decodeURIComponent(m[1])
+    const target = findPlayerByRouteParam(slug)
+    if (!target || target.id === myPlayer?.id) return '/log'
+    return `/log?opponent=${encodeURIComponent(target.id)}`
+  }, [location.pathname, findPlayerByRouteParam, myPlayer?.id])
 
   return (
     <div className="min-h-full flex flex-col">
@@ -129,7 +142,7 @@ export function Layout() {
               in or when already on /log so we don't duplicate the form CTA. */}
           {session && location.pathname !== '/log' && (
             <Link
-              to="/log"
+              to={logHref}
               className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 active:bg-brand-800 whitespace-nowrap"
             >
               <PlusIcon className="h-4 w-4" />
@@ -196,7 +209,7 @@ export function Layout() {
       {/* ============ Floating Action Button (Log match) ============ */}
       {showFab && (
         <Link
-          to="/log"
+          to={logHref}
           aria-label="Log match"
           className="fixed right-4 z-30 sm:hidden h-14 w-14 rounded-full bg-brand-600 text-white shadow-lg shadow-brand-600/30 grid place-items-center hover:bg-brand-700 active:scale-95 transition-transform"
           style={{ bottom: 'calc(env(safe-area-inset-bottom) + 4.5rem)' }}
