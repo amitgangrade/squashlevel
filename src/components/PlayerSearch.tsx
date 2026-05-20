@@ -123,7 +123,12 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
     const lvl = recomputed.states.get(value.id)?.currentLevel
     const sub = playerSubtitle(value)
     return (
-      <div className="flex items-center gap-3 rounded-md border border-slate-300 px-3 py-2 dark:border-slate-700">
+      // min-w-0 on the flex root so this card never grows past its grid /
+      // flex parent's allocated width when the player's meta line is long
+      // ("Lvl X · Club · City, Country") — without it, the nowrap truncate
+      // on the inner div doesn't propagate the shrink constraint upward
+      // and the parent grid expands past the viewport on mobile.
+      <div className="flex min-w-0 items-center gap-3 rounded-md border border-slate-300 px-3 py-2 dark:border-slate-700">
         <PlayerAvatar name={value.name} avatarUrl={value.avatarUrl} size={36} />
         <div className="flex-1 min-w-0">
           <div className="font-medium text-sm truncate">{value.name}</div>
@@ -132,7 +137,7 @@ export function PlayerSearch({ value, onChange, excludeId, placeholder = 'Search
             {sub && <span className="ml-1">· {sub}</span>}
           </div>
         </div>
-        <button type="button" className="btn-link" onClick={() => onChange(null)}>
+        <button type="button" className="btn-link shrink-0" onClick={() => onChange(null)}>
           Change
         </button>
       </div>

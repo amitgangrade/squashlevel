@@ -543,8 +543,14 @@ export function LogMatchPage() {
         </form>
       )}
       <form onSubmit={onSubmit} className="card space-y-4">
-        <div className="grid sm:grid-cols-2 gap-3 sm:gap-4">
-          <div>
+        {/* grid-cols-1 (not bare `grid`) on mobile so the column template is
+            explicit `minmax(0, 1fr)` — without it the column sizes to the
+            widest item's min-content, and PlayerSearch's selected-display
+            card (nowrap "Lvl X · Club · City, Country") pushes the whole
+            form past the viewport. min-w-0 on each grid item is belt-and-
+            suspenders for the same reason. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          <div className="min-w-0">
             <label className="label label-required">{isAdmin ? 'Player A' : 'You'}</label>
             {isAdmin ? (
               <PlayerSearch
@@ -564,7 +570,7 @@ export function LogMatchPage() {
               </div>
             )}
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="label label-required">Opponent</label>
             <PlayerSearch
               value={playerB}
@@ -577,7 +583,7 @@ export function LogMatchPage() {
               Opponent not on Boast yet? Type their name and pick "Add new player" — they can claim the row when they sign up.
             </p>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="label label-required">Date</label>
             <input
               type="date"
@@ -611,7 +617,7 @@ export function LogMatchPage() {
               </p>
             ) : null}
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="label">Match type</label>
             <div
               role="radiogroup"
@@ -637,7 +643,7 @@ export function LogMatchPage() {
               ))}
             </div>
           </div>
-          <div className="sm:col-span-2">
+          <div className="min-w-0 sm:col-span-2">
             <label className="label" htmlFor="venue">Venue</label>
             <input
               id="venue"
