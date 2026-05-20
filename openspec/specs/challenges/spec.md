@@ -109,6 +109,8 @@ The `respond_to_challenge(challenge_id, response)` RPC SHALL be the only sanctio
 
 Public read on `challenges` SHALL be allowed (so a profile page MAY surface "X has Y open challenges" later). There SHALL be NO public insert policy — inserts go exclusively via `create_challenge`. The only sanctioned UPDATE path for non-admins is `respond_to_challenge`; the existing "owner cancel challenge" UPDATE policy exists as a safety net for the sender/recipient/admin trio but the canonical path is the RPC. DELETE SHALL be admin-only.
 
+The `challenges_protect_columns` BEFORE UPDATE trigger SHALL enforce — for non-admin callers — that `from_player_id`, `to_player_id`, `created_by`, `created_at`, `message`, `proposed_date`, and `venue` are immutable post-create, and that `status` transitions follow the documented state machine (terminal states cannot transition; `pending` may move only to `accepted | declined | cancelled | expired`). Admins bypass the trigger (corrective ability). The policy's WITH CHECK clause SHALL mirror its USING clause so that, even with the trigger in place, the post-update row must still belong to the sender / recipient / admin trio.
+
 #### Scenario: Direct insert blocked
 - **WHEN** any client tries `INSERT INTO challenges (...)` directly
 - **THEN** RLS rejects the insert (no insert policy is defined)
@@ -116,4 +118,16 @@ Public read on `challenges` SHALL be allowed (so a profile page MAY surface "X h
 #### Scenario: Anonymous user reads public challenge list
 - **WHEN** an unauthenticated request selects from `challenges`
 - **THEN** rows are returned (visibility is public)
+
+#### Scenario: Sender attempts to rewrite participants
+- **WHEN** the sender of a pending challenge issues `update challenges set to_player_id = victim, from_player_id = attacker where id = C` directly via the Supabase client
+- **THEN** the RLS USING clause passes (caller is `created_by`) but the `challenges_protect_columns` trigger raises `challenges.to_player_id is immutable` and the update is rejected; participants cannot be rewritten post-create
+
+#### Scenario: Sender cancels a pending challenge via direct UPDATE (safety-net path)
+- **WHEN** the sender of a pending challenge issues `update challenges set status = 'cancelled' where id = C` directly (bypassing `respond_to_challenge`)
+- **THEN** the RLS USING + WITH CHECK pass (sender is `created_by`), the trigger sees the only diff is on `status` from `pending` to `cancelled` (a legal transition), and the update succeeds — the safety-net path still works
+
+#### Scenario: Non-admin attempts to revive a cancelled challenge
+- **WHEN** any non-admin attempts `update challenges set status = 'pending' where id = C` on a challenge whose current status is `cancelled`
+- **THEN** the trigger raises `cannot transition challenge out of terminal status cancelled` and the update is rejected; the state machine is one-way
 

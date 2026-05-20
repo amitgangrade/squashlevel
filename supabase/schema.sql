@@ -2295,13 +2295,96 @@ create policy "owner cancel challenge" on public.challenges
   for update to authenticated
   using (
     -- Sender can cancel; recipient (or RPC) handles accept/decline.
+    -- The challenges_protect_columns BEFORE UPDATE trigger (below)
+    -- locks the identity / content columns and enforces the state
+    -- machine on `status`, so this row-level gate combined with the
+    -- trigger limits the trio to status / responded_at changes only.
     public.is_admin(auth.uid())
     or created_by = auth.uid()
     or auth.uid() in (
       select user_id from public.players where id = to_player_id
     )
   )
-  with check (true);
+  with check (
+    public.is_admin(auth.uid())
+    or created_by = auth.uid()
+    or auth.uid() in (
+      select user_id from public.players where id = to_player_id
+    )
+  );
+
+-- protect_challenge_columns():
+-- BEFORE UPDATE trigger that locks the identity / content columns of
+-- a challenge and enforces the state machine on `status`. The RLS
+-- USING clause above gates *who* can attempt UPDATE; this trigger
+-- gates *what* they can change.
+--
+-- For non-admins (admins bypass; superuser SQL bypasses via the
+-- auth.uid() IS NULL null-guard):
+--   - from_player_id, to_player_id, created_by, created_at, message,
+--     proposed_date, venue are immutable. Per the challenges spec
+--     these are set at create_challenge time and define what the
+--     challenge IS; rewriting them post-create corrupts history.
+--   - status transitions are constrained to the documented machine:
+--     pending may move to a terminal (accepted | declined | cancelled
+--     | expired); terminal states cannot move back or sideways.
+--
+-- Normal app flow is unaffected because the client (and the canonical
+-- respond_to_challenge SECURITY DEFINER RPC) only ever set status +
+-- responded_at, both of which the trigger permits.
+create or replace function public.protect_challenge_columns()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    return new;
+  end if;
+  if public.is_admin(auth.uid()) then
+    return new;
+  end if;
+
+  if old.from_player_id is distinct from new.from_player_id then
+    raise exception 'challenges.from_player_id is immutable';
+  end if;
+  if old.to_player_id is distinct from new.to_player_id then
+    raise exception 'challenges.to_player_id is immutable';
+  end if;
+  if old.created_by is distinct from new.created_by then
+    raise exception 'challenges.created_by is immutable';
+  end if;
+  if old.created_at is distinct from new.created_at then
+    raise exception 'challenges.created_at is immutable';
+  end if;
+  if old.message is distinct from new.message then
+    raise exception 'challenges.message cannot be edited after the challenge is issued';
+  end if;
+  if old.proposed_date is distinct from new.proposed_date then
+    raise exception 'challenges.proposed_date cannot be edited after the challenge is issued';
+  end if;
+  if old.venue is distinct from new.venue then
+    raise exception 'challenges.venue cannot be edited after the challenge is issued';
+  end if;
+
+  if old.status is distinct from new.status then
+    if old.status <> 'pending' then
+      raise exception 'cannot transition challenge out of terminal status %', old.status;
+    end if;
+    if new.status not in ('accepted', 'declined', 'cancelled', 'expired') then
+      raise exception 'invalid challenge transition: pending -> %', new.status;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists challenges_protect_columns on public.challenges;
+create trigger challenges_protect_columns
+  before update on public.challenges
+  for each row execute function public.protect_challenge_columns();
 
 drop policy if exists "admin delete challenge" on public.challenges;
 create policy "admin delete challenge" on public.challenges
