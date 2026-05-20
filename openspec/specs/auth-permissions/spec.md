@@ -141,6 +141,8 @@ The literal owner email MUST NOT be checked into source. Keeping it in `app_conf
 - **Update**: the owning user (`user_id = auth.uid()`), a global admin, OR a **club admin** for the player's current club MAY update.
 - **Delete**: only a **global admin** MAY delete a player. Club admins MAY add and edit but not delete — a single delete cascades to every match the player was in (including matches against players outside the admin's club), every group membership, and every challenge sent or received, so the blast radius is reserved for global admins.
 
+The `current_level` and `matches_played` columns are server-truth — maintained by the `matches_after_levels` trigger and the admin "Rebuild levels" path. Direct UPDATEs of those two columns SHALL be rejected by the `players_protect_rating_fields` BEFORE UPDATE trigger unless `auth.uid()` is a global admin OR the update is happening inside the match rating-write path (signalled by the `boast.rating_write` session-local GUC, which `matches_after_levels` sets at the top of its function body). This closes the gap that would otherwise let a row-owner inflate themselves to the top of the leaderboard via a direct `update players set current_level = 9999 where id = mine`. `starting_level` and `seeded_rating` are NOT protected at this layer because they are owner-settable at onboarding via the profile → player sync trigger.
+
 A global admin SHALL be able to remove a claimed user (one whose linked player has `user_id IS NOT NULL`) in one of two explicit modes:
 
 1. **Soft delete** (default) via the `admin_soft_delete_user(target_user_id)` SECURITY DEFINER RPC: removes only `auth.users` (cascading the `profiles` row). The linked `players` row SHALL survive with `user_id` set to `NULL` via the existing `players.user_id … on delete set null` FK — i.e., the player becomes unclaimed. Matches, challenges, and group memberships SHALL be preserved unchanged. Player identity fields (`name`, `email`, `club`, `avatar_url`, `phone`, `birth_year`, `gender`, `dominant_hand`) SHALL NOT be anonymized — they are kept intact so the same person can re-claim the player later when they sign in again with the same email (auto-claim via `profiles_ensure_player` matches on normalized email).
@@ -152,6 +154,14 @@ Deleting a player whose `user_id IS NULL` (unclaimed stub) deletes only the play
 Both `admin_soft_delete_user` and `admin_delete_user` SHALL refuse execution unless `is_admin(auth.uid())`, SHALL refuse `target_user_id = auth.uid()` (an admin cannot delete themselves through either path), and SHALL raise on a NULL `target_user_id`.
 
 After a **hard** delete, opponents' `current_level` and `matches_played` become stale until **Admin → Rebuild levels** is run. After a **soft** delete, opponents' levels are unaffected because match history is preserved.
+
+#### Scenario: Non-admin attempts to inflate their own rating
+- **WHEN** a signed-in non-admin runs `update public.players set current_level = 9999 where id = my_player_id` directly via the Supabase client / PostgREST
+- **THEN** the `players_protect_rating_fields` BEFORE UPDATE trigger sees `auth.uid()` is non-null, the caller is not an admin, the `boast.rating_write` GUC is not set, and raises an exception — the leaderboard is unaffected
+
+#### Scenario: Match recording legitimately writes rating fields
+- **WHEN** a non-admin participant records a match (insert into `public.matches` with both players confirmed)
+- **THEN** the `matches_after_levels` AFTER INSERT trigger fires, sets `boast.rating_write = 'true'` transaction-locally, and its UPDATEs on `players.current_level` and `matches_played` pass the protection trigger because the GUC sentinel is observed
 
 #### Scenario: Club admin attempts to delete a player
 - **WHEN** a club admin (without global-admin) tries to delete any player — claimed or unclaimed, soft or hard — via UI or direct API call

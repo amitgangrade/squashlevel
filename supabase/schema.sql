@@ -747,6 +747,13 @@ declare
   was_rated boolean;
   is_rated  boolean;
 begin
+  -- Signal to protect_player_rating_fields (BEFORE UPDATE trigger on
+  -- players) that the upcoming players UPDATEs are part of the
+  -- legitimate match rating path. Transaction-local — cannot leak
+  -- to a different request because PostgREST runs each HTTP request
+  -- in its own transaction.
+  perform set_config('boast.rating_write', 'true', true);
+
   if tg_op = 'INSERT' then
     is_rated := (new.status = 'confirmed') and not coalesce(new.unranked, false);
     if is_rated and new.level_a_after is not null then
@@ -827,6 +834,64 @@ drop trigger if exists matches_after_levels on public.matches;
 create trigger matches_after_levels
   after insert or update or delete on public.matches
   for each row execute function public.matches_after_levels();
+
+-- protect_player_rating_fields():
+-- BEFORE UPDATE trigger on public.players that rejects changes to
+-- current_level / matches_played by non-admins. Those columns are
+-- server-truth (declared in the comment near the table — maintained
+-- by matches_after_levels) but the "self update player" RLS policy
+-- is row-level only, so without this trigger any signed-in user
+-- could `update players set current_level = 9999 where id = mine`
+-- and top the leaderboard.
+--
+-- The legitimate match rating path is allowed via the
+-- `boast.rating_write` session-local GUC, which matches_after_levels
+-- sets at the top of its function body. Admins are always allowed
+-- (covers manual rating adjustments and Rebuild Levels). Superuser
+-- SQL (auth.uid() IS NULL) is allowed for migrations.
+--
+-- starting_level and seeded_rating are NOT protected here — they're
+-- owner-settable via the profile → player sync trigger at signup, so
+-- locking them at the players layer would break the legitimate
+-- claim flow. The same exploit exists upstream (profile fields are
+-- equally mutable today) and is the right place for a follow-up fix.
+create or replace function public.protect_player_rating_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  changed_rating boolean;
+  rating_ctx text;
+begin
+  changed_rating :=
+       old.current_level  is distinct from new.current_level
+    or old.matches_played is distinct from new.matches_played;
+
+  if not changed_rating then
+    return new;
+  end if;
+
+  if auth.uid() is null then
+    return new;
+  end if;
+  if public.is_admin(auth.uid()) then
+    return new;
+  end if;
+  rating_ctx := current_setting('boast.rating_write', true);
+  if rating_ctx = 'true' then
+    return new;
+  end if;
+
+  raise exception 'players.current_level and matches_played are server-truth fields and can only be changed by match recording or admin tools';
+end;
+$$;
+
+drop trigger if exists players_protect_rating_fields on public.players;
+create trigger players_protect_rating_fields
+  before update on public.players
+  for each row execute function public.protect_player_rating_fields();
 
 -- ---------------------------------------------------------------------------
 -- Split of responsibility between the two AFTER triggers on matches:
