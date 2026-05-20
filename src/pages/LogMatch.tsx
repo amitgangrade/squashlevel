@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import clsx from 'clsx'
 import { useStore } from '../state/store'
 import {
   DOMINANT_HAND_LABEL,
@@ -154,11 +155,18 @@ export function LogMatchPage() {
     }
   }
 
-  const [scores, setScores] = useState<GameScore[]>([
-    { a: 0, b: 0 },
-    { a: 0, b: 0 },
-    { a: 0, b: 0 },
+  // String-valued so the input can be empty (placeholder shows "0")
+  // instead of pre-filled with "0" the user has to delete first. Parsed
+  // to numbers at the edges (preview, submit) via `parsedScores`.
+  const [scores, setScores] = useState<Array<{ a: string; b: string }>>([
+    { a: '', b: '' },
+    { a: '', b: '' },
+    { a: '', b: '' },
   ])
+  const parsedScores: GameScore[] = useMemo(
+    () => scores.map((g) => ({ a: Number(g.a) || 0, b: Number(g.b) || 0 })),
+    [scores],
+  )
   const [error, setError] = useState('')
 
   const levelA = playerA ? recomputed.states.get(playerA.id)?.currentLevel : undefined
@@ -223,7 +231,7 @@ export function LogMatchPage() {
   const preview = useMemo(() => {
     if (unranked) return null
     if (!levelA || !levelB) return null
-    const clean = scores.filter((g) => g.a > 0 || g.b > 0)
+    const clean = parsedScores.filter((g) => g.a > 0 || g.b > 0)
     if (clean.length === 0) return null
     try {
       return updateLevels({
@@ -238,23 +246,30 @@ export function LogMatchPage() {
     } catch {
       return null
     }
-  }, [levelA, levelB, scores, type, provisionalA, provisionalB, settings, unranked])
+  }, [levelA, levelB, parsedScores, type, provisionalA, provisionalB, settings, unranked])
 
   // Game-tally summary, computed off the same "non-zero" filter the preview
   // uses so the displayed count matches what gets saved. Surfaces who's
   // winning so the user can sanity-check before saving (independent of
   // whether level data is loaded).
-  const cleanGames = scores.filter((g) => g.a > 0 || g.b > 0)
+  const cleanGames = parsedScores.filter((g) => g.a > 0 || g.b > 0)
   const gamesA = gamesWonBy(cleanGames, 'a')
   const gamesB = gamesWonBy(cleanGames, 'b')
   const winner = cleanGames.length > 0 ? winnerSide(cleanGames) : null
 
   const setGame = (i: number, side: 'a' | 'b', val: string) => {
-    const n = Math.max(0, Math.floor(Number(val) || 0))
-    setScores((prev) => prev.map((g, idx) => (idx === i ? { ...g, [side]: n } : g)))
+    // Strip non-digits, cap at 2 chars (squash scores never exceed 2 digits).
+    // Keep the value as a string so an empty input stays empty (placeholder
+    // "0" shows) instead of snapping back to the numeric 0.
+    const cleaned = val.replace(/[^0-9]/g, '').slice(0, 2)
+    setScores((prev) => prev.map((g, idx) => (idx === i ? { ...g, [side]: cleaned } : g)))
   }
-  const addGame = () => setScores((prev) => [...prev, { a: 0, b: 0 }])
+  const addGame = () => setScores((prev) => [...prev, { a: '', b: '' }])
   const removeGame = (i: number) => setScores((prev) => prev.filter((_, idx) => idx !== i))
+
+  // First name (or single word) for the score-column header. Truncated
+  // with CSS truncate when longer than the cell, but most names fit.
+  const shortName = (n?: string) => (n?.trim().split(/\s+/)[0] || '')
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -268,7 +283,7 @@ export function LogMatchPage() {
           `Pick a date on or after ${dateFloor}.`,
       )
     }
-    const clean = scores.filter((g) => g.a > 0 || g.b > 0)
+    const clean = parsedScores.filter((g) => g.a > 0 || g.b > 0)
     if (clean.length === 0) return setError('Enter at least one game score')
     try {
       await addMatch({
@@ -598,11 +613,29 @@ export function LogMatchPage() {
           </div>
           <div>
             <label className="label">Match type</label>
-            <select className="input w-full" value={type} onChange={(e) => setType(e.target.value as MatchType)}>
+            <div
+              role="radiogroup"
+              aria-label="Match type"
+              className="grid grid-cols-4 gap-1 rounded-md border border-slate-200 bg-slate-50/60 p-1 dark:border-slate-800 dark:bg-slate-900/40"
+            >
               {MATCH_TYPE_KEYS.map((t) => (
-                <option key={t} value={t}>{MATCH_TYPE_LABEL[t]}</option>
+                <button
+                  key={t}
+                  type="button"
+                  role="radio"
+                  aria-checked={type === t}
+                  onClick={() => setType(t)}
+                  className={clsx(
+                    'rounded px-1.5 py-2 text-xs font-medium transition-colors',
+                    type === t
+                      ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-800 dark:text-accent-300'
+                      : 'text-slate-600 hover:bg-white/60 dark:text-slate-400 dark:hover:bg-slate-800/40',
+                  )}
+                >
+                  {MATCH_TYPE_LABEL[t]}
+                </button>
               ))}
-            </select>
+            </div>
           </div>
           <div className="sm:col-span-2">
             <label className="label" htmlFor="venue">Venue</label>
@@ -617,64 +650,88 @@ export function LogMatchPage() {
         </div>
 
         <div>
-          <label className="label label-required">Game scores</label>
+          <div className="flex items-baseline justify-between mb-2 gap-2">
+            <label className="label label-required mb-0">Game scores</label>
+            {cleanGames.length > 0 && (
+              <span
+                className={clsx(
+                  'font-mono text-sm tabular-nums truncate',
+                  winner === null
+                    ? 'text-slate-500'
+                    : 'font-semibold text-green-700 dark:text-green-400',
+                )}
+              >
+                {winner === null
+                  ? `Tied ${gamesA}–${gamesB}`
+                  : winner === 'a'
+                    ? `${shortName(playerA?.name) || 'Player A'} ${gamesA}–${gamesB}`
+                    : `${shortName(playerB?.name) || 'Player B'} ${gamesB}–${gamesA}`}
+              </span>
+            )}
+          </div>
+
+          {/* Column headers so the eye associates each input column with a
+              player. On mobile the player cards are scrolled off-screen by
+              the time the user reaches the score section, so this is the
+              load-bearing label. */}
+          <div className="grid grid-cols-[24px_1fr_auto_1fr_36px] items-center gap-1.5 sm:gap-2 mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+            <span />
+            <span className="text-center truncate">{shortName(playerA?.name) || 'You'}</span>
+            <span />
+            <span className="text-center truncate">{shortName(playerB?.name) || 'Opp'}</span>
+            <span />
+          </div>
+
           <div className="space-y-2">
             {scores.map((g, i) => (
               <div
                 key={i}
-                className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40"
+                className="grid grid-cols-[24px_1fr_auto_1fr_36px] items-center gap-1.5 sm:gap-2"
               >
-                <span className="text-xs font-medium text-slate-500 w-14 shrink-0">Game {i + 1}</span>
-                <div className="flex-1 flex items-center justify-center gap-2">
-                  <input
-                    className="input w-20 text-center text-lg font-semibold"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={g.a}
-                    onChange={(e) => setGame(i, 'a', e.target.value)}
-                    aria-label={`Game ${i + 1} player A`}
-                  />
-                  <span className="text-slate-400 text-lg select-none">–</span>
-                  <input
-                    className="input w-20 text-center text-lg font-semibold"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={g.b}
-                    onChange={(e) => setGame(i, 'b', e.target.value)}
-                    aria-label={`Game ${i + 1} player B`}
-                  />
-                </div>
+                <span className="text-xs font-medium text-slate-400 text-center select-none tabular-nums">
+                  {i + 1}
+                </span>
+                <input
+                  className="input h-14 text-center text-2xl font-bold tabular-nums"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={2}
+                  value={g.a}
+                  onChange={(e) => setGame(i, 'a', e.target.value)}
+                  onFocus={(e) => e.target.select()}
+                  placeholder="0"
+                  aria-label={`Game ${i + 1} ${playerA?.name || 'player A'} score`}
+                />
+                <span className="text-slate-300 text-xl select-none">–</span>
+                <input
+                  className="input h-14 text-center text-2xl font-bold tabular-nums"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={2}
+                  value={g.b}
+                  onChange={(e) => setGame(i, 'b', e.target.value)}
+                  onFocus={(e) => e.target.select()}
+                  placeholder="0"
+                  aria-label={`Game ${i + 1} ${playerB?.name || 'player B'} score`}
+                />
                 {scores.length > 1 ? (
                   <button
                     type="button"
                     aria-label={`Remove game ${i + 1}`}
-                    className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+                    className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:text-tin-600 hover:bg-tin-50 dark:hover:bg-tin-900/30"
                     onClick={() => removeGame(i)}
                   >
                     <TrashIcon className="h-4 w-4" />
                   </button>
                 ) : (
-                  <span className="w-10 shrink-0" />
+                  <span />
                 )}
               </div>
             ))}
-            <button type="button" className="btn-secondary w-full sm:w-auto" onClick={addGame}>+ Add game</button>
+            <button type="button" className="btn-secondary w-full" onClick={addGame}>
+              + Add game {scores.length + 1}
+            </button>
           </div>
-          {playerA && playerB && cleanGames.length > 0 && (
-            <div className="mt-2 text-sm">
-              {winner === null ? (
-                <span className="text-slate-500">Tied {gamesA}–{gamesB}</span>
-              ) : winner === 'a' ? (
-                <span className="text-green-700 dark:text-green-400 font-medium">
-                  {playerA.name} wins {gamesA}–{gamesB}
-                </span>
-              ) : (
-                <span className="text-green-700 dark:text-green-400 font-medium">
-                  {playerB.name} wins {gamesB}–{gamesA}
-                </span>
-              )}
-            </div>
-          )}
         </div>
 
         <div>
@@ -769,8 +826,19 @@ export function LogMatchPage() {
         {error && <Alert variant="error">{error}</Alert>}
 
         <div className="flex gap-2">
-          <button type="submit" className="btn-primary">Save match</button>
-          <button type="button" className="btn-secondary" onClick={() => navigate(-1)}>Cancel</button>
+          <button
+            type="button"
+            className="btn-secondary px-4"
+            onClick={() => navigate(-1)}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="btn-primary flex-1 h-12 text-base sm:h-auto sm:flex-initial sm:text-sm"
+          >
+            Save match
+          </button>
         </div>
       </form>
     </div>
