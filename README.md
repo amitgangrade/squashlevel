@@ -140,6 +140,25 @@ supabase secrets set SITE_URL='https://your-deployed-site/'
 
 The `avatars` bucket and its RLS policies are created by `supabase/schema.sql`. Nothing extra to configure.
 
+### Keeping the free Supabase project awake
+
+Free-tier projects pause after ~7 days of low activity. Two independent pingers prevent that:
+
+1. **GitHub Actions** — [`.github/workflows/keepalive.yml`](.github/workflows/keepalive.yml) calls the `public.ping()` RPC daily, using the same `SUPABASE_URL` / `SUPABASE_ANON_KEY` repo secrets as the deploy. It also re-enables itself each run so GitHub's 60-day inactivity rule never switches it off. A failed run emails you.
+2. **External cron (recommended backup)** — on [cron-job.org](https://cron-job.org) (free), create a daily job:
+   - URL: `https://YOUR-PROJECT.supabase.co/rest/v1/rpc/ping`
+   - Method `POST`, body `{}`
+   - Headers: `apikey: <anon key>`, `Content-Type: application/json`
+   - Turn on failure notifications.
+
+Test by hand:
+
+```bash
+curl -X POST "https://YOUR-PROJECT.supabase.co/rest/v1/rpc/ping" -H "apikey: <anon key>" -H "Content-Type: application/json" -d '{}'
+```
+
+A timestamp in the response means it works.
+
 ---
 
 ## Data model
